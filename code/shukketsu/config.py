@@ -39,6 +39,11 @@ MAX_TOTAL_TOKENS = 100_000
 DEFAULT_CONTEXT_BUDGET = 50_000
 REFLECTION_THRESHOLD = 0.7
 
+# Phase 1 agent limits
+AGENT_MAX_ITERATIONS = 5
+RAG_SEARCH_TOP_K = 5
+AGENT_GRACEFUL_FAILURE = "I wasn't able to find a complete answer. Please try rephrasing your question."
+
 # Chat defaults
 SYSTEM_PROMPT = (
     "You are Shukketsu, a research assistant specializing in "

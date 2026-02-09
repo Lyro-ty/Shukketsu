@@ -63,3 +63,17 @@ class DatabaseError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.DB_ERROR)
+
+
+class ToolNotFoundError(ShukketsuError):
+    """Raised when an agent requests a tool that is not registered."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.TOOL_NOT_FOUND)
+
+
+class ToolExecutionError(ShukketsuError):
+    """Raised when a tool execution fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)
