@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-The project is in early development — Phase 1, Steps 1-2 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `routing/models.py`, `resilience/errors.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+The project is in early development — Phase 1, Steps 1-3 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `routing/models.py`, `resilience/errors.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -122,7 +122,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Currently at **Phase 1, Step 3** (structured output). Steps 1-2 are complete with 29 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Currently at **Phase 1, Step 4** (first tool + ReAct loop). Steps 1-3 are complete with 49 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -139,8 +139,8 @@ The active implementation plan (`phase-1-agent-core.md`) builds the system incre
 
 1. ~~Chat UI + streaming LLM (WebSocket + vLLM)~~ **DONE**
 2. ~~Database foundation (SQLite + schema + WAL mode)~~ **DONE**
-3. **Structured output (Instructor + Pydantic)** ← current
-4. First tool + ReAct loop (BaseAgent + rag_search)
+3. ~~Structured output (Instructor + Pydantic)~~ **DONE**
+4. **First tool + ReAct loop (BaseAgent + rag_search)** ← current
 5. Ingest pipeline (chunking + embedding + storage)
 6. Hybrid search (vector + FTS5 + RRF)
 7. Multi-model router (Qwen 4B classification)
