@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import httpx
 from openai import AsyncOpenAI
@@ -31,17 +32,16 @@ async def stream_chat(
     if the server is unreachable or the connection drops mid-stream.
     """
     try:
-        stream = await _client.chat.completions.create(
+        stream: Any = await _client.chat.completions.create(
             model=model,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             stream=True,
             temperature=temperature,
             max_tokens=max_tokens,
         )
     except httpx.ConnectError:
         raise LLMUnavailableError(
-            f"Cannot connect to LLM server at {config.VLLM_BASE_URL}. "
-            "Is vLLM running on port 8000?"
+            f"Cannot connect to LLM server at {config.VLLM_BASE_URL}. Is vLLM running on port 8000?"
         )
     except httpx.TimeoutException:
         raise LLMUnavailableError(
@@ -56,8 +56,6 @@ async def stream_chat(
                 if content:
                     yield content
     except httpx.ReadError as exc:
-        raise LLMUnavailableError(
-            f"Connection to LLM server lost during response: {exc}"
-        )
+        raise LLMUnavailableError(f"Connection to LLM server lost during response: {exc}")
     finally:
         await stream.close()

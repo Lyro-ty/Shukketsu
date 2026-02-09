@@ -62,16 +62,12 @@ async def chat_ws(websocket: WebSocket) -> None:
         logger.info("Chat WebSocket disconnected")
 
 
-async def _handle_message(
-    websocket: WebSocket, session: ChatSession, data: dict[str, str]
-) -> None:
+async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict[str, str]) -> None:
     """Dispatch a single incoming WebSocket message."""
     msg_type = data.get("type")
 
     if msg_type is None:
-        await websocket.send_json(
-            {"type": "error", "content": "Missing 'type' field in message."}
-        )
+        await websocket.send_json({"type": "error", "content": "Missing 'type' field in message."})
         return
 
     if msg_type == "stop":
@@ -79,30 +75,22 @@ async def _handle_message(
         return
 
     if msg_type != "message":
-        await websocket.send_json(
-            {"type": "error", "content": f"Unknown message type: {msg_type}"}
-        )
+        await websocket.send_json({"type": "error", "content": f"Unknown message type: {msg_type}"})
         return
 
     content = data.get("content", "").strip()
     if not content:
-        await websocket.send_json(
-            {"type": "error", "content": "Message content cannot be empty."}
-        )
+        await websocket.send_json({"type": "error", "content": "Message content cannot be empty."})
         return
 
     if session.is_streaming:
-        await websocket.send_json(
-            {"type": "error", "content": "Please wait for the current response to finish."}
-        )
+        await websocket.send_json({"type": "error", "content": "Please wait for the current response to finish."})
         return
 
     await _stream_response(websocket, session, content)
 
 
-async def _stream_response(
-    websocket: WebSocket, session: ChatSession, content: str
-) -> None:
+async def _stream_response(websocket: WebSocket, session: ChatSession, content: str) -> None:
     """Stream an LLM response for the given user message."""
     session.is_streaming = True
     session.reset_stop()

@@ -77,9 +77,7 @@ async def test_stream_chat_yields_tokens(mock_client: MagicMock) -> None:
     from code.shukketsu.llm.clients import stream_chat
 
     chunks = [make_chunk("Hello"), make_chunk(" "), make_chunk("world")]
-    mock_client.chat.completions.create = AsyncMock(
-        return_value=MockAsyncStream(chunks)
-    )
+    mock_client.chat.completions.create = AsyncMock(return_value=MockAsyncStream(chunks))
 
     tokens: list[str] = []
     async for token in stream_chat([{"role": "user", "content": "test"}]):
@@ -94,9 +92,7 @@ async def test_stream_chat_skips_none_content(mock_client: MagicMock) -> None:
     from code.shukketsu.llm.clients import stream_chat
 
     chunks = [make_chunk("Hello"), make_chunk(None), make_chunk(" world")]
-    mock_client.chat.completions.create = AsyncMock(
-        return_value=MockAsyncStream(chunks)
-    )
+    mock_client.chat.completions.create = AsyncMock(return_value=MockAsyncStream(chunks))
 
     tokens: list[str] = []
     async for token in stream_chat([{"role": "user", "content": "test"}]):
@@ -111,9 +107,7 @@ async def test_stream_chat_skips_empty_choices(mock_client: MagicMock) -> None:
     from code.shukketsu.llm.clients import stream_chat
 
     chunks = [make_chunk("Hi"), make_empty_chunk()]
-    mock_client.chat.completions.create = AsyncMock(
-        return_value=MockAsyncStream(chunks)
-    )
+    mock_client.chat.completions.create = AsyncMock(return_value=MockAsyncStream(chunks))
 
     tokens: list[str] = []
     async for token in stream_chat([{"role": "user", "content": "test"}]):
@@ -127,9 +121,7 @@ async def test_stream_chat_raises_on_connect_error(mock_client: MagicMock) -> No
     """stream_chat should raise LLMUnavailableError when vLLM is unreachable."""
     from code.shukketsu.llm.clients import stream_chat
 
-    mock_client.chat.completions.create = AsyncMock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    mock_client.chat.completions.create = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
     with pytest.raises(LLMUnavailableError, match="Cannot connect"):
         async for _ in stream_chat([{"role": "user", "content": "test"}]):
@@ -141,9 +133,7 @@ async def test_stream_chat_raises_on_timeout(mock_client: MagicMock) -> None:
     """stream_chat should raise LLMUnavailableError on timeout."""
     from code.shukketsu.llm.clients import stream_chat
 
-    mock_client.chat.completions.create = AsyncMock(
-        side_effect=httpx.TimeoutException("Timed out")
-    )
+    mock_client.chat.completions.create = AsyncMock(side_effect=httpx.TimeoutException("Timed out"))
 
     with pytest.raises(LLMUnavailableError, match="did not respond"):
         async for _ in stream_chat([{"role": "user", "content": "test"}]):
@@ -156,9 +146,7 @@ async def test_stream_chat_raises_on_mid_stream_error(mock_client: MagicMock) ->
     from code.shukketsu.llm.clients import stream_chat
 
     chunks = [make_chunk("Hello")]
-    mock_client.chat.completions.create = AsyncMock(
-        return_value=MockAsyncStreamWithError(chunks)
-    )
+    mock_client.chat.completions.create = AsyncMock(return_value=MockAsyncStreamWithError(chunks))
 
     tokens: list[str] = []
     with pytest.raises(LLMUnavailableError, match="lost during response"):
