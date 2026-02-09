@@ -1,12 +1,10 @@
-"""WebSocket chat handler for streaming LLM conversations."""
+"""WebSocket chat handler for agent-based conversations."""
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from code.shukketsu import config
-from code.shukketsu.llm.clients import stream_chat
 from code.shukketsu.resilience.errors import ShukketsuError
 
 logger = logging.getLogger(__name__)
@@ -20,7 +18,6 @@ class ChatSession:
     def __init__(self) -> None:
         self.history: list[dict[str, str]] = []
         self.is_streaming: bool = False
-        self._stop_event: asyncio.Event = asyncio.Event()
 
     def add_message(self, role: str, content: str) -> None:
         """Append a message and trim history to max pairs."""
@@ -29,22 +26,31 @@ class ChatSession:
         if len(self.history) > max_messages:
             self.history = self.history[-max_messages:]
 
-    def build_messages(self) -> list[dict[str, str]]:
-        """Build the full messages array with system prompt."""
-        return [{"role": "system", "content": config.SYSTEM_PROMPT}] + self.history
 
-    def request_stop(self) -> None:
-        """Signal the streaming loop to stop."""
-        self._stop_event.set()
+def _get_agent():
+    """Get or create the agent singleton.
 
-    def reset_stop(self) -> None:
-        """Clear the stop signal for the next request."""
-        self._stop_event.clear()
+    Lazy initialization avoids import-time side effects (DB connection,
+    extension loading). The agent is created once and reused.
+    """
+    from code.shukketsu.agents.base import BaseAgent
+    from code.shukketsu.db.connection import get_connection, init_db
+    from code.shukketsu.tools.knowledge.search import RagSearchTool
+    from code.shukketsu.tools.registry import ToolRegistry
 
-    @property
-    def stop_requested(self) -> bool:
-        """Check if stop has been requested."""
-        return self._stop_event.is_set()
+    if not hasattr(_get_agent, "_instance"):
+        conn = get_connection()
+        init_db(conn)
+
+        async def _placeholder_embed(text: str) -> list[float]:
+            """Placeholder until Step 5 adds real embedding."""
+            return [0.0] * 768
+
+        registry = ToolRegistry()
+        registry.register(RagSearchTool(conn=conn, embed_fn=_placeholder_embed))
+        _get_agent._instance = BaseAgent(tool_registry=registry)
+
+    return _get_agent._instance
 
 
 @router.websocket("/ws/chat")
@@ -71,7 +77,6 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
         return
 
     if msg_type == "stop":
-        session.request_stop()
         return
 
     if msg_type != "message":
@@ -87,33 +92,23 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
         await websocket.send_json({"type": "error", "content": "Please wait for the current response to finish."})
         return
 
-    await _stream_response(websocket, session, content)
+    await _agent_response(websocket, session, content)
 
 
-async def _stream_response(websocket: WebSocket, session: ChatSession, content: str) -> None:
-    """Stream an LLM response for the given user message."""
+async def _agent_response(websocket: WebSocket, session: ChatSession, content: str) -> None:
+    """Get an agent response for the given user message."""
     session.is_streaming = True
-    session.reset_stop()
     session.add_message("user", content)
-    full_response = ""
 
     try:
-        async for token in stream_chat(session.build_messages()):
-            if session.stop_requested:
-                break
-            full_response += token
-            await websocket.send_json({"type": "token", "content": token})
-
-        session.add_message("assistant", full_response)
-        await websocket.send_json({"type": "done", "content": full_response})
+        await websocket.send_json({"type": "status", "content": "thinking..."})
+        agent = _get_agent()
+        answer = await agent.run(content)
+        session.add_message("assistant", answer)
+        await websocket.send_json({"type": "done", "content": answer})
     except ShukketsuError as exc:
-        if full_response:
-            session.add_message("assistant", full_response)
-            await websocket.send_json({"type": "done", "content": full_response})
-        else:
-            # Remove the unanswered user message
-            if session.history and session.history[-1]["role"] == "user":
-                session.history.pop()
+        if session.history and session.history[-1]["role"] == "user":
+            session.history.pop()
         await websocket.send_json({"type": "error", "content": str(exc)})
     finally:
         session.is_streaming = False

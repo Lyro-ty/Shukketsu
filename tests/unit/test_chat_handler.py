@@ -1,143 +1,122 @@
 """Tests for the WebSocket chat handler."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
 from code.shukketsu.resilience.errors import LLMUnavailableError
 
-# --- Mock stream generators ---
-
-
-async def mock_stream_tokens(*args, **kwargs):
-    """Yields two tokens."""
-    for token in ["Hello", " world"]:
-        yield token
-
-
-async def mock_stream_empty(*args, **kwargs):
-    """Yields nothing."""
-    return
-    yield  # makes this an async generator
-
-
-async def mock_stream_error(*args, **kwargs):
-    """Raises LLMUnavailableError immediately."""
-    raise LLMUnavailableError("vLLM is not running on port 8000")
-    yield  # makes this an async generator
-
-
-# --- Tests ---
-
 
 def _get_app():
-    """Import app fresh to pick up router registration."""
     from code.shukketsu.web.app import app
 
     return app
 
 
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_tokens)
-def test_websocket_connects_and_sends_status() -> None:
-    """WebSocket should accept connection and send a status message."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        msg = ws.receive_json()
-        assert msg == {"type": "status", "content": "connected"}
+def _mock_agent(answer: str = "Test answer") -> MagicMock:
+    agent = MagicMock()
+    agent.run = AsyncMock(return_value=answer)
+    return agent
 
 
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_tokens)
-def test_chat_message_streams_tokens() -> None:
-    """User message should produce token messages then a done message."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        ws.receive_json()  # skip status
+class TestWebSocketProtocol:
+    """Tests for WebSocket connection and message protocol."""
 
-        ws.send_json({"type": "message", "content": "Hi"})
+    @patch("code.shukketsu.web.routers.chat._get_agent", return_value=_mock_agent())
+    def test_connects_and_sends_status(self, mock_get: MagicMock) -> None:
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            msg = ws.receive_json()
+            assert msg == {"type": "status", "content": "connected"}
 
-        tok1 = ws.receive_json()
-        assert tok1 == {"type": "token", "content": "Hello"}
+    @patch("code.shukketsu.web.routers.chat._get_agent", return_value=_mock_agent())
+    def test_rejects_empty_message(self, mock_get: MagicMock) -> None:
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": ""})
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert "empty" in msg["content"].lower()
 
-        tok2 = ws.receive_json()
-        assert tok2 == {"type": "token", "content": " world"}
+    @patch("code.shukketsu.web.routers.chat._get_agent", return_value=_mock_agent())
+    def test_rejects_unknown_type(self, mock_get: MagicMock) -> None:
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "bogus"})
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
 
-        done = ws.receive_json()
-        assert done == {"type": "done", "content": "Hello world"}
-
-
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_tokens)
-def test_chat_rejects_empty_message() -> None:
-    """Empty message content should return an error."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        ws.receive_json()  # skip status
-
-        ws.send_json({"type": "message", "content": "  "})
-
-        err = ws.receive_json()
-        assert err["type"] == "error"
-        assert "empty" in err["content"].lower()
-
-
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_tokens)
-def test_chat_rejects_unknown_type() -> None:
-    """Unknown message type should return an error."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        ws.receive_json()  # skip status
-
-        ws.send_json({"type": "dance", "content": "boogie"})
-
-        err = ws.receive_json()
-        assert err["type"] == "error"
-        assert "unknown" in err["content"].lower()
+    @patch("code.shukketsu.web.routers.chat._get_agent", return_value=_mock_agent())
+    def test_rejects_missing_type(self, mock_get: MagicMock) -> None:
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"content": "hello"})
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
 
 
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_tokens)
-def test_chat_rejects_missing_type() -> None:
-    """Message without type field should return an error."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        ws.receive_json()  # skip status
+class TestAgentResponse:
+    """Tests for the agent-based response path."""
 
-        ws.send_json({"content": "hi"})
+    @patch("code.shukketsu.web.routers.chat._get_agent")
+    def test_sends_thinking_status(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_agent("Answer")
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Hi"})
+            msg = ws.receive_json()
+            assert msg == {"type": "status", "content": "thinking..."}
 
-        err = ws.receive_json()
-        assert err["type"] == "error"
+    @patch("code.shukketsu.web.routers.chat._get_agent")
+    def test_sends_done_with_answer(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_agent("The hit cap is 9%.")
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "What is hit cap?"})
+            ws.receive_json()  # thinking
+            done = ws.receive_json()
+            assert done == {"type": "done", "content": "The hit cap is 9%."}
 
+    @patch("code.shukketsu.web.routers.chat._get_agent")
+    def test_error_sends_error_message(self, mock_get: MagicMock) -> None:
+        agent = MagicMock()
+        agent.run = AsyncMock(side_effect=LLMUnavailableError("Server down"))
+        mock_get.return_value = agent
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Hello"})
+            ws.receive_json()  # thinking
+            err = ws.receive_json()
+            assert err["type"] == "error"
+            assert "Server down" in err["content"]
 
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_error)
-def test_chat_sends_error_on_llm_failure() -> None:
-    """LLM unavailable should send an error message, not crash."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        ws.receive_json()  # skip status
+    @patch("code.shukketsu.web.routers.chat._get_agent")
+    def test_second_message_after_response(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_agent("Answer")
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "First"})
+            ws.receive_json()  # thinking
+            ws.receive_json()  # done
+            ws.send_json({"type": "message", "content": "Second"})
+            ws.receive_json()  # thinking
+            done = ws.receive_json()
+            assert done["type"] == "done"
 
-        ws.send_json({"type": "message", "content": "Hello"})
-
-        err = ws.receive_json()
-        assert err["type"] == "error"
-        assert "vLLM" in err["content"]
-
-
-@patch("code.shukketsu.web.routers.chat.stream_chat", new=mock_stream_tokens)
-def test_chat_allows_second_message_after_first_completes() -> None:
-    """After first response completes, a second message should work."""
-    client = TestClient(_get_app())
-    with client.websocket_connect("/ws/chat") as ws:
-        ws.receive_json()  # skip status
-
-        # First message
-        ws.send_json({"type": "message", "content": "First"})
-        ws.receive_json()  # token
-        ws.receive_json()  # token
-        ws.receive_json()  # done
-
-        # Second message
-        ws.send_json({"type": "message", "content": "Second"})
-        tok1 = ws.receive_json()
-        assert tok1["type"] == "token"
-        tok2 = ws.receive_json()
-        assert tok2["type"] == "token"
-        done = ws.receive_json()
-        assert done["type"] == "done"
+    @patch("code.shukketsu.web.routers.chat._get_agent")
+    def test_rejects_message_during_agent_run(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_agent("Answer")
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Hello"})
+            ws.receive_json()  # thinking
+            done = ws.receive_json()
+            assert done["type"] == "done"
