@@ -46,7 +46,7 @@ class TestChunkText:
 
     def test_no_chunk_exceeds_max_tokens(self) -> None:
         text = "Word " * 2000  # ~2000 tokens
-        chunks = chunk_text(text, max_tokens=400)
+        chunks = chunk_text(text, max_tokens=400, overlap_tokens=0)
         for chunk in chunks:
             assert chunk.token_estimate <= 400 + 10  # small tolerance for boundary
 
@@ -63,3 +63,37 @@ class TestChunkText:
         assert isinstance(chunk, Chunk)
         assert chunk.char_count == len(text)
         assert chunk.token_estimate == len(text) // 4
+
+
+class TestChunkOverlap:
+    """Tests for overlap between consecutive chunks."""
+
+    def test_overlap_prepends_from_previous(self) -> None:
+        # Two sections each ~200 tokens, will split into 2 chunks
+        section_a = "Alpha word " * 200
+        section_b = "Bravo word " * 200
+        text = f"## Section One\n{section_a}\n## Section Two\n{section_b}"
+        chunks = chunk_text(text, max_tokens=250, overlap_tokens=30)
+        assert len(chunks) >= 2
+        # Second chunk should contain some text from end of first chunk
+        last_words = chunks[0].content.split()[-5:]
+        overlap_region = chunks[1].content[:200]
+        assert any(w in overlap_region for w in last_words)
+
+    def test_first_chunk_has_no_overlap(self) -> None:
+        text = "Word " * 2000
+        chunks = chunk_text(text, max_tokens=400, overlap_tokens=50)
+        # First chunk should NOT be inflated by overlap
+        assert chunks[0].token_estimate <= 400 + 10
+
+
+class TestChunkMerging:
+    """Tests for merging small chunks."""
+
+    def test_tiny_chunks_merged_with_neighbor(self) -> None:
+        # Header + tiny content + header + big content
+        text = "## Title\nShort.\n## Details\n" + "Detail word. " * 200
+        chunks = chunk_text(text, max_tokens=400, min_tokens=50)
+        # "Short." alone is < 50 tokens, should merge with neighbor
+        for chunk in chunks:
+            assert chunk.token_estimate >= 2 or len(chunks) == 1

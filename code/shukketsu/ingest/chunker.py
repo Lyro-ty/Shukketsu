@@ -152,19 +152,45 @@ def chunk_text(
 
     raw_pieces = _recursive_split(stripped, max_tokens)
 
-    # Build Chunk objects with sequential indices (re-index after filtering empties)
+    # Filter empty pieces
+    pieces = [p.strip() for p in raw_pieces if p.strip()]
+
+    # Merge small chunks with their next neighbor
+    merged: list[str] = []
+    i = 0
+    while i < len(pieces):
+        current = pieces[i]
+        while _estimate_tokens(current) < min_tokens and i + 1 < len(pieces):
+            i += 1
+            current = current + "\n\n" + pieces[i]
+        merged.append(current)
+        i += 1
+
+    # Add overlap from previous chunk
+    overlap_chars = overlap_tokens * 4
+    overlapped: list[str] = []
+    for i, content in enumerate(merged):
+        if i > 0 and overlap_chars > 0:
+            prev = merged[i - 1]
+            overlap_text = prev[-overlap_chars:]
+            # Find a clean word boundary for the overlap
+            space_idx = overlap_text.find(" ")
+            if space_idx > 0:
+                overlap_text = overlap_text[space_idx + 1:]
+            content = overlap_text + " " + content
+        overlapped.append(content)
+
+    # Build Chunk objects with sequential indices
     chunks: list[Chunk] = []
-    idx = 0
-    for content in raw_pieces:
+    for i, content in enumerate(overlapped):
         content = content.strip()
         if not content:
             continue
         chunks.append(Chunk(
             content=content,
-            chunk_index=idx,
+            chunk_index=i,
             char_count=len(content),
             token_estimate=_estimate_tokens(content),
         ))
-        idx += 1
 
     return chunks
