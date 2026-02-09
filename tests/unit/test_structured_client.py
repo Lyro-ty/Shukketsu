@@ -61,9 +61,7 @@ class TestGetStructuredOutput:
         from code.shukketsu.llm.structured import ModelBackend, get_structured_output
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=SimpleResponse(name="x", value=1)
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=SimpleResponse(name="x", value=1))
         mock_get_client.return_value = mock_client
 
         await get_structured_output(
@@ -81,9 +79,7 @@ class TestGetStructuredOutput:
         from code.shukketsu.llm.structured import ModelBackend, get_structured_output
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=SimpleResponse(name="x", value=1)
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=SimpleResponse(name="x", value=1))
         mock_get_client.return_value = mock_client
 
         await get_structured_output(
@@ -101,9 +97,7 @@ class TestGetStructuredOutput:
         from code.shukketsu.llm.structured import ModelBackend, get_structured_output
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=SimpleResponse(name="x", value=1)
-        )
+        mock_client.chat.completions.create = AsyncMock(return_value=SimpleResponse(name="x", value=1))
         mock_get_client.return_value = mock_client
 
         await get_structured_output(
@@ -117,16 +111,12 @@ class TestGetStructuredOutput:
         assert call_kwargs.kwargs["model"] == "custom-model"
 
     @patch("code.shukketsu.llm.structured._get_client")
-    async def test_connection_error_raises_llm_unavailable(
-        self, mock_get_client: MagicMock
-    ) -> None:
+    async def test_connection_error_raises_llm_unavailable(self, mock_get_client: MagicMock) -> None:
         """ConnectError should raise LLMUnavailableError, not retry."""
         from code.shukketsu.llm.structured import get_structured_output
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
         mock_get_client.return_value = mock_client
 
         with pytest.raises(LLMUnavailableError, match="Cannot connect"):
@@ -136,16 +126,12 @@ class TestGetStructuredOutput:
             )
 
     @patch("code.shukketsu.llm.structured._get_client")
-    async def test_api_connection_error_raises_llm_unavailable(
-        self, mock_get_client: MagicMock
-    ) -> None:
+    async def test_api_connection_error_raises_llm_unavailable(self, mock_get_client: MagicMock) -> None:
         """APIConnectionError should raise LLMUnavailableError."""
         from code.shukketsu.llm.structured import get_structured_output
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=APIConnectionError(request=MagicMock())
-        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=APIConnectionError(request=MagicMock()))
         mock_get_client.return_value = mock_client
 
         with pytest.raises(LLMUnavailableError, match="Cannot connect"):
@@ -155,16 +141,12 @@ class TestGetStructuredOutput:
             )
 
     @patch("code.shukketsu.llm.structured._get_client")
-    async def test_timeout_raises_llm_unavailable(
-        self, mock_get_client: MagicMock
-    ) -> None:
+    async def test_timeout_raises_llm_unavailable(self, mock_get_client: MagicMock) -> None:
         """TimeoutException should raise LLMUnavailableError."""
         from code.shukketsu.llm.structured import get_structured_output
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=httpx.TimeoutException("Timed out")
-        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=httpx.TimeoutException("Timed out"))
         mock_get_client.return_value = mock_client
 
         with pytest.raises(LLMUnavailableError, match="did not respond"):
@@ -174,9 +156,7 @@ class TestGetStructuredOutput:
             )
 
     @patch("code.shukketsu.llm.structured._get_client")
-    async def test_retries_exhausted_raises_structured_output_error(
-        self, mock_get_client: MagicMock
-    ) -> None:
+    async def test_retries_exhausted_raises_structured_output_error(self, mock_get_client: MagicMock) -> None:
         """InstructorRetryException should raise StructuredOutputError."""
         from instructor.core.exceptions import InstructorRetryException
 
