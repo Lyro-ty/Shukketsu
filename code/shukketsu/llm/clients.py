@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
-from openai import AsyncOpenAI
+from openai import APIConnectionError, AsyncOpenAI
 
 from code.shukketsu import config
 from code.shukketsu.resilience.errors import LLMUnavailableError
@@ -39,7 +39,7 @@ async def stream_chat(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    except httpx.ConnectError:
+    except (httpx.ConnectError, APIConnectionError):
         raise LLMUnavailableError(
             f"Cannot connect to LLM server at {config.VLLM_BASE_URL}. Is vLLM running on port 8000?"
         )

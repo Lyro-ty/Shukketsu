@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from openai import APIConnectionError
 
 from code.shukketsu.resilience.errors import LLMUnavailableError
 
@@ -122,6 +123,18 @@ async def test_stream_chat_raises_on_connect_error(mock_client: MagicMock) -> No
     from code.shukketsu.llm.clients import stream_chat
 
     mock_client.chat.completions.create = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+
+    with pytest.raises(LLMUnavailableError, match="Cannot connect"):
+        async for _ in stream_chat([{"role": "user", "content": "test"}]):
+            pass
+
+
+@patch("code.shukketsu.llm.clients._client")
+async def test_stream_chat_raises_on_api_connection_error(mock_client: MagicMock) -> None:
+    """stream_chat should raise LLMUnavailableError on OpenAI APIConnectionError."""
+    from code.shukketsu.llm.clients import stream_chat
+
+    mock_client.chat.completions.create = AsyncMock(side_effect=APIConnectionError(request=MagicMock()))
 
     with pytest.raises(LLMUnavailableError, match="Cannot connect"):
         async for _ in stream_chat([{"role": "user", "content": "test"}]):
