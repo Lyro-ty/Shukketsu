@@ -30,3 +30,12 @@ class TestToolExecutionError:
     def test_inherits_shukketsu_error(self) -> None:
         err = ToolExecutionError("tool failed")
         assert isinstance(err, ShukketsuError)
+
+
+def test_embedding_error():
+    from code.shukketsu.resilience.errors import EmbeddingError, FailureMode
+
+    err = EmbeddingError("Ollama unreachable")
+    assert isinstance(err, ShukketsuError)
+    assert err.failure_mode == FailureMode.EMBEDDING_ERROR
+    assert "Ollama unreachable" in str(err)

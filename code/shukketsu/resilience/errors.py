@@ -77,3 +77,10 @@ class ToolExecutionError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)
+
+
+class EmbeddingError(ShukketsuError):
+    """Raised when the embedding model fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.EMBEDDING_ERROR)
