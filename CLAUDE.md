@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-The project is in early development — directory structure and `__init__.py` files are scaffolded, but most modules are stubs. Key files with real code: `config.py`, `web/app.py`, `routing/models.py`, `resilience/errors.py`, `trust/scoring.py`, `tests/conftest.py`.
+The project is in early development — Phase 1, Steps 1-2 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `routing/models.py`, `resilience/errors.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -85,7 +85,7 @@ code/shukketsu/          # Main Python package (import as code.shukketsu)
   ingest/                # Chunking (semantic + WoW-specific) and embedding pipeline
   scraping/              # Rate limiter, robots.txt compliance, httpx fetcher
   sim/                   # TBC Rogue DPS simulation engine (discrete event)
-  db/                    # SQLite connection, schema.sql, migrations
+  db/                    # SQLite connection factory, schema.sql (WAL, sqlite-vec, FTS5)
   web/                   # FastAPI app, Jinja2 templates, HTMX, static assets
   trust/                 # Source trust scoring with time-based decay
   freshness/             # Content staleness checking and re-ingestion
@@ -117,27 +117,29 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 - `asyncio_mode = auto` in `pyproject.toml` — async tests run automatically
 - Markers: `@pytest.mark.integration`, `@pytest.mark.e2e`
-- `conftest.py` provides a `test_db` fixture that creates a fresh SQLite DB from `db/schema.sql`
+- `conftest.py` provides a `test_db` fixture via `db/connection.py` (WAL mode, sqlite-vec, foreign keys, full schema)
 - Unit tests must have zero external dependencies (no network, no running services)
 
 ## Development Phases
 
-Currently at **Phase 1** (agent core). The project planning is split across four documents in `docs/plans/`:
+Currently at **Phase 1, Step 3** (structured output). Steps 1-2 are complete with 29 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
 | `2026-02-09-shukketsu-design.md` | Original comprehensive design spec (full system vision, schema, all phases) |
 | `shukketsu-architecture.md` | Architecture reference (design rationale, not implementation steps) |
 | `phase-1-agent-core.md` | **Active plan** — 10-step implementation guide for Phase 1 |
+| `2026-02-09-step1-chat-ui.md` | Step 1 detailed plan (complete) |
+| `2026-02-09-step2-database.md` | Step 2 detailed plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core (10 steps)
 
 The active implementation plan (`phase-1-agent-core.md`) builds the system incrementally:
 
-1. Chat UI + streaming LLM (WebSocket + vLLM)
-2. Database foundation (SQLite + schema + WAL mode)
-3. Structured output (Instructor + Pydantic)
+1. ~~Chat UI + streaming LLM (WebSocket + vLLM)~~ **DONE**
+2. ~~Database foundation (SQLite + schema + WAL mode)~~ **DONE**
+3. **Structured output (Instructor + Pydantic)** ← current
 4. First tool + ReAct loop (BaseAgent + rag_search)
 5. Ingest pipeline (chunking + embedding + storage)
 6. Hybrid search (vector + FTS5 + RRF)
