@@ -56,3 +56,10 @@ class LLMUnavailableError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.MODEL_UNAVAILABLE)
+
+
+class DatabaseError(ShukketsuError):
+    """Raised when a database operation fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.DB_ERROR)
