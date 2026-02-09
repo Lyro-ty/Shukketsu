@@ -1,15 +1,23 @@
 """WebSocket chat handler for agent-based conversations."""
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from code.shukketsu import config
 from code.shukketsu.resilience.errors import ShukketsuError
 
+if TYPE_CHECKING:
+    from code.shukketsu.agents.base import BaseAgent
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_agent_instance: BaseAgent | None = None
 
 
 class ChatSession:
@@ -27,18 +35,20 @@ class ChatSession:
             self.history = self.history[-max_messages:]
 
 
-def _get_agent():
+def _get_agent() -> BaseAgent:
     """Get or create the agent singleton.
 
     Lazy initialization avoids import-time side effects (DB connection,
     extension loading). The agent is created once and reused.
     """
-    from code.shukketsu.agents.base import BaseAgent
-    from code.shukketsu.db.connection import get_connection, init_db
-    from code.shukketsu.tools.knowledge.search import RagSearchTool
-    from code.shukketsu.tools.registry import ToolRegistry
+    global _agent_instance  # noqa: PLW0603
 
-    if not hasattr(_get_agent, "_instance"):
+    if _agent_instance is None:
+        from code.shukketsu.agents.base import BaseAgent
+        from code.shukketsu.db.connection import get_connection, init_db
+        from code.shukketsu.tools.knowledge.search import RagSearchTool
+        from code.shukketsu.tools.registry import ToolRegistry
+
         conn = get_connection()
         init_db(conn)
 
@@ -48,9 +58,9 @@ def _get_agent():
 
         registry = ToolRegistry()
         registry.register(RagSearchTool(conn=conn, embed_fn=_placeholder_embed))
-        _get_agent._instance = BaseAgent(tool_registry=registry)
+        _agent_instance = BaseAgent(tool_registry=registry)
 
-    return _get_agent._instance
+    return _agent_instance
 
 
 @router.websocket("/ws/chat")
