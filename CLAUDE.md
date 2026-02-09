@@ -38,9 +38,9 @@ Both model servers are accessed via OpenAI-compatible HTTP APIs from Python usin
 
 ### Multi-Agent System (no external framework)
 
-Five agents as Python classes with ReAct loops, each using Llama 70B:
+Plain Python classes with ReAct loops, no external framework (LangChain, CrewAI, etc.). Phase 1 starts with a single **General Agent** that answers questions using tools. In Phase 2, this grows into five specialists:
 - **Orchestrator** — decomposes complex tasks, coordinates other agents
-- **Researcher** — information gathering (web search, APIs, RAG)
+- **Researcher** — information gathering (web search, APIs, RAG); promoted from General Agent
 - **Analyst** — simulations, log analysis, quantitative work
 - **Writer** — wiki article creation
 - **Editor** — fact-checking, verification
@@ -110,4 +110,35 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-The project follows a phased plan in `docs/plans/2026-02-09-shukketsu-design.md`. Currently at Phase 0/1 (infrastructure + agent core). Check that document for full phase gates and task checklists.
+Currently at **Phase 1** (agent core). The project planning is split across four documents in `docs/plans/`:
+
+| Document | Purpose |
+|----------|---------|
+| `2026-02-09-shukketsu-design.md` | Original comprehensive design spec (full system vision, schema, all phases) |
+| `shukketsu-architecture.md` | Architecture reference (design rationale, not implementation steps) |
+| `phase-1-agent-core.md` | **Active plan** — 10-step implementation guide for Phase 1 |
+| `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
+
+### Phase 1: Agent Core (10 steps)
+
+The active implementation plan (`phase-1-agent-core.md`) builds the system incrementally:
+
+1. Chat UI + streaming LLM (WebSocket + vLLM)
+2. Database foundation (SQLite + schema + WAL mode)
+3. Structured output (Instructor + Pydantic)
+4. First tool + ReAct loop (BaseAgent + rag_search)
+5. Ingest pipeline (chunking + embedding + storage)
+6. Hybrid search (vector + FTS5 + RRF)
+7. Multi-model router (Qwen 4B classification)
+8. Web search + ingest tools (Brave API + scraping)
+9. Resilience (circuit breakers, loop detection, retries)
+10. Observability (Langfuse tracing)
+
+**Phase gate**: Chat with agent in browser. It classifies queries, routes to correct model, calls tools, answers from knowledge base. Traces visible in Langfuse.
+
+### Future Phases
+
+- **Phase 2**: Multi-agent + knowledge building (Orchestrator, specialist agents, agentic RAG, API integrations, wiki)
+- **Phase 3**: DPS simulation engine (TBC combat mechanics, validation vs WoWSims)
+- **Phase 4**: Evaluation + observability polish (Ragas, trajectory eval, feedback)
+- **Phase 5**: UI polish + growth (talent trees, sim builder, charts, PvP)
