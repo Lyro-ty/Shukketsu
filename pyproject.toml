@@ -1,0 +1,45 @@
+[project]
+name = "shukketsu"
+version = "0.1.0"
+description = "TBC Rogue Research Agent"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["code", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["code"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["code.shukketsu"]
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["sqlite_vec.*", "instructor.*", "langfuse.*", "ragas.*", "ollama.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: integration tests (need Ollama + SQLite services)",
+    "e2e: end-to-end tests (need all services running)",
+]
+asyncio_mode = "auto"

@@ -55,3 +55,24 @@ cover/
 # Workbench Project Layout
 data/scratch/*
 !data/scratch/.gitkeep
+
+# Claude Code (commands/ is tracked; settings.local.json is machine-specific)
+.claude/settings.local.json
+
+# SQLite runtime files
+*.db-wal
+*.db-shm
+
+# Local environment overrides
+*.env.local
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
