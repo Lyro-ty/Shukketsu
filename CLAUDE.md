@@ -122,7 +122,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Currently at **Phase 1, Step 5** (ingest pipeline). Steps 1-4 are complete with 97 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Currently at **Phase 1, Step 6** (hybrid search). Steps 1-5 are complete with 122 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -142,8 +142,8 @@ The active implementation plan (`phase-1-agent-core.md`) builds the system incre
 2. ~~Database foundation (SQLite + schema + WAL mode)~~ **DONE**
 3. ~~Structured output (Instructor + Pydantic)~~ **DONE**
 4. ~~First tool + ReAct loop (BaseAgent + rag_search)~~ **DONE**
-5. **Ingest pipeline (chunking + embedding + storage)** ← current
-6. Hybrid search (vector + FTS5 + RRF)
+5. ~~Ingest pipeline (chunking + embedding + storage)~~ **DONE**
+6. **Hybrid search (vector + FTS5 + RRF)** ← current
 7. Multi-model router (Qwen 4B classification)
 8. Web search + ingest tools (Brave API + scraping)
 9. Resilience (circuit breakers, loop detection, retries)
