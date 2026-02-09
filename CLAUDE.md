@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-The project is in early development — Phase 1, Steps 1-3 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `routing/models.py`, `resilience/errors.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+The project is in early development — Phase 1, Steps 1-4 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `routing/models.py`, `resilience/errors.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -122,7 +122,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Currently at **Phase 1, Step 4** (first tool + ReAct loop). Steps 1-3 are complete with 49 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Currently at **Phase 1, Step 5** (ingest pipeline). Steps 1-4 are complete with 97 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -131,6 +131,7 @@ Currently at **Phase 1, Step 4** (first tool + ReAct loop). Steps 1-3 are comple
 | `phase-1-agent-core.md` | **Active plan** — 10-step implementation guide for Phase 1 |
 | `2026-02-09-step1-chat-ui.md` | Step 1 detailed plan (complete) |
 | `2026-02-09-step2-database.md` | Step 2 detailed plan (complete) |
+| `2026-02-09-step3-structured-output.md` | Step 3 detailed plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core (10 steps)
@@ -140,8 +141,8 @@ The active implementation plan (`phase-1-agent-core.md`) builds the system incre
 1. ~~Chat UI + streaming LLM (WebSocket + vLLM)~~ **DONE**
 2. ~~Database foundation (SQLite + schema + WAL mode)~~ **DONE**
 3. ~~Structured output (Instructor + Pydantic)~~ **DONE**
-4. **First tool + ReAct loop (BaseAgent + rag_search)** ← current
-5. Ingest pipeline (chunking + embedding + storage)
+4. ~~First tool + ReAct loop (BaseAgent + rag_search)~~ **DONE**
+5. **Ingest pipeline (chunking + embedding + storage)** ← current
 6. Hybrid search (vector + FTS5 + RRF)
 7. Multi-model router (Qwen 4B classification)
 8. Web search + ingest tools (Brave API + scraping)
