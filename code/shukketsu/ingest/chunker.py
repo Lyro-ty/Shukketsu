@@ -11,12 +11,12 @@ from code.shukketsu import config
 
 # Separators tried in priority order. Each is a regex pattern.
 _SEPARATORS = [
-    r"\n## ",   # Markdown H2 headers
+    r"\n## ",  # Markdown H2 headers
     r"\n### ",  # Markdown H3 headers
-    r"\n\n",    # Paragraph breaks
-    r"\n",      # Line breaks
-    r"\. ",     # Sentence endings
-    r" ",       # Word boundaries
+    r"\n\n",  # Paragraph breaks
+    r"\n",  # Line breaks
+    r"\. ",  # Sentence endings
+    r" ",  # Word boundaries
 ]
 
 # Header separators always split regardless of token count, because they
@@ -176,7 +176,7 @@ def chunk_text(
             # Find a clean word boundary for the overlap
             space_idx = overlap_text.find(" ")
             if space_idx > 0:
-                overlap_text = overlap_text[space_idx + 1:]
+                overlap_text = overlap_text[space_idx + 1 :]
             content = overlap_text + " " + content
         overlapped.append(content)
 
@@ -186,11 +186,13 @@ def chunk_text(
         content = content.strip()
         if not content:
             continue
-        chunks.append(Chunk(
-            content=content,
-            chunk_index=i,
-            char_count=len(content),
-            token_estimate=_estimate_tokens(content),
-        ))
+        chunks.append(
+            Chunk(
+                content=content,
+                chunk_index=i,
+                char_count=len(content),
+                token_estimate=_estimate_tokens(content),
+            )
+        )
 
     return chunks

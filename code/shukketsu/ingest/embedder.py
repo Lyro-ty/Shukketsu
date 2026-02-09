@@ -76,9 +76,7 @@ class Embedder:
                 model=config.EMBEDDING_MODEL,
             )
         except (httpx.ConnectError, APIConnectionError, httpx.TimeoutException) as exc:
-            raise EmbeddingError(
-                f"Cannot connect to embedding model at {config.OLLAMA_BASE_URL}: {exc}"
-            ) from exc
+            raise EmbeddingError(f"Cannot connect to embedding model at {config.OLLAMA_BASE_URL}: {exc}") from exc
         except Exception as exc:
             raise EmbeddingError(str(exc)) from exc
 

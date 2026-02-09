@@ -45,9 +45,7 @@ class TestIngestPipeline:
             title="Guide",
         )
         assert result.chunk_count > 0
-        rows = test_db.execute(
-            "SELECT COUNT(*) FROM chunks WHERE source_id = ?", (result.source_id,)
-        ).fetchone()
+        rows = test_db.execute("SELECT COUNT(*) FROM chunks WHERE source_id = ?", (result.source_id,)).fetchone()
         assert rows[0] == result.chunk_count
 
     async def test_ingest_stores_vectors(self, test_db: sqlite3.Connection) -> None:
@@ -58,13 +56,9 @@ class TestIngestPipeline:
             title="Guide",
         )
         # chunks_vec should have the same number of rows as chunks
-        chunk_ids = test_db.execute(
-            "SELECT id FROM chunks WHERE source_id = ?", (result.source_id,)
-        ).fetchall()
+        chunk_ids = test_db.execute("SELECT id FROM chunks WHERE source_id = ?", (result.source_id,)).fetchall()
         for row in chunk_ids:
-            vec_row = test_db.execute(
-                "SELECT rowid FROM chunks_vec WHERE rowid = ?", (row["id"],)
-            ).fetchone()
+            vec_row = test_db.execute("SELECT rowid FROM chunks_vec WHERE rowid = ?", (row["id"],)).fetchone()
             assert vec_row is not None
 
     async def test_ingest_updates_chunk_count(self, test_db: sqlite3.Connection) -> None:

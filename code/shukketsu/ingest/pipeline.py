@@ -54,9 +54,7 @@ class IngestPipeline:
         content_hash = hashlib.sha256(text.encode()).hexdigest() if text.strip() else ""
 
         # Check for existing source with the same URL
-        existing = self._conn.execute(
-            "SELECT id, content_hash FROM sources WHERE url = ?", (url,)
-        ).fetchone()
+        existing = self._conn.execute("SELECT id, content_hash FROM sources WHERE url = ?", (url,)).fetchone()
 
         if existing:
             if existing["content_hash"] == content_hash:
@@ -78,8 +76,7 @@ class IngestPipeline:
             )
         else:
             cursor = self._conn.execute(
-                "INSERT INTO sources (url, title, source_type, content_hash, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO sources (url, title, source_type, content_hash, fetched_at) VALUES (?, ?, ?, ?, ?)",
                 (url, title, source_type, content_hash, datetime.now(UTC).isoformat()),
             )
             source_id = cursor.lastrowid
@@ -98,8 +95,7 @@ class IngestPipeline:
         # Store chunks and vectors
         for chunk, embedding in zip(chunks, embeddings):
             cursor = self._conn.execute(
-                "INSERT INTO chunks (source_id, content, chunk_index, metadata_json) "
-                "VALUES (?, ?, ?, NULL)",
+                "INSERT INTO chunks (source_id, content, chunk_index, metadata_json) VALUES (?, ?, ?, NULL)",
                 (source_id, chunk.content, chunk.chunk_index),
             )
             chunk_id = cursor.lastrowid

@@ -59,9 +59,7 @@ class TestEmbedTexts:
     async def test_connection_error_raises_embedding_error(self) -> None:
         mock_client = MagicMock()
         mock_client.embeddings = MagicMock()
-        mock_client.embeddings.create = AsyncMock(
-            side_effect=Exception("Connection refused")
-        )
+        mock_client.embeddings.create = AsyncMock(side_effect=Exception("Connection refused"))
 
         embedder = Embedder(client=mock_client)
         with pytest.raises(EmbeddingError, match="Connection refused"):
