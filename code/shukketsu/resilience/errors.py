@@ -49,3 +49,10 @@ class AgentLoopError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.LLM_LOOP)
+
+
+class LLMUnavailableError(ShukketsuError):
+    """Raised when the LLM server cannot be reached."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.MODEL_UNAVAILABLE)

@@ -38,3 +38,14 @@ MAX_AGENT_ITERATIONS = 15
 MAX_TOTAL_TOKENS = 100_000
 DEFAULT_CONTEXT_BUDGET = 50_000
 REFLECTION_THRESHOLD = 0.7
+
+# Chat defaults
+SYSTEM_PROMPT = (
+    "You are Shukketsu, a research assistant specializing in "
+    "World of Warcraft: The Burning Crusade Rogue class. "
+    "Answer questions accurately and concisely."
+)
+CHAT_MAX_HISTORY_PAIRS = 20
+CHAT_TEMPERATURE = 0.7
+CHAT_MAX_TOKENS = 2048
+LLM_TIMEOUT_SECONDS = 30.0
