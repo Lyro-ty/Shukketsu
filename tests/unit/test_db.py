@@ -95,16 +95,13 @@ class TestInitDb:
     def test_foreign_key_enforcement(self, db: sqlite3.Connection) -> None:
         """Inserting a chunk with invalid source_id should raise IntegrityError."""
         with pytest.raises(sqlite3.IntegrityError):
-            db.execute(
-                "INSERT INTO chunks (source_id, content, chunk_index) VALUES (999, 'test', 0)"
-            )
+            db.execute("INSERT INTO chunks (source_id, content, chunk_index) VALUES (999, 'test', 0)")
 
     def test_fts_sync_on_insert(self, db: sqlite3.Connection) -> None:
         """Inserting into chunks should auto-populate FTS index via trigger."""
         db.execute("INSERT INTO sources (url, title) VALUES ('https://example.com', 'Test')")
         db.execute(
-            "INSERT INTO chunks (source_id, content, chunk_index) "
-            "VALUES (1, 'combat rogue hit cap guide for TBC', 0)"
+            "INSERT INTO chunks (source_id, content, chunk_index) VALUES (1, 'combat rogue hit cap guide for TBC', 0)"
         )
         db.commit()
 
