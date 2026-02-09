@@ -26,6 +26,18 @@ ruff format code/ tests/
 mypy code/shukketsu/
 ```
 
+## Coding Style
+
+- **Imports**: stdlib → third-party → local, blank-line separated (ruff `I` rule)
+- **Type annotations**: Full on all function signatures. Use `str | None` not `Optional[str]`, `list[str]` not `List[str]` (3.12 syntax)
+- **Docstrings**: Google-style, brief. Required on modules, public classes, and public functions
+- **Naming**: `UPPER_SNAKE` constants, `PascalCase` classes, `snake_case` functions/variables
+- **Async**: `async def` for I/O (endpoints, LLM calls, DB, HTTP). Plain `def` for pure computation
+- **Logging**: `logging.getLogger(__name__)` per module
+- **Errors**: All exceptions inherit `ShukketsuError` with `FailureMode` enum (see `resilience/errors.py`)
+- **Pydantic**: v2 `BaseModel` for data containers + LLM schemas. `str` enums for JSON round-trip
+- **Line length**: 120 (ruff enforced)
+
 ## Architecture
 
 ### Three-Model System
@@ -103,7 +115,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Testing Conventions
 
-- `asyncio_mode = auto` in pytest.ini — async tests run automatically
+- `asyncio_mode = auto` in `pyproject.toml` — async tests run automatically
 - Markers: `@pytest.mark.integration`, `@pytest.mark.e2e`
 - `conftest.py` provides a `test_db` fixture that creates a fresh SQLite DB from `db/schema.sql`
 - Unit tests must have zero external dependencies (no network, no running services)
