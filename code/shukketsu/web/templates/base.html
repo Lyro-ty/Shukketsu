@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Shukketsu{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    'wow-gold': '#f5c518',
+                    'rogue-energy': '#fff468',
+                    'shadow': {
+                        DEFAULT: '#1a1a2e',
+                        deep: '#0f0f1a',
+                        mid: '#16213e',
+                    },
+                    'parchment': {
+                        DEFAULT: '#e8dcc4',
+                        dim: '#a89b8c',
+                    },
+                },
+            },
+        },
+    }
+    </script>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-shadow-deep text-parchment min-h-screen flex flex-col">
+    <nav class="bg-shadow border-b border-white/10 px-6 py-3 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+            <span class="text-wow-gold font-bold text-xl tracking-wide">Shukketsu</span>
+            <span class="text-parchment-dim text-sm">出血</span>
+        </div>
+        <div id="connection-status" class="flex items-center gap-2 text-sm">
+            <span id="status-dot" class="w-2 h-2 rounded-full bg-gray-500"></span>
+            <span id="status-text" class="text-parchment-dim">Connecting...</span>
+        </div>
+    </nav>
+    <main class="flex-1 flex flex-col overflow-hidden">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

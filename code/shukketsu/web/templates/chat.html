@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Chat — Shukketsu{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col max-w-4xl w-full mx-auto overflow-hidden">
+    <!-- Chat messages -->
+    <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4">
+        <!-- Welcome state -->
+        <div id="welcome-state" class="flex flex-col items-center justify-center h-full text-center select-none">
+            <h1 class="text-wow-gold text-3xl font-bold mb-1">Shukketsu</h1>
+            <p class="text-parchment-dim text-lg mb-8">TBC Rogue Research Assistant</p>
+            <p class="text-parchment-dim mb-6">Ask me anything about the Rogue class in World of Warcraft: TBC</p>
+            <div class="flex flex-col gap-3 w-full max-w-md">
+                <button class="example-prompt px-4 py-3 bg-shadow border border-white/10 rounded-lg
+                               hover:border-wow-gold/50 hover:text-wow-gold transition-colors text-left text-sm"
+                        data-prompt="What's the hit cap for combat rogues?">
+                    What's the hit cap for combat rogues?
+                </button>
+                <button class="example-prompt px-4 py-3 bg-shadow border border-white/10 rounded-lg
+                               hover:border-wow-gold/50 hover:text-wow-gold transition-colors text-left text-sm"
+                        data-prompt="Compare combat vs assassination for Karazhan">
+                    Compare combat vs assassination for Karazhan
+                </button>
+                <button class="example-prompt px-4 py-3 bg-shadow border border-white/10 rounded-lg
+                               hover:border-wow-gold/50 hover:text-wow-gold transition-colors text-left text-sm"
+                        data-prompt="Explain the Seal Fate talent">
+                    Explain the Seal Fate talent
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input area -->
+    <div class="border-t border-white/10 p-4 shrink-0">
+        <div class="flex gap-3 items-end">
+            <textarea id="chat-input"
+                      class="flex-1 bg-shadow border border-white/10 rounded-lg px-4 py-3
+                             text-parchment placeholder-parchment-dim/50 resize-none
+                             focus:outline-none focus:border-wow-gold/50 transition-colors"
+                      placeholder="Ask about TBC Rogues... (Shift+Enter for new line)"
+                      rows="1"></textarea>
+            <button id="send-btn"
+                    class="px-5 py-3 bg-wow-gold/20 border border-wow-gold/50 rounded-lg
+                           text-wow-gold hover:bg-wow-gold/30 transition-colors font-medium
+                           disabled:opacity-30 disabled:cursor-not-allowed">
+                Send
+            </button>
+            <button id="stop-btn"
+                    class="hidden px-5 py-3 bg-red-500/20 border border-red-500/50 rounded-lg
+                           text-red-400 hover:bg-red-500/30 transition-colors font-medium">
+                Stop
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/chat.js"></script>
+{% endblock %}
