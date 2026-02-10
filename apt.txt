@@ -1,1 +1,3 @@
-# apt packages to install should be listed one per line
+# System packages for Shukketsu
+build-essential
+libsqlite3-dev

@@ -59,6 +59,9 @@ data/scratch/*
 # Claude Code (commands/ is tracked; settings.local.json is machine-specific)
 .claude/settings.local.json
 
+# Learning explanations (local reference, not project code)
+docs/explanations/
+
 # SQLite runtime files
 *.db-wal
 *.db-shm
