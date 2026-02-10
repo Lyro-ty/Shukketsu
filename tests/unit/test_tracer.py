@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestInitLangfuse:
     """Tests for init_langfuse()."""
