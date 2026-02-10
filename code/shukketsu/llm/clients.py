@@ -1,4 +1,4 @@
-"""LLM client for vLLM streaming chat completions."""
+"""LLM client for Ollama streaming chat completions via OpenAI-compatible API."""
 
 import logging
 from collections.abc import AsyncGenerator
@@ -12,8 +12,10 @@ from code.shukketsu.resilience.errors import LLMUnavailableError
 
 logger = logging.getLogger(__name__)
 
+_OLLAMA_OPENAI_URL = f"{config.OLLAMA_BASE_URL}/v1"
+
 _client = AsyncOpenAI(
-    base_url=config.VLLM_BASE_URL,
+    base_url=_OLLAMA_OPENAI_URL,
     api_key="not-needed",
     timeout=httpx.Timeout(timeout=config.LLM_TIMEOUT_SECONDS, connect=10.0),
 )
@@ -26,7 +28,7 @@ async def stream_chat(
     temperature: float = config.CHAT_TEMPERATURE,
     max_tokens: int = config.CHAT_MAX_TOKENS,
 ) -> AsyncGenerator[str, None]:
-    """Stream chat completion tokens from vLLM.
+    """Stream chat completion tokens from Ollama.
 
     Yields token strings one at a time. Raises LLMUnavailableError
     if the server is unreachable or the connection drops mid-stream.
@@ -41,12 +43,12 @@ async def stream_chat(
         )
     except (httpx.ConnectError, APIConnectionError) as exc:
         raise LLMUnavailableError(
-            f"Cannot connect to LLM server at {config.VLLM_BASE_URL}. Is vLLM running on port 8000?"
+            f"Cannot connect to Ollama at {_OLLAMA_OPENAI_URL}. Is Ollama running?"
         ) from exc
     except httpx.TimeoutException as exc:
         raise LLMUnavailableError(
-            f"LLM server at {config.VLLM_BASE_URL} did not respond within "
-            f"{config.LLM_TIMEOUT_SECONDS} seconds. It may be loading the model."
+            f"Ollama at {_OLLAMA_OPENAI_URL} did not respond within "
+            f"{config.LLM_TIMEOUT_SECONDS} seconds. The model may be loading."
         ) from exc
 
     try:
@@ -56,6 +58,6 @@ async def stream_chat(
                 if content:
                     yield content
     except httpx.ReadError as exc:
-        raise LLMUnavailableError(f"Connection to LLM server lost during response: {exc}") from exc
+        raise LLMUnavailableError(f"Connection to Ollama lost during response: {exc}") from exc
     finally:
         await stream.close()

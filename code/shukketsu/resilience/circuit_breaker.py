@@ -113,10 +113,10 @@ class CircuitBreaker:
 
 
 # Named instances for each external service
-vllm_breaker = CircuitBreaker(
-    "vllm",
-    failure_threshold=config.CB_VLLM_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_VLLM_RECOVERY_TIMEOUT,
+reasoning_breaker = CircuitBreaker(
+    "ollama_reasoning",
+    failure_threshold=config.CB_REASONING_FAILURE_THRESHOLD,
+    recovery_timeout=config.CB_REASONING_RECOVERY_TIMEOUT,
 )
 
 ollama_router_breaker = CircuitBreaker(
@@ -140,5 +140,5 @@ brave_breaker = CircuitBreaker(
 
 def reset_all_breakers() -> None:
     """Reset all named circuit breakers to CLOSED. Used by test fixtures."""
-    for breaker in (vllm_breaker, ollama_router_breaker, ollama_embed_breaker, brave_breaker):
+    for breaker in (reasoning_breaker, ollama_router_breaker, ollama_embed_breaker, brave_breaker):
         breaker.reset()

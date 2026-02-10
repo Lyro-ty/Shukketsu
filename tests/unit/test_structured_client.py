@@ -49,15 +49,15 @@ class TestGetStructuredOutput:
         result = await get_structured_output(
             response_model=SimpleResponse,
             messages=[{"role": "user", "content": "test"}],
-            backend=ModelBackend.VLLM,
+            backend=ModelBackend.REASONING,
         )
 
         assert result == expected
         assert isinstance(result, SimpleResponse)
 
     @patch("code.shukketsu.llm.structured._get_client")
-    async def test_default_model_vllm(self, mock_get_client: MagicMock) -> None:
-        """VLLM backend should use REASONING_MODEL by default."""
+    async def test_default_model_reasoning(self, mock_get_client: MagicMock) -> None:
+        """REASONING backend should use REASONING_MODEL by default."""
         from code.shukketsu.llm.structured import ModelBackend, get_structured_output
 
         mock_client = MagicMock()
@@ -67,15 +67,15 @@ class TestGetStructuredOutput:
         await get_structured_output(
             response_model=SimpleResponse,
             messages=[{"role": "user", "content": "test"}],
-            backend=ModelBackend.VLLM,
+            backend=ModelBackend.REASONING,
         )
 
         call_kwargs = mock_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs["model"] == "llama-3.3-70b-instruct-awq"
+        assert call_kwargs.kwargs["model"] == "llama3.3:70b"
 
     @patch("code.shukketsu.llm.structured._get_client")
-    async def test_default_model_ollama(self, mock_get_client: MagicMock) -> None:
-        """OLLAMA backend should use ROUTER_MODEL by default."""
+    async def test_default_model_router(self, mock_get_client: MagicMock) -> None:
+        """ROUTER backend should use ROUTER_MODEL by default."""
         from code.shukketsu.llm.structured import ModelBackend, get_structured_output
 
         mock_client = MagicMock()
@@ -85,7 +85,7 @@ class TestGetStructuredOutput:
         await get_structured_output(
             response_model=SimpleResponse,
             messages=[{"role": "user", "content": "test"}],
-            backend=ModelBackend.OLLAMA,
+            backend=ModelBackend.ROUTER,
         )
 
         call_kwargs = mock_client.chat.completions.create.call_args
@@ -103,7 +103,7 @@ class TestGetStructuredOutput:
         await get_structured_output(
             response_model=SimpleResponse,
             messages=[{"role": "user", "content": "test"}],
-            backend=ModelBackend.VLLM,
+            backend=ModelBackend.REASONING,
             model="custom-model",
         )
 
@@ -215,8 +215,8 @@ class TestClientCaching:
 
         mock_instructor.from_openai.return_value = MagicMock()
 
-        client1 = _get_client(ModelBackend.VLLM)
-        client2 = _get_client(ModelBackend.VLLM)
+        client1 = _get_client(ModelBackend.REASONING)
+        client2 = _get_client(ModelBackend.REASONING)
 
         assert client1 is client2
         assert mock_instructor.from_openai.call_count == 1
@@ -228,20 +228,20 @@ class TestClientCaching:
 
         mock_instructor.from_openai.return_value = MagicMock()
 
-        _get_client(ModelBackend.VLLM)
+        _get_client(ModelBackend.REASONING)
         clear_clients()
-        _get_client(ModelBackend.VLLM)
+        _get_client(ModelBackend.REASONING)
 
         assert mock_instructor.from_openai.call_count == 2
 
     @patch("code.shukketsu.llm.structured.instructor")
-    def test_ollama_url_has_v1_suffix(self, mock_instructor: MagicMock) -> None:
-        """Ollama client should be created with /v1 appended to base URL."""
+    def test_client_uses_ollama_v1_url(self, mock_instructor: MagicMock) -> None:
+        """All clients should use Ollama's OpenAI-compatible /v1 URL."""
         from code.shukketsu.llm.structured import ModelBackend, _get_client
 
         mock_instructor.from_openai.return_value = MagicMock()
 
-        _get_client(ModelBackend.OLLAMA)
+        _get_client(ModelBackend.ROUTER)
 
         # Inspect the AsyncOpenAI constructor call
         from_openai_call = mock_instructor.from_openai.call_args

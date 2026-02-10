@@ -6,12 +6,11 @@ Reads from environment variables (set in variables.env for Workbench).
 import os
 from pathlib import Path
 
-# Model serving
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+# Model serving — all models via Ollama (llama.cpp has native Blackwell/GB10 support)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-# Model names
-REASONING_MODEL = "llama-3.3-70b-instruct-awq"
+# Model names (all served by Ollama)
+REASONING_MODEL = os.getenv("REASONING_MODEL", "llama3.3:70b")
 ROUTER_MODEL = "qwen3:4b"
 EMBEDDING_MODEL = "nomic-embed-text"
 
@@ -56,7 +55,7 @@ CHAT_MAX_HISTORY_PAIRS = 20
 CHAT_MAX_MESSAGE_LENGTH = 10_000  # Max characters per user message
 CHAT_TEMPERATURE = 0.7
 CHAT_MAX_TOKENS = 2048
-LLM_TIMEOUT_SECONDS = 30.0
+LLM_TIMEOUT_SECONDS = 120.0  # Generous for 70B model cold-start on Ollama
 
 # Structured output defaults
 STRUCTURED_TEMPERATURE = 0.1
@@ -80,8 +79,8 @@ SCRAPING_MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB
 ROBOTS_CACHE_TTL_HOURS = 24
 
 # Circuit breaker defaults
-CB_VLLM_FAILURE_THRESHOLD = 3
-CB_VLLM_RECOVERY_TIMEOUT = 30.0
+CB_REASONING_FAILURE_THRESHOLD = 3
+CB_REASONING_RECOVERY_TIMEOUT = 30.0
 CB_OLLAMA_ROUTER_FAILURE_THRESHOLD = 5
 CB_OLLAMA_ROUTER_RECOVERY_TIMEOUT = 60.0
 CB_OLLAMA_EMBED_FAILURE_THRESHOLD = 5

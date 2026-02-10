@@ -98,6 +98,7 @@ services:
       NEXTAUTH_URL: http://localhost:3000
       SALT: shukketsu-salt-change-me
       ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: clickhouse

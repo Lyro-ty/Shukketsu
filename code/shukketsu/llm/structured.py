@@ -1,7 +1,7 @@
 """Instructor-wrapped LLM clients for structured output.
 
 Provides a generic function to get validated Pydantic models from
-either the vLLM (Llama 70B) or Ollama (Qwen 4B) backend. Uses
+Ollama backends (Llama 70B reasoning, Qwen 4B routing). Uses
 Instructor in JSON mode with automatic retry on validation failure.
 """
 
@@ -24,27 +24,24 @@ logger = logging.getLogger(__name__)
 class ModelBackend(StrEnum):
     """Available LLM backends for structured output."""
 
-    VLLM = "vllm"
-    OLLAMA = "ollama"
+    REASONING = "reasoning"
+    ROUTER = "router"
 
 
 _clients: dict[ModelBackend, instructor.AsyncInstructor] = {}
+
+_OLLAMA_OPENAI_URL = f"{config.OLLAMA_BASE_URL}/v1"
 
 
 def _get_client(backend: ModelBackend) -> instructor.AsyncInstructor:
     """Return a cached Instructor client for the given backend.
 
-    Creates the client on first call, then caches it. Both backends
-    use Mode.JSON for consistent structured output behavior.
+    Creates the client on first call, then caches it. All backends
+    use Ollama's OpenAI-compatible API with Mode.JSON.
     """
     if backend not in _clients:
-        if backend == ModelBackend.VLLM:
-            base_url = config.VLLM_BASE_URL
-        else:
-            base_url = f"{config.OLLAMA_BASE_URL}/v1"
-
         openai_client = AsyncOpenAI(
-            base_url=base_url,
+            base_url=_OLLAMA_OPENAI_URL,
             api_key="not-needed",
             timeout=httpx.Timeout(timeout=config.LLM_TIMEOUT_SECONDS, connect=10.0),
         )
@@ -68,7 +65,7 @@ async def get_structured_output[T: BaseModel](
     response_model: type[T],
     messages: list[dict[str, str]],
     *,
-    backend: ModelBackend = ModelBackend.VLLM,
+    backend: ModelBackend = ModelBackend.REASONING,
     model: str | None = None,
     temperature: float = config.STRUCTURED_TEMPERATURE,
     max_tokens: int = config.STRUCTURED_MAX_TOKENS,
@@ -79,9 +76,9 @@ async def get_structured_output[T: BaseModel](
     Args:
         response_model: Pydantic model class to validate the response against.
         messages: Chat messages to send to the LLM.
-        backend: Which LLM backend to use (vLLM or Ollama).
-        model: Model name override. Defaults to REASONING_MODEL for vLLM,
-            ROUTER_MODEL for Ollama.
+        backend: Which LLM backend to use (reasoning or router).
+        model: Model name override. Defaults to REASONING_MODEL for reasoning,
+            ROUTER_MODEL for router.
         temperature: Sampling temperature (default 0.1 for consistency).
         max_tokens: Maximum tokens in the response (default 4096).
         max_retries: Number of validation retry attempts (default 3).
@@ -94,7 +91,7 @@ async def get_structured_output[T: BaseModel](
         StructuredOutputError: If all validation retries are exhausted.
     """
     if model is None:
-        model = config.REASONING_MODEL if backend == ModelBackend.VLLM else config.ROUTER_MODEL
+        model = config.REASONING_MODEL if backend == ModelBackend.REASONING else config.ROUTER_MODEL
 
     langfuse = get_client()
     langfuse.update_current_generation(

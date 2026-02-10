@@ -73,7 +73,7 @@ async def classify_query(query: str) -> RoutingDecision:
             get_structured_output,
             RoutingDecision,
             messages,
-            backend=ModelBackend.OLLAMA,
+            backend=ModelBackend.ROUTER,
             temperature=0.0,
             max_tokens=512,
         )

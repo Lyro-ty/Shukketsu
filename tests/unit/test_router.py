@@ -121,7 +121,7 @@ class TestClassifyQuery:
 
         mock_output.assert_called_once()
         call_kwargs = mock_output.call_args
-        assert call_kwargs.kwargs["backend"].value == "ollama"
+        assert call_kwargs.kwargs["backend"].value == "router"
         assert call_kwargs.kwargs["temperature"] == 0.0
         assert call_kwargs.kwargs["max_tokens"] == 512
 
