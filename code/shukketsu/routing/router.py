@@ -7,6 +7,8 @@ agent with tools.
 
 import logging
 
+from langfuse import observe
+
 from code.shukketsu.llm.structured import ModelBackend, get_structured_output
 from code.shukketsu.resilience.circuit_breaker import ollama_router_breaker
 from code.shukketsu.resilience.errors import CircuitOpenError, LLMUnavailableError, StructuredOutputError
@@ -53,6 +55,7 @@ questions, anything needing multiple tools. Leave direct_answer empty.
 """
 
 
+@observe()
 async def classify_query(query: str) -> RoutingDecision:
     """Classify a user query using Qwen 4B.
 
