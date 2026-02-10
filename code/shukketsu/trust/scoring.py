@@ -1,6 +1,6 @@
 """Source trust scoring and decay computation."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 SOURCE_TRUST = {
     "game_data": 1.0,
@@ -24,7 +24,7 @@ def effective_trust(
     Trust stays at base_trust until max_age, then decays
     by decay_factor for each additional max_age period.
     """
-    age = datetime.utcnow() - fetched_at
+    age = datetime.now(UTC) - fetched_at
     if age <= max_age:
         return base_trust
     periods_past = (age - max_age) / max_age
