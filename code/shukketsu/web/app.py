@@ -1,5 +1,6 @@
 """FastAPI application for the Shukketsu web knowledgebase."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,6 +20,11 @@ _WEB_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Application startup and shutdown hooks."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
     init_langfuse()
     yield
     flush_traces()

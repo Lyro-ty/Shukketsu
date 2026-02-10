@@ -159,7 +159,11 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         else:
             await websocket.send_json({"type": "status", "content": "thinking..."})
             agent = _get_agent()
-            answer = await agent.run(content)
+
+            async def _send_status(msg: str) -> None:
+                await websocket.send_json({"type": "status", "content": msg})
+
+            answer = await agent.run(content, on_status=_send_status)
             session.add_message("assistant", answer)
             await websocket.send_json({"type": "done", "content": answer})
     except ShukketsuError as exc:

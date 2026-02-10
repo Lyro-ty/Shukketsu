@@ -1,6 +1,7 @@
 """BaseAgent with ReAct (Reason + Act) loop."""
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langfuse import observe
@@ -13,6 +14,8 @@ from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+StatusCallback = Callable[[str], Awaitable[None]]
+
 _REACT_INSTRUCTIONS = """You have access to the following tools:
 
 {tool_descriptions}
@@ -20,7 +23,9 @@ _REACT_INSTRUCTIONS = """You have access to the following tools:
 When you need information to answer the question, use a tool by responding with action "tool_call".
 When you have enough information to answer, respond with action "final_answer".
 Always think step by step about what you need to do.
-If a tool returns an error, try a different approach or answer with what you know."""
+If a tool returns no results or an error, try a DIFFERENT tool or different query — never repeat the same tool call.
+If rag_search finds nothing, try web_search. If web_search finds relevant pages, use web_ingest to store them.
+Once you have useful information from any source, provide your final_answer — do not keep searching."""
 
 
 class BaseAgent:
@@ -43,11 +48,12 @@ class BaseAgent:
         self._loop_detector = LoopDetector()
 
     @observe(as_type="agent")
-    async def run(self, query: str) -> str:
+    async def run(self, query: str, *, on_status: StatusCallback | None = None) -> str:
         """Run the ReAct loop to answer a query.
 
         Args:
             query: The user's question.
+            on_status: Optional async callback for progress updates.
 
         Returns:
             The agent's final answer, or a graceful failure message.
@@ -62,6 +68,8 @@ class BaseAgent:
             messages = self._build_messages(query, scratchpad)
 
             logger.info("Agent iteration %d/%d", iteration + 1, self.max_iterations)
+            if on_status:
+                await on_status(f"thinking ({iteration + 1}/{self.max_iterations})...")
             step: AgentStep = await get_structured_output(
                 response_model=AgentStep,
                 messages=messages,
@@ -74,6 +82,8 @@ class BaseAgent:
             tool_call = step.tool_call
             assert tool_call is not None  # guaranteed by AgentStep validator
             logger.info("Agent calling tool: %s", tool_call.tool_name)
+            if on_status:
+                await on_status(f"using {tool_call.tool_name}...")
 
             observation = await self.tool_registry.execute(tool_call.tool_name, tool_call.tool_input)
 

@@ -41,6 +41,20 @@ done
 echo "[3/3] Starting Langfuse stack..."
 docker compose -f "${PROJECT_DIR}/infra/docker-compose.langfuse.yml" up -d 2>&1 | tail -3
 
+# 4. Load env vars (API keys, Langfuse config) and fix paths for host mode
+echo "[4/4] Loading environment..."
+set -a
+# shellcheck disable=SC1091
+source "${PROJECT_DIR}/variables.env"
+set +a
+
+# Override /project/ paths with actual paths (variables.env has container paths)
+export SHUKKETSU_DB_PATH="${PROJECT_DIR}/data/shukketsu.db"
+export SHUKKETSU_WIKI_PATH="${PROJECT_DIR}/knowledge/"
+export SHUKKETSU_CACHE_PATH="${PROJECT_DIR}/data/scratch/cache/"
+export SHUKKETSU_BACKUP_PATH="${PROJECT_DIR}/data/backups/"
+
 echo ""
 echo "=== Starting Shukketsu web app on :9000 ==="
+cd "${PROJECT_DIR}"
 exec python3 -m uvicorn code.shukketsu.web.app:app --host 0.0.0.0 --port 9000
