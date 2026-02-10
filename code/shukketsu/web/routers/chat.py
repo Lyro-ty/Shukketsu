@@ -9,6 +9,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from code.shukketsu import config
 from code.shukketsu.resilience.errors import ShukketsuError
+from code.shukketsu.routing.models import TaskComplexity
+from code.shukketsu.routing.router import classify_query
 
 if TYPE_CHECKING:
     from code.shukketsu.agents.base import BaseAgent
@@ -106,16 +108,32 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
 
 
 async def _agent_response(websocket: WebSocket, session: ChatSession, content: str) -> None:
-    """Get an agent response for the given user message."""
+    """Get an agent response for the given user message.
+
+    Routes through Qwen 4B first: trivial queries get a direct answer,
+    everything else goes to the Llama 70B agent with tools.
+    """
     session.is_streaming = True
     session.add_message("user", content)
 
     try:
-        await websocket.send_json({"type": "status", "content": "thinking..."})
-        agent = _get_agent()
-        answer = await agent.run(content)
-        session.add_message("assistant", answer)
-        await websocket.send_json({"type": "done", "content": answer})
+        await websocket.send_json({"type": "status", "content": "routing..."})
+        decision = await classify_query(content)
+        logger.info("Route: %s → %s", decision.complexity, decision.category)
+
+        if (
+            decision.complexity == TaskComplexity.TRIVIAL
+            and decision.direct_answer is not None
+            and decision.direct_answer.strip()
+        ):
+            session.add_message("assistant", decision.direct_answer)
+            await websocket.send_json({"type": "done", "content": decision.direct_answer})
+        else:
+            await websocket.send_json({"type": "status", "content": "thinking..."})
+            agent = _get_agent()
+            answer = await agent.run(content)
+            session.add_message("assistant", answer)
+            await websocket.send_json({"type": "done", "content": answer})
     except ShukketsuError as exc:
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()

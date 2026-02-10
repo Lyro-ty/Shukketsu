@@ -24,3 +24,4 @@ class RoutingDecision(BaseModel):
     category: TaskCategory
     needs_tools: bool
     suggested_agent: str
+    direct_answer: str | None = None

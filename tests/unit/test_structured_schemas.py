@@ -123,3 +123,32 @@ class TestActionTypeSerialization:
         json_str = original.model_dump_json()
         restored = AgentStep.model_validate_json(json_str)
         assert restored == original
+
+
+class TestRoutingDecisionSchema:
+    """Tests for the RoutingDecision schema."""
+
+    def test_direct_answer_defaults_to_none(self) -> None:
+        """RoutingDecision.direct_answer should default to None when omitted."""
+        from code.shukketsu.routing.models import RoutingDecision, TaskCategory, TaskComplexity
+
+        decision = RoutingDecision(
+            complexity=TaskComplexity.MODERATE,
+            category=TaskCategory.RETRIEVAL,
+            needs_tools=True,
+            suggested_agent="general",
+        )
+        assert decision.direct_answer is None
+
+    def test_direct_answer_accepts_string(self) -> None:
+        """RoutingDecision.direct_answer should accept a string value."""
+        from code.shukketsu.routing.models import RoutingDecision, TaskCategory, TaskComplexity
+
+        decision = RoutingDecision(
+            complexity=TaskComplexity.TRIVIAL,
+            category=TaskCategory.CONVERSATION,
+            needs_tools=False,
+            suggested_agent="general",
+            direct_answer="Sinister Strike costs 40 energy.",
+        )
+        assert decision.direct_answer == "Sinister Strike costs 40 energy."

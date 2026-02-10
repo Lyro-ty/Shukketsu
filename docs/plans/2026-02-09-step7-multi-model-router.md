@@ -38,7 +38,8 @@ async def classify_query(query: str) -> RoutingDecision
 ```
 
 - Builds a system prompt with WoW TBC Rogue domain context
-- Calls `get_structured_output(backend=ModelBackend.OLLAMA, response_model=RoutingDecision)`
+- Calls `get_structured_output(backend=ModelBackend.OLLAMA, response_model=RoutingDecision,
+  temperature=0.0, max_tokens=512)` — deterministic classification, low token budget
 - On `LLMUnavailableError` or `StructuredOutputError`: returns fallback
   `RoutingDecision(complexity=COMPLEX, category=CONVERSATION, needs_tools=True,
   suggested_agent="general", direct_answer=None)` — routes to Llama 70B agent
@@ -60,20 +61,23 @@ Tells Qwen:
 Updated `_agent_response` flow:
 
 ```
-1. Send {"type": "status", "content": "routing..."}
-2. decision = await classify_query(content)
-3. Log routing decision
-4. If decision.complexity == TRIVIAL
+1. session.add_message("user", content)
+2. Send {"type": "status", "content": "routing..."}
+3. decision = await classify_query(content)
+4. Log routing decision
+5. If decision.complexity == TRIVIAL
       AND decision.direct_answer is not None
       AND decision.direct_answer.strip() != "":
+     → session.add_message("assistant", decision.direct_answer)
      → Send {"type": "done", "content": decision.direct_answer}
-5. Else:
+6. Else:
      → Send {"type": "status", "content": "thinking..."}
      → answer = await agent.run(content)
+     → session.add_message("assistant", answer)
      → Send {"type": "done", "content": answer}
 ```
 
-Both paths record to chat history. Error handling unchanged.
+Both paths explicitly record to chat history. Error handling unchanged.
 
 ## Error Handling & Edge Cases
 
