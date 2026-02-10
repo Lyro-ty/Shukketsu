@@ -19,6 +19,7 @@ class FailureMode(StrEnum):
     NETWORK_TIMEOUT = "network_timeout"
     RATE_LIMITED = "rate_limited"
     HTTP_ERROR = "http_error"
+    ACCESS_DENIED = "access_denied"
 
     # Data failures
     DB_ERROR = "db_error"
@@ -97,7 +98,7 @@ class RobotsDisallowedError(ShukketsuError):
     """Raised when robots.txt disallows access to a URL."""
 
     def __init__(self, message: str):
-        super().__init__(message, FailureMode.RATE_LIMITED)
+        super().__init__(message, FailureMode.ACCESS_DENIED)
 
 
 class BraveSearchError(ShukketsuError):

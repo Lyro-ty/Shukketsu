@@ -48,11 +48,11 @@ def test_scraping_error_has_http_error_mode() -> None:
     assert err.failure_mode == FailureMode.HTTP_ERROR
 
 
-def test_robots_disallowed_error_has_rate_limited_mode() -> None:
+def test_robots_disallowed_has_access_denied_failure_mode() -> None:
     from code.shukketsu.resilience.errors import RobotsDisallowedError
 
-    err = RobotsDisallowedError("blocked by robots.txt")
-    assert err.failure_mode == FailureMode.RATE_LIMITED
+    err = RobotsDisallowedError("blocked")
+    assert err.failure_mode == FailureMode.ACCESS_DENIED
 
 
 def test_brave_search_error_has_tool_error_mode() -> None:
