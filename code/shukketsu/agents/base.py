@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from langfuse import observe
+
 from code.shukketsu import config
 from code.shukketsu.agents.guardrails import LoopDetector
 from code.shukketsu.llm.schemas import ActionType, AgentStep
@@ -40,6 +42,7 @@ class BaseAgent:
         self._system_prompt = system_prompt
         self._loop_detector = LoopDetector()
 
+    @observe(as_type="agent")
     async def run(self, query: str) -> str:
         """Run the ReAct loop to answer a query.
 
