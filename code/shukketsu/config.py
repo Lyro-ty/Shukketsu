@@ -42,6 +42,7 @@ REFLECTION_THRESHOLD = 0.7
 # Phase 1 agent limits
 AGENT_MAX_ITERATIONS = 5
 RAG_SEARCH_TOP_K = 5
+RAG_SEARCH_FETCH_K = 20  # Candidates per source before RRF fusion
 AGENT_GRACEFUL_FAILURE = "I wasn't able to find a complete answer. Please try rephrasing your question."
 
 # Chat defaults
