@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from langfuse import get_client, observe
+
 from code.shukketsu.resilience.errors import ToolNotFoundError
 from code.shukketsu.tools.schemas import Tool
 
@@ -48,12 +50,16 @@ class ToolRegistry:
 
         return "\n\n".join(parts)
 
+    @observe(as_type="tool")
     async def execute(self, name: str, tool_input: dict[str, Any]) -> str:
         """Execute a tool by name, returning the observation string.
 
         Returns an error observation (not an exception) for unknown tools
         or execution failures, so the agent can see what went wrong.
         """
+        langfuse = get_client()
+        langfuse.update_current_span(metadata={"tool_name": name, "tool_input": tool_input})
+
         if name not in self._tools:
             logger.warning("Tool not found: %s", name)
             return f"Error: Tool '{name}' not found. Available tools: {', '.join(self._tools.keys())}"
