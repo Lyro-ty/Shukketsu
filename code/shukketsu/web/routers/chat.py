@@ -111,6 +111,15 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
         await websocket.send_json({"type": "error", "content": "Message content cannot be empty."})
         return
 
+    if len(content) > config.CHAT_MAX_MESSAGE_LENGTH:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "content": f"Message too long ({len(content)} chars). Maximum is {config.CHAT_MAX_MESSAGE_LENGTH}.",
+            }
+        )
+        return
+
     if session.is_streaming:
         await websocket.send_json({"type": "error", "content": "Please wait for the current response to finish."})
         return

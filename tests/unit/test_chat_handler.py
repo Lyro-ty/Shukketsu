@@ -78,6 +78,18 @@ class TestWebSocketProtocol:
             msg = ws.receive_json()
             assert msg["type"] == "error"
 
+    @patch("code.shukketsu.web.routers.chat._get_agent", return_value=_mock_agent())
+    def test_rejects_oversized_message(self, mock_get: MagicMock) -> None:
+        """Messages exceeding CHAT_MAX_MESSAGE_LENGTH should be rejected."""
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            huge_message = "x" * 10_001
+            ws.send_json({"type": "message", "content": huge_message})
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert "too long" in msg["content"].lower()
+
 
 class TestAgentResponse:
     """Tests for the agent-based response path."""

@@ -34,7 +34,6 @@ CACHE_PATH = Path(os.getenv("SHUKKETSU_CACHE_PATH", "/project/data/scratch/cache
 BACKUP_PATH = Path(os.getenv("SHUKKETSU_BACKUP_PATH", "/project/data/backups/"))
 
 # Agent defaults
-MAX_AGENT_ITERATIONS = 15
 MAX_TOTAL_TOKENS = 100_000
 DEFAULT_CONTEXT_BUDGET = 50_000
 REFLECTION_THRESHOLD = 0.7
@@ -52,6 +51,7 @@ SYSTEM_PROMPT = (
     "Answer questions accurately and concisely."
 )
 CHAT_MAX_HISTORY_PAIRS = 20
+CHAT_MAX_MESSAGE_LENGTH = 10_000  # Max characters per user message
 CHAT_TEMPERATURE = 0.7
 CHAT_MAX_TOKENS = 2048
 LLM_TIMEOUT_SECONDS = 30.0
