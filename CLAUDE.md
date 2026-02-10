@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-The project is in early development — Phase 1, Steps 1-7 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+The project is in early development — Phase 1, Steps 1-9 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -122,7 +122,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Currently at **Phase 1, Step 9** (resilience). Steps 1-8 are complete with 195 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Currently at **Phase 1, Step 10** (observability). Steps 1-9 are complete with 227 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -134,6 +134,8 @@ Currently at **Phase 1, Step 9** (resilience). Steps 1-8 are complete with 195 u
 | `2026-02-09-step3-structured-output.md` | Step 3 detailed plan (complete) |
 | `2026-02-09-step7-multi-model-router.md` | Step 7 detailed plan (complete) |
 | `2026-02-09-step8-web-search-ingest.md` | Step 8 detailed plan (complete) |
+| `2026-02-09-step9-resilience.md` | Step 9 design spec (complete) |
+| `2026-02-09-step9-resilience-impl.md` | Step 9 implementation plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core (10 steps)
@@ -148,8 +150,8 @@ The active implementation plan (`phase-1-agent-core.md`) builds the system incre
 6. ~~Hybrid search (vector + FTS5 + RRF)~~ **DONE**
 7. ~~Multi-model router (Qwen 4B classification)~~ **DONE**
 8. ~~Web search + ingest tools (Brave API + scraping)~~ **DONE**
-9. **Resilience (circuit breakers, loop detection, retries)** ← current
-10. Observability (Langfuse tracing)
+9. ~~Resilience (circuit breakers, loop detection, retries)~~ **DONE**
+10. **Observability (Langfuse tracing)** ← current
 
 **Phase gate**: Chat with agent in browser. It classifies queries, routes to correct model, calls tools, answers from knowledge base. Traces visible in Langfuse.
 

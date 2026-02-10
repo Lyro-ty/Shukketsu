@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from code.shukketsu import config
 from code.shukketsu.resilience.errors import LLMUnavailableError, StructuredOutputError
+from code.shukketsu.resilience.retry import with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ def clear_clients() -> None:
     _clients.clear()
 
 
+@with_retry(max_attempts=2, base_delay=1.0, retryable=(LLMUnavailableError,))
 async def get_structured_output[T: BaseModel](
     response_model: type[T],
     messages: list[dict[str, str]],

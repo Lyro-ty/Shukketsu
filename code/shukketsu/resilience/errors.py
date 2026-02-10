@@ -105,3 +105,14 @@ class BraveSearchError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)
+
+
+class CircuitOpenError(ShukketsuError):
+    """Raised when a circuit breaker is open and rejecting requests."""
+
+    def __init__(self, breaker_name: str):
+        super().__init__(
+            f"Circuit breaker '{breaker_name}' is open — service unavailable",
+            FailureMode.MODEL_UNAVAILABLE,
+        )
+        self.breaker_name = breaker_name

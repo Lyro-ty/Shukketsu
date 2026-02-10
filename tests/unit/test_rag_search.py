@@ -91,3 +91,28 @@ class TestRagSearchTool:
         result = await tool.execute({"query": "hit cap"})
         assert "https://example.com/guide" in result
         assert "Hit Cap Guide" in result
+
+    async def test_embedding_failure_falls_back_to_fts(self, test_db: sqlite3.Connection) -> None:
+        """When embedding fails, tool should fall back to FTS5-only keyword search."""
+        from code.shukketsu.resilience.errors import EmbeddingError
+
+        _seed_test_data(test_db, num_chunks=2)
+
+        async def failing_embed(text: str) -> list[float]:
+            raise EmbeddingError("Ollama embed down")
+
+        tool = RagSearchTool(conn=test_db, embed_fn=failing_embed)
+        result = await tool.execute({"query": "hit cap"})
+        # Should get FTS5 results or a graceful "unavailable" message
+        assert "keyword search only" in result.lower() or "unavailable" in result.lower()
+
+    async def test_embedding_failure_empty_db_returns_message(self, test_db: sqlite3.Connection) -> None:
+        """When embedding fails on empty DB, tool should return informative message."""
+        from code.shukketsu.resilience.errors import EmbeddingError
+
+        async def failing_embed(text: str) -> list[float]:
+            raise EmbeddingError("Ollama embed down")
+
+        tool = RagSearchTool(conn=test_db, embed_fn=failing_embed)
+        result = await tool.execute({"query": "hit cap"})
+        assert "unavailable" in result.lower()

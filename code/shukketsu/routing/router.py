@@ -8,7 +8,8 @@ agent with tools.
 import logging
 
 from code.shukketsu.llm.structured import ModelBackend, get_structured_output
-from code.shukketsu.resilience.errors import LLMUnavailableError, StructuredOutputError
+from code.shukketsu.resilience.circuit_breaker import ollama_router_breaker
+from code.shukketsu.resilience.errors import CircuitOpenError, LLMUnavailableError, StructuredOutputError
 from code.shukketsu.routing.models import RoutingDecision, TaskCategory, TaskComplexity
 
 logger = logging.getLogger(__name__)
@@ -65,14 +66,15 @@ async def classify_query(query: str) -> RoutingDecision:
     ]
 
     try:
-        decision = await get_structured_output(
+        decision = await ollama_router_breaker.call(
+            get_structured_output,
             RoutingDecision,
             messages,
             backend=ModelBackend.OLLAMA,
             temperature=0.0,
             max_tokens=512,
         )
-    except (LLMUnavailableError, StructuredOutputError) as exc:
+    except (LLMUnavailableError, StructuredOutputError, CircuitOpenError) as exc:
         logger.warning("Router fallback: %s", exc)
         return _FALLBACK
 

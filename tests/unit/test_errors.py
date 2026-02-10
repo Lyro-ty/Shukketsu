@@ -60,3 +60,13 @@ def test_brave_search_error_has_tool_error_mode() -> None:
 
     err = BraveSearchError("api key missing")
     assert err.failure_mode == FailureMode.TOOL_EXECUTION_ERROR
+
+
+def test_circuit_open_error_has_model_unavailable_mode() -> None:
+    from code.shukketsu.resilience.errors import CircuitOpenError
+
+    err = CircuitOpenError("brave_search")
+    assert isinstance(err, ShukketsuError)
+    assert err.failure_mode == FailureMode.MODEL_UNAVAILABLE
+    assert err.breaker_name == "brave_search"
+    assert "brave_search" in str(err)

@@ -126,6 +126,24 @@ class TestClassifyQuery:
         assert call_kwargs.kwargs["max_tokens"] == 512
 
     @pytest.mark.asyncio
+    async def test_classify_fallback_on_circuit_open(self) -> None:
+        """When Ollama circuit breaker is open, classify_query should return safe fallback."""
+        from code.shukketsu.resilience.errors import CircuitOpenError
+
+        with patch(
+            "code.shukketsu.routing.router.ollama_router_breaker",
+        ) as mock_breaker:
+            mock_breaker.call = AsyncMock(side_effect=CircuitOpenError("ollama_router"))
+
+            from code.shukketsu.routing.router import classify_query
+
+            result = await classify_query("What is the hit cap?")
+
+        assert result.complexity == TaskComplexity.COMPLEX
+        assert result.direct_answer is None
+        assert result.needs_tools is True
+
+    @pytest.mark.asyncio
     async def test_classify_prompt_includes_domain_context(self) -> None:
         """The system prompt sent to Qwen should include WoW TBC Rogue domain context."""
         mock_output = AsyncMock(return_value=_make_decision())

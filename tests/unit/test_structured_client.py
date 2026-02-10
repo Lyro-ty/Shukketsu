@@ -180,6 +180,31 @@ class TestGetStructuredOutput:
             )
 
 
+class TestRetryIntegration:
+    """Tests for the @with_retry integration on get_structured_output."""
+
+    @patch("code.shukketsu.llm.structured._get_client")
+    async def test_retries_on_transient_llm_unavailable(self, mock_get_client: MagicMock) -> None:
+        """LLMUnavailableError should be retried once before propagating."""
+        from code.shukketsu.llm.structured import get_structured_output
+
+        expected = SimpleResponse(name="ok", value=1)
+        mock_client = MagicMock()
+        # First call fails with connection error, second succeeds
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[httpx.ConnectError("Connection refused"), expected]
+        )
+        mock_get_client.return_value = mock_client
+
+        result = await get_structured_output(
+            response_model=SimpleResponse,
+            messages=[{"role": "user", "content": "test"}],
+        )
+
+        assert result == expected
+        assert mock_client.chat.completions.create.call_count == 2
+
+
 class TestClientCaching:
     """Tests for the client factory caching behavior."""
 

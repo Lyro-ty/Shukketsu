@@ -158,3 +158,25 @@ class TestBuildMessages:
         system = msgs[0]["content"]
         assert "echo" in system.lower()
         assert "Echoes the input" in system
+
+
+class TestLoopDetection:
+    """Tests for loop detection integration in BaseAgent."""
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_stops_on_consecutive_loop(self, mock_llm: AsyncMock) -> None:
+        """Agent should stop and return graceful message when loop detected."""
+        mock_llm.return_value = _tool_call("echo", {"text": "stuck"})
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), max_iterations=10)
+        result = await agent.run("Loop test")
+        # Default max_consecutive_same=3, so it should stop after 3 identical calls
+        assert mock_llm.call_count <= 4
+        assert isinstance(result, str)
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_loop_returns_partial_observations(self, mock_llm: AsyncMock) -> None:
+        """Agent should include partial results when loop forces stop."""
+        mock_llm.return_value = _tool_call("echo", {"text": "repeated"})
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), max_iterations=10)
+        result = await agent.run("Loop test")
+        assert len(result) > 0

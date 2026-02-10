@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 
 from code.shukketsu import config
+from code.shukketsu.resilience.circuit_breaker import brave_breaker
+from code.shukketsu.resilience.errors import CircuitOpenError
 from code.shukketsu.tools.schemas import Tool
 
 logger = logging.getLogger(__name__)
@@ -48,7 +50,8 @@ class WebSearchTool(Tool):
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
+                response = await brave_breaker.call(
+                    client.get,
                     _BRAVE_SEARCH_URL,
                     params={"q": query, "count": count},
                     headers={
@@ -61,6 +64,8 @@ class WebSearchTool(Tool):
             return "Error: Web search timed out. Try again later."
         except httpx.ConnectError:
             return "Error: Could not connect to Brave Search API."
+        except CircuitOpenError:
+            return "Error: Web search is temporarily unavailable. Try answering from the knowledge base."
 
         if response.status_code == 429:
             return "Error: Web search rate limited. Try again later."
@@ -73,7 +78,7 @@ class WebSearchTool(Tool):
         if not results:
             return f"No web results found for: {query}"
 
-        parts = [f"Found {len(results)} web result{'s' if len(results) != 1 else ''} for \"{query}\":\n"]
+        parts = [f'Found {len(results)} web result{"s" if len(results) != 1 else ""} for "{query}":\n']
         for i, r in enumerate(results, 1):
             title = r.get("title", "Untitled")
             url = r.get("url", "")

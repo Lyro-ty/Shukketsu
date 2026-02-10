@@ -120,6 +120,21 @@ class TestWebSearchTool:
             result = await tool.execute({"query": "test"})
         assert "rate limited" in result.lower() or "error" in result.lower()
 
+    async def test_circuit_open_returns_unavailable_message(self) -> None:
+        """When brave circuit breaker is open, tool returns fallback message."""
+        from code.shukketsu.resilience.errors import CircuitOpenError
+
+        tool = WebSearchTool()
+        with (
+            patch("code.shukketsu.tools.research.web_search.config") as mock_config,
+            patch("code.shukketsu.tools.research.web_search.brave_breaker") as mock_breaker,
+        ):
+            mock_config.BRAVE_SEARCH_API_KEY = "test-key"
+            mock_config.BRAVE_SEARCH_MAX_RESULTS = 5
+            mock_breaker.call = AsyncMock(side_effect=CircuitOpenError("brave_search"))
+            result = await tool.execute({"query": "test"})
+        assert "unavailable" in result.lower()
+
     async def test_respects_count_parameter(self) -> None:
         tool = WebSearchTool()
         mock_resp = _mock_brave_response()

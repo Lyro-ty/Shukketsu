@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from code.shukketsu import config
+from code.shukketsu.agents.guardrails import LoopDetector
 from code.shukketsu.llm.schemas import ActionType, AgentStep
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.tools.registry import ToolRegistry
@@ -37,6 +38,7 @@ class BaseAgent:
         self.tool_registry = tool_registry
         self.max_iterations = max_iterations
         self._system_prompt = system_prompt
+        self._loop_detector = LoopDetector()
 
     async def run(self, query: str) -> str:
         """Run the ReAct loop to answer a query.
@@ -81,7 +83,21 @@ class BaseAgent:
                 }
             )
 
+            # Check for loops after each tool call
+            loop_msg = self._loop_detector.check(scratchpad)
+            if loop_msg:
+                logger.warning("Loop detected: %s", loop_msg)
+                return self._synthesize_partial_answer(scratchpad)
+
         logger.warning("Agent reached max iterations (%d) without final answer", self.max_iterations)
+        return config.AGENT_GRACEFUL_FAILURE
+
+    def _synthesize_partial_answer(self, scratchpad: list[dict[str, Any]]) -> str:
+        """Build an answer from partial observations when a loop is detected."""
+        observations = [e["observation"] for e in scratchpad if e.get("observation")]
+        if observations:
+            unique = list(dict.fromkeys(observations))
+            return f"Based on partial results: {unique[-1]}"
         return config.AGENT_GRACEFUL_FAILURE
 
     def _build_messages(self, query: str, scratchpad: list[dict[str, Any]]) -> list[dict[str, str]]:

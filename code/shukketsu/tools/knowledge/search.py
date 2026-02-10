@@ -6,7 +6,9 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from code.shukketsu import config
+from code.shukketsu.rag.fusion import escape_fts_query
 from code.shukketsu.rag.search import hybrid_search
+from code.shukketsu.resilience.circuit_breaker import ollama_embed_breaker
 from code.shukketsu.tools.schemas import Tool
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,7 @@ class RagSearchTool(Tool):
 
     Combines semantic vector similarity (chunks_vec) with FTS5 keyword
     matching (chunks_fts), merged via Reciprocal Rank Fusion.
+    Falls back to FTS5-only keyword search when embedding is unavailable.
     """
 
     name = "rag_search"
@@ -40,7 +43,12 @@ class RagSearchTool(Tool):
         if not query:
             return "Error: 'query' parameter is required."
 
-        embedding = await self._embed_fn(query)
+        try:
+            embedding = await ollama_embed_breaker.call(self._embed_fn, query)
+        except Exception as exc:
+            logger.warning("Embedding failed, falling back to keyword-only search: %s", exc)
+            return self._fts_only_search(query, top_k)
+
         results = await hybrid_search(self._conn, query, embedding, top_k=top_k)
 
         if not results:
@@ -50,6 +58,34 @@ class RagSearchTool(Tool):
         for i, r in enumerate(results, 1):
             parts.append(
                 f"[{i}] Source: {r.source_title} ({r.source_url})\nTrust: {r.trust_score}\nContent: {r.content}\n"
+            )
+
+        return "\n".join(parts)
+
+    def _fts_only_search(self, query: str, top_k: int) -> str:
+        """Fallback keyword-only search when embedding is unavailable."""
+        fts_query = escape_fts_query(query)
+        if not fts_query:
+            return "Error: Embedding model unavailable and no keyword query provided."
+
+        rows = self._conn.execute(
+            """SELECT c.id, c.content, s.title, s.url, s.trust_score
+               FROM chunks_fts f
+               JOIN chunks c ON c.id = f.rowid
+               JOIN sources s ON s.id = c.source_id
+               WHERE chunks_fts MATCH ?
+               ORDER BY rank
+               LIMIT ?""",
+            (fts_query, top_k),
+        ).fetchall()
+
+        if not rows:
+            return "No relevant documents found (keyword search only — embedding model unavailable)."
+
+        parts = [f"Found {len(rows)} result{'s' if len(rows) != 1 else ''} (keyword search only):\n"]
+        for i, r in enumerate(rows, 1):
+            parts.append(
+                f"[{i}] Source: {r['title']} ({r['url']})\nTrust: {r['trust_score']}\nContent: {r['content']}\n"
             )
 
         return "\n".join(parts)
