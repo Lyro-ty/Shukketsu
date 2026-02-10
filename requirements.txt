@@ -1,1 +1,44 @@
 jupyterlab>3.0
+
+# Web framework
+fastapi>=0.115
+uvicorn[standard]>=0.34
+jinja2>=3.1
+
+# HTTP + scraping
+httpx>=0.28
+trafilatura>=2.0
+
+# Markdown rendering
+markdown>=3.7
+
+# Task scheduling
+apscheduler>=3.10
+
+# LLM clients + structured output
+instructor>=1.7
+openai>=1.60
+ollama>=0.5
+pydantic>=2.10
+
+# Database
+sqlite-vec>=0.1
+sqlparse>=0.5
+
+# Observability
+langfuse>=3.0
+
+# RAG evaluation
+ragas>=0.2
+
+# Simulation
+numpy>=2.0
+
+# Testing
+pytest>=8.0
+pytest-asyncio>=0.24
+pytest-cov>=6.0
+
+# Linting
+ruff>=0.9
+mypy>=1.14

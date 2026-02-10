@@ -84,3 +84,24 @@ class EmbeddingError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.EMBEDDING_ERROR)
+
+
+class ScrapingError(ShukketsuError):
+    """Raised when a web page cannot be fetched."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.HTTP_ERROR)
+
+
+class RobotsDisallowedError(ShukketsuError):
+    """Raised when robots.txt disallows access to a URL."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.RATE_LIMITED)
+
+
+class BraveSearchError(ShukketsuError):
+    """Raised when the Brave Search API call fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)

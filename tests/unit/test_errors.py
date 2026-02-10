@@ -39,3 +39,24 @@ def test_embedding_error():
     assert isinstance(err, ShukketsuError)
     assert err.failure_mode == FailureMode.EMBEDDING_ERROR
     assert "Ollama unreachable" in str(err)
+
+
+def test_scraping_error_has_http_error_mode() -> None:
+    from code.shukketsu.resilience.errors import ScrapingError
+
+    err = ScrapingError("timeout")
+    assert err.failure_mode == FailureMode.HTTP_ERROR
+
+
+def test_robots_disallowed_error_has_rate_limited_mode() -> None:
+    from code.shukketsu.resilience.errors import RobotsDisallowedError
+
+    err = RobotsDisallowedError("blocked by robots.txt")
+    assert err.failure_mode == FailureMode.RATE_LIMITED
+
+
+def test_brave_search_error_has_tool_error_mode() -> None:
+    from code.shukketsu.resilience.errors import BraveSearchError
+
+    err = BraveSearchError("api key missing")
+    assert err.failure_mode == FailureMode.TOOL_EXECUTION_ERROR

@@ -1,0 +1,93 @@
+"""Web page fetcher with rate limiting and robots.txt compliance."""
+
+import logging
+from dataclasses import dataclass
+from urllib.parse import urlparse
+
+import httpx
+
+from code.shukketsu import config
+from code.shukketsu.resilience.errors import RobotsDisallowedError, ScrapingError
+from code.shukketsu.scraping.rate_limiter import RateLimiter
+from code.shukketsu.scraping.robots import RobotsChecker
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FetchResult:
+    """Result of fetching a web page."""
+
+    html: str
+    status_code: int
+    final_url: str
+
+
+class WebFetcher:
+    """Fetch web pages with rate limiting and robots.txt compliance.
+
+    Composes RateLimiter and RobotsChecker so callers don't need to
+    manage politeness policies themselves.
+    """
+
+    def __init__(self, rate_limiter: RateLimiter, robots_checker: RobotsChecker) -> None:
+        self._rate_limiter = rate_limiter
+        self._robots_checker = robots_checker
+
+    async def fetch(self, url: str) -> FetchResult:
+        """Fetch a URL, respecting robots.txt and rate limits.
+
+        Args:
+            url: The URL to fetch.
+
+        Returns:
+            FetchResult with HTML content, status code, and final URL.
+
+        Raises:
+            RobotsDisallowedError: If robots.txt blocks the URL.
+            ScrapingError: If the fetch fails (HTTP error, timeout, non-HTML).
+        """
+        # 1. Check robots.txt
+        if not await self._robots_checker.is_allowed(url):
+            raise RobotsDisallowedError(f"Blocked by robots.txt: {url}")
+
+        # 2. Rate limit
+        domain = urlparse(url).netloc
+        await self._rate_limiter.acquire(domain)
+
+        # 3. Fetch
+        try:
+            async with httpx.AsyncClient(
+                timeout=config.SCRAPING_DEFAULT_TIMEOUT,
+                follow_redirects=True,
+                max_redirects=5,
+            ) as client:
+                response = await client.get(
+                    url,
+                    headers={"User-Agent": config.SCRAPING_USER_AGENT},
+                )
+        except httpx.TimeoutException as exc:
+            raise ScrapingError(f"Timed out fetching {url}: {exc}") from exc
+        except httpx.ConnectError as exc:
+            raise ScrapingError(f"Connection error fetching {url}: {exc}") from exc
+
+        # 4. Check status
+        if response.status_code >= 400:
+            raise ScrapingError(f"HTTP {response.status_code} fetching {url}")
+
+        # 5. Check content type
+        content_type = response.headers.get("content-type", "")
+        if "text/html" not in content_type and "text/xhtml" not in content_type:
+            raise ScrapingError(f"Not an HTML page ({content_type}): {url}")
+
+        # 6. Check response size
+        content_length = len(response.content)
+        if content_length > config.SCRAPING_MAX_RESPONSE_BYTES:
+            raise ScrapingError(
+                f"Response too large ({content_length} bytes, max {config.SCRAPING_MAX_RESPONSE_BYTES}): {url}"
+            )
+
+        final_url = str(response.url)
+        logger.info("Fetched %s (%d bytes, final: %s)", url, content_length, final_url)
+
+        return FetchResult(html=response.text, status_code=response.status_code, final_url=final_url)

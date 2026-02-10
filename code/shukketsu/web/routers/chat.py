@@ -48,18 +48,29 @@ def _get_agent() -> BaseAgent:
     if _agent_instance is None:
         from code.shukketsu.agents.base import BaseAgent
         from code.shukketsu.db.connection import get_connection, init_db
+        from code.shukketsu.ingest.embedder import get_embedder
+        from code.shukketsu.ingest.pipeline import IngestPipeline
+        from code.shukketsu.scraping.fetcher import WebFetcher
+        from code.shukketsu.scraping.rate_limiter import RateLimiter
+        from code.shukketsu.scraping.robots import RobotsChecker
         from code.shukketsu.tools.knowledge.search import RagSearchTool
         from code.shukketsu.tools.registry import ToolRegistry
+        from code.shukketsu.tools.research.web_ingest import WebIngestTool
+        from code.shukketsu.tools.research.web_search import WebSearchTool
 
         conn = get_connection()
         init_db(conn)
-
-        async def _placeholder_embed(text: str) -> list[float]:
-            """Placeholder until Step 5 adds real embedding."""
-            return [0.0] * 768
+        embedder = get_embedder()
 
         registry = ToolRegistry()
-        registry.register(RagSearchTool(conn=conn, embed_fn=_placeholder_embed))
+        registry.register(RagSearchTool(conn=conn, embed_fn=embedder.embed_query))
+
+        # Web search + ingest tools
+        fetcher = WebFetcher(rate_limiter=RateLimiter(), robots_checker=RobotsChecker())
+        pipeline = IngestPipeline(conn=conn, embedder=embedder)
+        registry.register(WebSearchTool())
+        registry.register(WebIngestTool(fetcher=fetcher, pipeline=pipeline))
+
         _agent_instance = BaseAgent(tool_registry=registry)
 
     return _agent_instance

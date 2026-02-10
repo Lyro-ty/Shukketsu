@@ -122,7 +122,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Currently at **Phase 1, Step 8** (web search + ingest tools). Steps 1-7 are complete with 152 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Currently at **Phase 1, Step 9** (resilience). Steps 1-8 are complete with 195 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -133,6 +133,7 @@ Currently at **Phase 1, Step 8** (web search + ingest tools). Steps 1-7 are comp
 | `2026-02-09-step2-database.md` | Step 2 detailed plan (complete) |
 | `2026-02-09-step3-structured-output.md` | Step 3 detailed plan (complete) |
 | `2026-02-09-step7-multi-model-router.md` | Step 7 detailed plan (complete) |
+| `2026-02-09-step8-web-search-ingest.md` | Step 8 detailed plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core (10 steps)
@@ -146,8 +147,8 @@ The active implementation plan (`phase-1-agent-core.md`) builds the system incre
 5. ~~Ingest pipeline (chunking + embedding + storage)~~ **DONE**
 6. ~~Hybrid search (vector + FTS5 + RRF)~~ **DONE**
 7. ~~Multi-model router (Qwen 4B classification)~~ **DONE**
-8. **Web search + ingest tools (Brave API + scraping)** ← current
-9. Resilience (circuit breakers, loop detection, retries)
+8. ~~Web search + ingest tools (Brave API + scraping)~~ **DONE**
+9. **Resilience (circuit breakers, loop detection, retries)** ← current
 10. Observability (Langfuse tracing)
 
 **Phase gate**: Chat with agent in browser. It classifies queries, routes to correct model, calls tools, answers from knowledge base. Traces visible in Langfuse.
