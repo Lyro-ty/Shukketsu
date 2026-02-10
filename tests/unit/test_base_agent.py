@@ -180,3 +180,30 @@ class TestLoopDetection:
         agent = BaseAgent(tool_registry=_registry(EchoTool()), max_iterations=10)
         result = await agent.run("Loop test")
         assert len(result) > 0
+
+    async def test_partial_answer_includes_all_observations(self) -> None:
+        """When a loop is detected, all unique observations should be included."""
+        agent = BaseAgent(tool_registry=_registry())
+        scratchpad = [
+            {
+                "observation": "Rogues have a 9% hit cap.",
+                "tool_name": "rag_search",
+                "tool_input": {"query": "hit cap"},
+                "reasoning": "look up hit cap",
+            },
+            {
+                "observation": "Combat swords is the best spec.",
+                "tool_name": "rag_search",
+                "tool_input": {"query": "best spec"},
+                "reasoning": "look up spec",
+            },
+            {
+                "observation": "Rogues have a 9% hit cap.",
+                "tool_name": "rag_search",
+                "tool_input": {"query": "hit cap"},
+                "reasoning": "look up hit cap",
+            },
+        ]
+        result = agent._synthesize_partial_answer(scratchpad)
+        assert "9% hit cap" in result
+        assert "Combat swords" in result

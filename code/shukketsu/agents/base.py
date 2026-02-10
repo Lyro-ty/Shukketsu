@@ -97,7 +97,8 @@ class BaseAgent:
         observations = [e["observation"] for e in scratchpad if e.get("observation")]
         if observations:
             unique = list(dict.fromkeys(observations))
-            return f"Based on partial results: {unique[-1]}"
+            joined = "\n\n".join(unique)
+            return f"Based on partial results:\n\n{joined}"
         return config.AGENT_GRACEFUL_FAILURE
 
     def _build_messages(self, query: str, scratchpad: list[dict[str, Any]]) -> list[dict[str, str]]:
