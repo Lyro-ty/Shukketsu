@@ -10,6 +10,7 @@ from enum import StrEnum
 
 import httpx
 import instructor
+from langfuse import get_client, observe
 from openai import APIConnectionError, AsyncOpenAI
 from pydantic import BaseModel
 
@@ -61,6 +62,7 @@ def clear_clients() -> None:
     _clients.clear()
 
 
+@observe(as_type="generation")
 @with_retry(max_attempts=2, base_delay=1.0, retryable=(LLMUnavailableError,))
 async def get_structured_output[T: BaseModel](
     response_model: type[T],
@@ -93,6 +95,12 @@ async def get_structured_output[T: BaseModel](
     """
     if model is None:
         model = config.REASONING_MODEL if backend == ModelBackend.VLLM else config.ROUTER_MODEL
+
+    langfuse = get_client()
+    langfuse.update_current_generation(
+        model=model,
+        model_parameters={"temperature": temperature, "max_tokens": max_tokens},
+    )
 
     client = _get_client(backend)
 
