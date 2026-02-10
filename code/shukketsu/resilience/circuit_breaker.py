@@ -1,5 +1,6 @@
 """Circuit breaker pattern for external service protection."""
 
+import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -36,6 +37,7 @@ class CircuitBreaker:
         self._failure_count = 0
         self._last_failure_time: float = 0.0
         self._state = CircuitState.CLOSED
+        self._half_open_lock = asyncio.Lock()
 
     @property
     def state(self) -> CircuitState:
@@ -67,12 +69,21 @@ class CircuitBreaker:
             logger.warning("Circuit breaker '%s' is OPEN — rejecting request", self.name)
             raise CircuitOpenError(self.name)
 
+        if current_state == CircuitState.HALF_OPEN:
+            if self._half_open_lock.locked():
+                raise CircuitOpenError(self.name)
+            async with self._half_open_lock:
+                return await self._execute(fn, *args, **kwargs)
+
+        return await self._execute(fn, *args, **kwargs)
+
+    async def _execute(self, fn: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+        """Execute fn and record success/failure."""
         try:
             result = await fn(*args, **kwargs)
         except Exception:
             self._record_failure()
             raise
-
         self._record_success()
         return result
 
@@ -125,3 +136,9 @@ brave_breaker = CircuitBreaker(
     failure_threshold=config.CB_BRAVE_FAILURE_THRESHOLD,
     recovery_timeout=config.CB_BRAVE_RECOVERY_TIMEOUT,
 )
+
+
+def reset_all_breakers() -> None:
+    """Reset all named circuit breakers to CLOSED. Used by test fixtures."""
+    for breaker in (vllm_breaker, ollama_router_breaker, ollama_embed_breaker, brave_breaker):
+        breaker.reset()

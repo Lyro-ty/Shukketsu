@@ -106,6 +106,35 @@ class TestCircuitBreakerHalfOpen:
         assert cb.state == CircuitState.OPEN
 
 
+class TestCircuitBreakerConcurrency:
+    """Tests for async-safety of the circuit breaker."""
+
+    async def test_half_open_allows_only_one_concurrent_request(self) -> None:
+        """In HALF_OPEN, only one request should pass; others get CircuitOpenError."""
+        cb = CircuitBreaker("test", failure_threshold=1, recovery_timeout=0.01)
+        # Trip the breaker
+        fn = AsyncMock(side_effect=ConnectionError("down"))
+        with pytest.raises(ConnectionError):
+            await cb.call(fn)
+        await asyncio.sleep(0.02)
+        assert cb.state == CircuitState.HALF_OPEN
+
+        # A slow function that simulates work
+        async def slow_fn():
+            await asyncio.sleep(0.05)
+            return "ok"
+
+        # Launch two concurrent calls
+        tasks = [asyncio.create_task(cb.call(slow_fn)) for _ in range(2)]
+        done = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Exactly one should succeed, the other should get CircuitOpenError
+        successes = [r for r in done if r == "ok"]
+        errors = [r for r in done if isinstance(r, CircuitOpenError)]
+        assert len(successes) == 1
+        assert len(errors) == 1
+
+
 class TestCircuitBreakerReset:
     """Tests for the manual reset method."""
 
