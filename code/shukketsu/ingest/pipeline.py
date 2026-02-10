@@ -66,51 +66,52 @@ class IngestPipeline:
                     chunk_count=chunk_count,
                     already_existed=True,
                 )
-            # Content changed — delete old vectors and chunks, then re-ingest
-            source_id = existing["id"]
-            self._delete_chunks_and_vectors(source_id)
-            self._conn.execute(
-                "UPDATE sources SET title = ?, source_type = ?, content_hash = ?, "
-                "fetched_at = ?, chunk_count = 0 WHERE id = ?",
-                (title, source_type, content_hash, datetime.now(UTC).isoformat(), source_id),
-            )
+
+        # Embed BEFORE touching the database (this is the most likely failure point)
+        if text.strip():
+            chunks = chunk_text(text)
+            embeddings = await self._embedder.embed_texts([c.content for c in chunks])
         else:
-            cursor = self._conn.execute(
-                "INSERT INTO sources (url, title, source_type, content_hash, fetched_at) VALUES (?, ?, ?, ?, ?)",
-                (url, title, source_type, content_hash, datetime.now(UTC).isoformat()),
-            )
-            source_id = cursor.lastrowid
+            chunks = []
+            embeddings = []
 
-        # Handle empty text
-        if not text.strip():
-            self._conn.commit()
-            return IngestResult(source_id=source_id, chunk_count=0, already_existed=False)
+        # Now write everything in a single transaction
+        try:
+            if existing:
+                source_id = existing["id"]
+                self._delete_chunks_and_vectors(source_id)
+                self._conn.execute(
+                    "UPDATE sources SET title = ?, source_type = ?, content_hash = ?, "
+                    "fetched_at = ?, chunk_count = 0 WHERE id = ?",
+                    (title, source_type, content_hash, datetime.now(UTC).isoformat(), source_id),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "INSERT INTO sources (url, title, source_type, content_hash, fetched_at) VALUES (?, ?, ?, ?, ?)",
+                    (url, title, source_type, content_hash, datetime.now(UTC).isoformat()),
+                )
+                source_id = cursor.lastrowid
 
-        # Chunk the text
-        chunks = chunk_text(text)
+            for chunk, embedding in zip(chunks, embeddings):
+                cursor = self._conn.execute(
+                    "INSERT INTO chunks (source_id, content, chunk_index, metadata_json) VALUES (?, ?, ?, NULL)",
+                    (source_id, chunk.content, chunk.chunk_index),
+                )
+                chunk_id = cursor.lastrowid
+                embedding_blob = struct.pack(f"{len(embedding)}f", *embedding)
+                self._conn.execute(
+                    "INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)",
+                    (chunk_id, embedding_blob),
+                )
 
-        # Embed all chunks in one batch
-        embeddings = await self._embedder.embed_texts([c.content for c in chunks])
-
-        # Store chunks and vectors
-        for chunk, embedding in zip(chunks, embeddings):
-            cursor = self._conn.execute(
-                "INSERT INTO chunks (source_id, content, chunk_index, metadata_json) VALUES (?, ?, ?, NULL)",
-                (source_id, chunk.content, chunk.chunk_index),
-            )
-            chunk_id = cursor.lastrowid
-            embedding_blob = struct.pack(f"{len(embedding)}f", *embedding)
             self._conn.execute(
-                "INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)",
-                (chunk_id, embedding_blob),
+                "UPDATE sources SET chunk_count = ? WHERE id = ?",
+                (len(chunks), source_id),
             )
-
-        # Update chunk count on the source
-        self._conn.execute(
-            "UPDATE sources SET chunk_count = ? WHERE id = ?",
-            (len(chunks), source_id),
-        )
-        self._conn.commit()
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
         logger.info("Ingested %d chunks from %s (%s)", len(chunks), url, title)
 

@@ -3,7 +3,10 @@
 import sqlite3
 from unittest.mock import AsyncMock
 
+import pytest
+
 from code.shukketsu.ingest.pipeline import IngestPipeline, IngestResult
+from code.shukketsu.resilience.errors import EmbeddingError
 
 EMBEDDING_DIM = 768
 
@@ -107,3 +110,22 @@ class TestIngestPipeline:
         pipeline = IngestPipeline(conn=test_db, embedder=_mock_embedder())
         result = await pipeline.ingest(text="", url="https://example.com/empty", title="Empty")
         assert result.chunk_count == 0
+
+    async def test_embedding_failure_rolls_back_source(self, test_db: sqlite3.Connection) -> None:
+        """If embedding fails, the source row should be rolled back so re-ingest works."""
+        embedder = _mock_embedder()
+        embedder.embed_texts = AsyncMock(side_effect=EmbeddingError("GPU OOM"))
+        pipeline = IngestPipeline(conn=test_db, embedder=embedder)
+
+        with pytest.raises(EmbeddingError):
+            await pipeline.ingest(text="Some real content.", url="https://example.com/fail", title="Fail")
+
+        # Source should NOT exist — it was rolled back
+        row = test_db.execute("SELECT id FROM sources WHERE url = ?", ("https://example.com/fail",)).fetchone()
+        assert row is None
+
+        # Re-ingest with a working embedder should succeed
+        pipeline2 = IngestPipeline(conn=test_db, embedder=_mock_embedder())
+        result = await pipeline2.ingest(text="Some real content.", url="https://example.com/fail", title="Fail")
+        assert result.already_existed is False
+        assert result.chunk_count >= 1
