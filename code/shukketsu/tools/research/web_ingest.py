@@ -97,7 +97,4 @@ class WebIngestTool(Tool):
                 f"(source_id={result.source_id}, {result.chunk_count} chunks). No changes detected."
             )
 
-        return (
-            f"Ingested \"{title}\" from {domain}: "
-            f"{result.chunk_count} chunks stored (source_id={result.source_id})."
-        )
+        return f'Ingested "{title}" from {domain}: {result.chunk_count} chunks stored (source_id={result.source_id}).'

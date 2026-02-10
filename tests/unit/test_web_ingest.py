@@ -100,9 +100,7 @@ class TestWebIngestTool:
         assert "example.com" in result
 
     async def test_dedup_returns_existing_message(self) -> None:
-        tool = _make_tool(
-            ingest_result=IngestResult(source_id=1, chunk_count=5, already_existed=True)
-        )
+        tool = _make_tool(ingest_result=IngestResult(source_id=1, chunk_count=5, already_existed=True))
         with tool._extract_patch, tool._bare_patch:
             result = await tool.execute({"url": "https://example.com/guide"})
         assert "already" in result.lower()
@@ -127,9 +125,7 @@ class TestWebIngestTool:
 
     async def test_uses_final_url_for_ingest(self) -> None:
         tool = _make_tool(
-            fetch_result=FakeFetchResult(
-                html=SAMPLE_HTML, status_code=200, final_url="https://example.com/redirected"
-            )
+            fetch_result=FakeFetchResult(html=SAMPLE_HTML, status_code=200, final_url="https://example.com/redirected")
         )
         with tool._extract_patch, tool._bare_patch:
             await tool.execute({"url": "https://example.com/old"})
