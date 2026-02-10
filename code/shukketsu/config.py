@@ -11,7 +11,7 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 # Model names (all served by Ollama)
 REASONING_MODEL = os.getenv("REASONING_MODEL", "llama3.3:70b")
-ROUTER_MODEL = "qwen3:4b"
+ROUTER_MODEL = "qwen3-router"  # Custom Modelfile: qwen3:4b with thinking disabled
 EMBEDDING_MODEL = "nomic-embed-text"
 
 # API credentials

@@ -109,7 +109,11 @@ function handleMessage(msg) {
             break;
 
         case "status":
-            // Connection status — handled by onopen
+            if (msg.content !== "connected" && currentAssistantEl) {
+                currentAssistantEl.innerHTML =
+                    `<span class="text-parchment-dim text-sm loading-dots">${msg.content}</span>`;
+                scrollToBottom();
+            }
             break;
     }
 }

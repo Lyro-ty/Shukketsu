@@ -89,7 +89,7 @@ class TestGetStructuredOutput:
         )
 
         call_kwargs = mock_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs["model"] == "qwen3:4b"
+        assert call_kwargs.kwargs["model"] == "qwen3-router"
 
     @patch("code.shukketsu.llm.structured._get_client")
     async def test_explicit_model_override(self, mock_get_client: MagicMock) -> None:

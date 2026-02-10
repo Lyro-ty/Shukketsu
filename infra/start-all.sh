@@ -7,6 +7,7 @@
 # Prerequisites:
 #   - Ollama running (auto-starts with container)
 #   - Models pulled: ollama pull llama3.3:70b qwen3:4b nomic-embed-text
+#   - Router model created: ollama create qwen3-router -f infra/Modelfile.qwen3-router
 #   - Langfuse stack: docker compose -f infra/docker-compose.langfuse.yml up -d
 
 set -euo pipefail
@@ -27,7 +28,7 @@ fi
 # 2. Verify required models
 echo "[2/3] Checking models..."
 MODELS=$(curl -s http://localhost:11434/api/tags 2>/dev/null)
-for model in "llama3.3:70b" "qwen3:4b" "nomic-embed-text"; do
+for model in "llama3.3:70b" "qwen3-router" "nomic-embed-text"; do
     if echo "$MODELS" | grep -q "$model"; then
         echo "  $model: OK"
     else
