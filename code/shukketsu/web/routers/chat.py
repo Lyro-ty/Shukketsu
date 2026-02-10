@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from langfuse import get_client, observe
 
 from code.shukketsu import config
 from code.shukketsu.resilience.errors import ShukketsuError
@@ -127,6 +128,7 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
     await _agent_response(websocket, session, content)
 
 
+@observe()
 async def _agent_response(websocket: WebSocket, session: ChatSession, content: str) -> None:
     """Get an agent response for the given user message.
 
@@ -137,6 +139,12 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
     session.add_message("user", content)
 
     try:
+        langfuse = get_client()
+        langfuse.update_current_trace(
+            session_id=str(id(session)),
+            tags=["chat"],
+            input=content,
+        )
         await websocket.send_json({"type": "status", "content": "routing..."})
         decision = await classify_query(content)
         logger.info("Route: %s → %s", decision.complexity, decision.category)
