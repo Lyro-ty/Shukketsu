@@ -1,12 +1,12 @@
-"""RAG search tool for vector similarity search over the knowledge base."""
+"""RAG search tool for hybrid vector + keyword search over the knowledge base."""
 
 import logging
 import sqlite3
-import struct
 from collections.abc import Callable, Coroutine
 from typing import Any
 
 from code.shukketsu import config
+from code.shukketsu.rag.search import hybrid_search
 from code.shukketsu.tools.schemas import Tool
 
 logger = logging.getLogger(__name__)
@@ -15,10 +15,10 @@ EmbedFn = Callable[[str], Coroutine[Any, Any, list[float]]]
 
 
 class RagSearchTool(Tool):
-    """Search the knowledge base using vector similarity.
+    """Search the knowledge base using hybrid vector + keyword search.
 
-    Queries chunks_vec for cosine similarity, joins back to chunks
-    and sources for content and metadata.
+    Combines semantic vector similarity (chunks_vec) with FTS5 keyword
+    matching (chunks_fts), merged via Reciprocal Rank Fusion.
     """
 
     name = "rag_search"
@@ -33,7 +33,7 @@ class RagSearchTool(Tool):
         self._embed_fn = embed_fn
 
     async def execute(self, tool_input: dict[str, Any]) -> str:
-        """Execute a vector similarity search."""
+        """Execute a hybrid search (vector + FTS5 + RRF)."""
         query = tool_input.get("query", "")
         top_k = tool_input.get("top_k", config.RAG_SEARCH_TOP_K)
 
@@ -41,32 +41,15 @@ class RagSearchTool(Tool):
             return "Error: 'query' parameter is required."
 
         embedding = await self._embed_fn(query)
-        query_blob = struct.pack(f"{len(embedding)}f", *embedding)
+        results = await hybrid_search(self._conn, query, embedding, top_k=top_k)
 
-        rows = self._conn.execute(
-            """
-            SELECT c.id, c.content, c.chunk_index, s.url, s.title, s.trust_score,
-                   v.distance
-            FROM (
-                SELECT rowid, distance
-                FROM chunks_vec
-                WHERE embedding MATCH ?
-                ORDER BY distance
-                LIMIT ?
-            ) v
-            JOIN chunks c ON c.id = v.rowid
-            JOIN sources s ON s.id = c.source_id
-            """,
-            (query_blob, top_k),
-        ).fetchall()
-
-        if not rows:
+        if not results:
             return "No relevant documents found for this query."
 
-        parts = [f"Found {len(rows)} result{'s' if len(rows) != 1 else ''}:\n"]
-        for i, row in enumerate(rows, 1):
+        parts = [f"Found {len(results)} result{'s' if len(results) != 1 else ''}:\n"]
+        for i, r in enumerate(results, 1):
             parts.append(
-                f"[{i}] Source: {row['title']} ({row['url']})\nTrust: {row['trust_score']}\nContent: {row['content']}\n"
+                f"[{i}] Source: {r.source_title} ({r.source_url})\nTrust: {r.trust_score}\nContent: {r.content}\n"
             )
 
         return "\n".join(parts)
