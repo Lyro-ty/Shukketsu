@@ -105,9 +105,13 @@ async def get_structured_output[T: BaseModel](
             max_tokens=max_tokens,
             max_retries=max_retries,
         )
-    except (httpx.ConnectError, APIConnectionError):
-        raise LLMUnavailableError(f"Cannot connect to {backend.value} server. Is it running?")
-    except httpx.TimeoutException:
-        raise LLMUnavailableError(f"{backend.value} server did not respond within {config.LLM_TIMEOUT_SECONDS}s.")
-    except instructor.core.exceptions.InstructorRetryException:
-        raise StructuredOutputError(f"Failed to get valid {response_model.__name__} after {max_retries} retries.")
+    except (httpx.ConnectError, APIConnectionError) as exc:
+        raise LLMUnavailableError(f"Cannot connect to {backend.value} server. Is it running?") from exc
+    except httpx.TimeoutException as exc:
+        raise LLMUnavailableError(
+            f"{backend.value} server did not respond within {config.LLM_TIMEOUT_SECONDS}s."
+        ) from exc
+    except instructor.core.exceptions.InstructorRetryException as exc:
+        raise StructuredOutputError(
+            f"Failed to get valid {response_model.__name__} after {max_retries} retries."
+        ) from exc

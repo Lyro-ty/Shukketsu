@@ -39,15 +39,15 @@ async def stream_chat(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    except (httpx.ConnectError, APIConnectionError):
+    except (httpx.ConnectError, APIConnectionError) as exc:
         raise LLMUnavailableError(
             f"Cannot connect to LLM server at {config.VLLM_BASE_URL}. Is vLLM running on port 8000?"
-        )
-    except httpx.TimeoutException:
+        ) from exc
+    except httpx.TimeoutException as exc:
         raise LLMUnavailableError(
             f"LLM server at {config.VLLM_BASE_URL} did not respond within "
             f"{config.LLM_TIMEOUT_SECONDS} seconds. It may be loading the model."
-        )
+        ) from exc
 
     try:
         async for chunk in stream:
@@ -56,6 +56,6 @@ async def stream_chat(
                 if content:
                     yield content
     except httpx.ReadError as exc:
-        raise LLMUnavailableError(f"Connection to LLM server lost during response: {exc}")
+        raise LLMUnavailableError(f"Connection to LLM server lost during response: {exc}") from exc
     finally:
         await stream.close()
