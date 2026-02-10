@@ -6,19 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-The project is in early development — Phase 1, Steps 1-9 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+The project is in early development — Phase 1 is complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
 ```bash
 # Run the web server (registered as Workbench app on port 9000)
-python -m uvicorn code.shukketsu.web.app:app --host 0.0.0.0 --port 9000
+python3 -m uvicorn code.shukketsu.web.app:app --host 0.0.0.0 --port 9000
 
-# Tests
-pytest tests/unit/ -v                        # Unit tests (no external deps)
-pytest tests/integration/ -v -m integration  # Needs Ollama + SQLite
-pytest tests/e2e/ -v -m e2e                  # Needs all services
-pytest --cov=shukketsu --cov-report=html     # Full suite with coverage
+# Tests — MUST use `python3 -m pytest` (bare `pytest` hits stdlib `code` module conflict)
+python3 -m pytest tests/unit/ -v                        # Unit tests (no external deps)
+python3 -m pytest tests/integration/ -v -m integration  # Needs Ollama + SQLite
+python3 -m pytest tests/e2e/ -v -m e2e                  # Needs all services
+python3 -m pytest --cov=shukketsu --cov-report=html     # Full suite with coverage
 
 # Linting
 ruff check code/ tests/
@@ -109,6 +109,16 @@ infra/                   # Docker Compose for Langfuse, vLLM/Ollama start script
 - `.project/spec.yaml` — Workbench project config (apps, mounts, base image)
 - `code/` is git-tracked, `models/` and `data/` use git-lfs, `data/scratch/` is gitignored
 
+## MCP Tools
+
+The following MCP servers are configured and should be used during development:
+
+- **GitHub** (`mcp__github`): Use for all GitHub operations — creating issues for tracking work, opening PRs, browsing repo state. Prefer `gh` CLI or MCP tools over manual git push workflows. Create tracking issues before starting multi-step work.
+- **Context7** (`mcp__context7`): Look up current documentation for project dependencies (FastAPI, Pydantic, Instructor, sqlite-vec, Langfuse, httpx, pytest). Always resolve the library ID first with `resolve-library-id`, then query docs. Use this instead of guessing API signatures.
+- **Playwright** (`mcp__playwright`): Use for e2e testing of the web UI at `http://localhost:9000`. Can verify WebSocket chat, page rendering, and UI interactions programmatically.
+- **Filesystem** (`mcp__filesystem`): Available for file operations. Prefer Claude Code's native Read/Write/Edit tools for most work; use filesystem MCP when bulk operations or directory trees are needed.
+- **Sequential Thinking** (`mcp__sequential-thinking`): Use for complex multi-step reasoning — debugging tricky issues, architectural decisions, or planning multi-file changes where you need to think through implications step by step.
+
 ## Configuration
 
 All config is read from environment variables in `code/shukketsu/config.py`. API keys for Brave Search, Warcraft Logs, and Blizzard go in `variables.env`. Model URLs default to localhost (vLLM :8000, Ollama :11434, Langfuse :3000).
@@ -122,7 +132,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Currently at **Phase 1, Step 10** (observability). Steps 1-9 are complete with 227 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Phase 1 is complete with 245 unit tests passing. The project planning is split across documents in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -136,6 +146,9 @@ Currently at **Phase 1, Step 10** (observability). Steps 1-9 are complete with 2
 | `2026-02-09-step8-web-search-ingest.md` | Step 8 detailed plan (complete) |
 | `2026-02-09-step9-resilience.md` | Step 9 design spec (complete) |
 | `2026-02-09-step9-resilience-impl.md` | Step 9 implementation plan (complete) |
+| `2026-02-09-code-review-fixes.md` | Code review fixes after Step 9 (complete) |
+| `2026-02-10-step10-observability.md` | Step 10 design spec (complete) |
+| `2026-02-10-step10-observability-impl.md` | Step 10 implementation plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core (10 steps)
@@ -151,7 +164,7 @@ The active implementation plan (`phase-1-agent-core.md`) builds the system incre
 7. ~~Multi-model router (Qwen 4B classification)~~ **DONE**
 8. ~~Web search + ingest tools (Brave API + scraping)~~ **DONE**
 9. ~~Resilience (circuit breakers, loop detection, retries)~~ **DONE**
-10. **Observability (Langfuse tracing)** ← current
+10. ~~Observability (Langfuse tracing)~~ **DONE**
 
 **Phase gate**: Chat with agent in browser. It classifies queries, routes to correct model, calls tools, answers from knowledge base. Traces visible in Langfuse.
 
