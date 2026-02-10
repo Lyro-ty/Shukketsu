@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import pytest
 
 from code.shukketsu.resilience.errors import RobotsDisallowedError, ScrapingError
 from code.shukketsu.scraping.fetcher import FetchResult, WebFetcher
@@ -49,11 +50,8 @@ class TestWebFetcher:
 
     async def test_robots_disallowed_raises(self) -> None:
         fetcher = _make_fetcher(robots_allowed=False)
-        try:
+        with pytest.raises(RobotsDisallowedError):
             await fetcher.fetch("https://example.com/page")
-            assert False, "Should have raised"
-        except RobotsDisallowedError:
-            pass
 
     async def test_http_error_raises_scraping_error(self) -> None:
         fetcher = _make_fetcher()
@@ -64,11 +62,8 @@ class TestWebFetcher:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
-            try:
+            with pytest.raises(ScrapingError, match="403"):
                 await fetcher.fetch("https://example.com/page")
-                assert False, "Should have raised"
-            except ScrapingError as exc:
-                assert "403" in str(exc)
 
     async def test_timeout_raises_scraping_error(self) -> None:
         fetcher = _make_fetcher()
@@ -78,11 +73,8 @@ class TestWebFetcher:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
             mock_client_cls.return_value = mock_client
-            try:
+            with pytest.raises(ScrapingError, match="(?i)timed out"):
                 await fetcher.fetch("https://example.com/page")
-                assert False, "Should have raised"
-            except ScrapingError as exc:
-                assert "timed out" in str(exc).lower()
 
     async def test_non_html_raises_scraping_error(self) -> None:
         fetcher = _make_fetcher()
@@ -93,11 +85,8 @@ class TestWebFetcher:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
-            try:
+            with pytest.raises(ScrapingError, match="(?i)html"):
                 await fetcher.fetch("https://example.com/file.pdf")
-                assert False, "Should have raised"
-            except ScrapingError as exc:
-                assert "html" in str(exc).lower()
 
     async def test_final_url_tracked_after_redirect(self) -> None:
         fetcher = _make_fetcher()
