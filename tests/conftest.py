@@ -5,6 +5,16 @@ import sqlite3
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_breakers():
+    """Reset all circuit breakers before each test to prevent state leakage."""
+    from code.shukketsu.resilience.circuit_breaker import reset_all_breakers
+
+    reset_all_breakers()
+    yield
+    reset_all_breakers()
+
+
 @pytest.fixture
 def test_db(tmp_path) -> sqlite3.Connection:
     """Create a fresh test database with full schema.
