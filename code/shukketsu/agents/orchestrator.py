@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict, deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
 from code.shukketsu.agents.tasks import (
@@ -17,6 +19,7 @@ from code.shukketsu.agents.tasks import (
     AgentRole,
     AgentTask,
     ArticleType,
+    EditResult,
     EditTask,
     Finding,
     OrchestratorPlan,
@@ -29,6 +32,13 @@ from code.shukketsu.agents.tasks import (
     WriteTask,
 )
 from code.shukketsu.knowledge.manager import KnowledgeManager
+from code.shukketsu.llm.prompts.orchestrator import (
+    DECOMPOSITION_PROMPT,
+    ORCHESTRATOR_SYSTEM_PROMPT,
+    SYNTHESIS_PROMPT,
+)
+from code.shukketsu.llm.structured import get_structured_output
+from code.shukketsu.resilience.errors import LLMUnavailableError, StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -38,6 +48,12 @@ logger = logging.getLogger(__name__)
 
 # Roles that require knowledge_manager kwarg
 _KM_ROLES = frozenset({AgentRole.WRITER, AgentRole.EDITOR})
+
+
+class _SynthesisOutput(BaseModel):
+    """Schema for the synthesis LLM call."""
+
+    response: str
 
 
 class Orchestrator(BaseAgent):
@@ -70,11 +86,276 @@ class Orchestrator(BaseAgent):
         *,
         on_status: StatusCallback | None = None,
     ) -> OrchestratorResult:
-        """Execute a complex task by decomposing, dispatching, and synthesizing.
+        """Execute a complex task by decomposing, dispatching, and synthesizing."""
+        if self.role is None:
+            raise ValueError("Orchestrator requires a role. Use AgentFactory or set role in constructor.")
 
-        Placeholder — dispatch and synthesis added in later tasks.
-        """
-        raise NotImplementedError("execute() implemented in Task 5")
+        # Phase 1: Decompose
+        if on_status:
+            await on_status("planning...")
+
+        try:
+            plan = await self._decompose(task.query)
+        except (LLMUnavailableError, StructuredOutputError, ValueError, Exception) as exc:
+            logger.warning("Decomposition failed: %s", exc)
+            return OrchestratorResult(
+                task_id=task.task_id,
+                agent_role=self.role,
+                status=TaskStatus.FAILED,
+                output=f"Failed to decompose query: {exc}",
+                plan=OrchestratorPlan(
+                    reasoning="Decomposition failed",
+                    subtasks=[],
+                ),
+            )
+
+        # Handle direct answer
+        if plan.can_answer_directly and plan.direct_answer:
+            return OrchestratorResult(
+                task_id=task.task_id,
+                agent_role=self.role,
+                status=TaskStatus.SUCCESS,
+                output=plan.direct_answer,
+                plan=plan,
+            )
+
+        # Phase 2: Dispatch
+        if on_status:
+            await on_status(f"executing {len(plan.subtasks)} sub-tasks...")
+
+        results, skipped = await self._dispatch(plan, task, on_status)
+
+        # Phase 3: Synthesize
+        if on_status:
+            await on_status("synthesizing results...")
+
+        return await self._synthesize(task, plan, results, skipped)
+
+    async def _decompose(self, query: str) -> OrchestratorPlan:
+        """Phase 1: Decompose query into an execution plan via Llama 70B."""
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
+            {"role": "user", "content": DECOMPOSITION_PROMPT.format(query=query)},
+        ]
+
+        plan: OrchestratorPlan = await get_structured_output(
+            response_model=OrchestratorPlan,
+            messages=messages,
+        )
+
+        errors = self._validate_plan(plan)
+        if errors:
+            logger.info(
+                "Plan validation failed (%d errors), retrying",
+                len(errors),
+            )
+            feedback = "Your plan had errors:\n" + "\n".join(f"- {e}" for e in errors) + "\n\nPlease fix and try again."
+            messages.append({"role": "assistant", "content": plan.model_dump_json()})
+            messages.append({"role": "user", "content": feedback})
+
+            plan = await get_structured_output(
+                response_model=OrchestratorPlan,
+                messages=messages,
+            )
+
+            errors = self._validate_plan(plan)
+            if errors:
+                raise ValueError(f"Plan validation failed after retry: {'; '.join(errors)}")
+
+        return plan
+
+    async def _dispatch(
+        self,
+        plan: OrchestratorPlan,
+        task: AgentTask,
+        on_status: StatusCallback | None = None,
+    ) -> tuple[list[AgentResult | None], list[str]]:
+        """Phase 2: Execute subtasks in topological order."""
+        results: list[AgentResult | None] = [None] * len(plan.subtasks)
+        skipped: list[str] = []
+
+        order = self._topological_sort(plan.subtasks)
+
+        for idx in order:
+            subtask = plan.subtasks[idx]
+
+            # Check failed dependencies
+            failed_deps = [
+                d for d in subtask.depends_on if results[d] is not None and results[d].status == TaskStatus.FAILED
+            ]
+            if failed_deps:
+                skipped.append(subtask.description)
+                logger.info(
+                    "Skipping subtask %d (%s): failed dependencies",
+                    idx,
+                    subtask.description,
+                )
+                continue
+
+            # Check if Writer/Editor needs knowledge_manager
+            if subtask.agent_role in _KM_ROLES and self._km is None:
+                skipped.append(f"{subtask.description} (no knowledge_manager)")
+                logger.warning(
+                    "Skipping %s subtask: no knowledge_manager",
+                    subtask.agent_role,
+                )
+                continue
+
+            # Build typed task
+            try:
+                typed_task = self._build_task(
+                    subtask,
+                    results,
+                    task.trace_id,
+                )
+            except (ValueError, KeyError) as exc:
+                logger.warning(
+                    "Failed to build task for subtask %d: %s",
+                    idx,
+                    exc,
+                )
+                skipped.append(subtask.description)
+                continue
+
+            # Create specialist with role-conditional kwargs
+            extra_kwargs: dict[str, Any] = {}
+            if subtask.agent_role in _KM_ROLES:
+                extra_kwargs["knowledge_manager"] = self._km
+
+            agent = self._factory.create(
+                subtask.agent_role,
+                tool_registry=self.tool_registry,
+                **extra_kwargs,
+            )
+
+            if on_status:
+                await on_status(f"{subtask.agent_role}: {subtask.description[:50]}...")
+
+            try:
+                results[idx] = await agent.execute(
+                    typed_task,
+                    on_status=on_status,
+                )
+            except Exception as exc:
+                logger.warning("Subtask %d failed: %s", idx, exc)
+                results[idx] = AgentResult(
+                    task_id=typed_task.task_id,
+                    agent_role=subtask.agent_role,
+                    status=TaskStatus.FAILED,
+                    output=f"Specialist failed: {exc}",
+                )
+
+        return results, skipped
+
+    async def _synthesize(
+        self,
+        task: AgentTask,
+        plan: OrchestratorPlan,
+        results: list[AgentResult | None],
+        skipped: list[str],
+    ) -> OrchestratorResult:
+        """Phase 3: Synthesize specialist results into a final response."""
+        completed = [r for r in results if r is not None]
+
+        # Extract article info
+        article_path: str | None = None
+        needs_human_review = False
+        for r in completed:
+            if isinstance(r, WriteResult) and r.article_path:
+                article_path = r.article_path
+            if isinstance(r, EditResult) and r.approved_for_review:
+                needs_human_review = True
+
+        # Determine overall status
+        if not completed:
+            status = TaskStatus.FAILED
+        elif all(r.status == TaskStatus.SUCCESS for r in completed) and not skipped:
+            status = TaskStatus.SUCCESS
+        elif all(r.status == TaskStatus.FAILED for r in completed):
+            status = TaskStatus.FAILED
+        else:
+            status = TaskStatus.PARTIAL
+
+        # Synthesize output
+        is_article_workflow = any(isinstance(r, WriteResult) for r in completed)
+
+        if is_article_workflow:
+            output = self._synthesize_article_template(completed, skipped)
+        elif completed:
+            output = await self._synthesize_research(task.query, completed)
+        else:
+            output = "No specialist results available."
+            if skipped:
+                output += f" Skipped tasks: {', '.join(skipped)}"
+
+        # Aggregate evidence
+        evidence = list(dict.fromkeys(e for r in completed for e in r.evidence))
+
+        return OrchestratorResult(
+            task_id=task.task_id,
+            agent_role=self.role,
+            status=status,
+            output=output,
+            evidence=evidence,
+            plan=plan,
+            specialist_results=completed,
+            article_path=article_path,
+            needs_human_review=needs_human_review,
+            skipped_tasks=skipped,
+        )
+
+    def _synthesize_article_template(
+        self,
+        results: list[AgentResult],
+        skipped: list[str],
+    ) -> str:
+        """Template-based synthesis for article workflows."""
+        parts: list[str] = []
+        for r in results:
+            if isinstance(r, WriteResult):
+                parts.append(f"Article written: **{r.title}**")
+                parts.append(f"Path: `{r.article_path}`")
+                parts.append(f"Claims: {len(r.claims)}")
+                if r.research_gaps:
+                    parts.append(f"Research gaps: {', '.join(r.research_gaps)}")
+            elif isinstance(r, EditResult):
+                parts.append(f"Verification: confidence {r.overall_confidence:.0%}")
+                if r.approved_for_review:
+                    parts.append("Status: approved for human review")
+                if r.corrections:
+                    parts.append(f"Corrections needed: {len(r.corrections)}")
+        if skipped:
+            parts.append(f"Skipped: {', '.join(skipped)}")
+        return "\n".join(parts)
+
+    async def _synthesize_research(
+        self,
+        query: str,
+        results: list[AgentResult],
+    ) -> str:
+        """LLM-based synthesis for research-only workflows."""
+        findings_text = "\n\n".join(r.output for r in results if r.output)
+
+        messages = [
+            {"role": "system", "content": SYNTHESIS_PROMPT},
+            {
+                "role": "user",
+                "content": f"Original question: {query}\n\nResearch findings:\n{findings_text}",
+            },
+        ]
+
+        try:
+            result: _SynthesisOutput = await get_structured_output(
+                response_model=_SynthesisOutput,
+                messages=messages,
+            )
+            return result.response
+        except Exception as exc:
+            logger.warning(
+                "Synthesis LLM call failed, falling back: %s",
+                exc,
+            )
+            return findings_text
 
     def _validate_plan(self, plan: OrchestratorPlan) -> list[str]:
         """Validate an OrchestratorPlan for structural issues.
