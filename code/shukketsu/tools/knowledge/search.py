@@ -53,9 +53,7 @@ class RagSearchTool(Tool):
         # Over-retrieve for reranking
         rerank_fetch = top_k * config.RERANKER_FETCH_MULTIPLIER
         effective_fetch_k = max(config.RAG_SEARCH_FETCH_K, rerank_fetch)
-        raw_results = await hybrid_search(
-            self._conn, query, embedding, top_k=rerank_fetch, fetch_k=effective_fetch_k
-        )
+        raw_results = await hybrid_search(self._conn, query, embedding, top_k=rerank_fetch, fetch_k=effective_fetch_k)
 
         # Rerank (falls back to truncated on failure internally)
         results = await rerank(query, raw_results, top_k)

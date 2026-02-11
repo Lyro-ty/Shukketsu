@@ -43,9 +43,7 @@ class RerankerResponse(BaseModel):
     rankings: list[RankedItem]
 
 
-def _build_rerank_messages(
-    query: str, results: list[SearchResult]
-) -> list[dict[str, str]]:
+def _build_rerank_messages(query: str, results: list[SearchResult]) -> list[dict[str, str]]:
     """Build the prompt messages for the reranker."""
     result_lines = []
     for i, r in enumerate(results):
@@ -97,9 +95,7 @@ def _apply_rankings(
     return merged
 
 
-async def _rerank_impl(
-    query: str, results: list[SearchResult], top_k: int
-) -> list[SearchResult]:
+async def _rerank_impl(query: str, results: list[SearchResult], top_k: int) -> list[SearchResult]:
     """Call Qwen 4B for relevance scoring."""
     messages = _build_rerank_messages(query, results)
     response = await get_structured_output(

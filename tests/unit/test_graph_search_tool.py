@@ -22,35 +22,25 @@ def populated_graph(graph: GraphStore, test_db: sqlite3.Connection) -> GraphStor
     """GraphStore with a realistic set of test entities and relationships."""
     # Insert source + chunks first (FK constraints)
     test_db.execute("INSERT INTO sources (id, url, title) VALUES (1, 'https://example.com', 'Test Source')")
-    test_db.execute("INSERT INTO chunks (id, source_id, content, chunk_index) VALUES (42, 1, 'DST drops from Gruul', 0)")
+    test_db.execute(
+        "INSERT INTO chunks (id, source_id, content, chunk_index) VALUES (42, 1, 'DST drops from Gruul', 0)"
+    )
     test_db.execute("INSERT INTO chunks (id, source_id, content, chunk_index) VALUES (78, 1, 'Gruul encounter', 1)")
     test_db.commit()
 
     # Entities
-    dst_id = graph.upsert_entity(
-        "Dragonspine Trophy", EntityType.ITEM, source_chunk_id=42, confidence=0.9
-    )
-    gruul_id = graph.upsert_entity(
-        "Gruul the Dragonkiller", EntityType.BOSS, source_chunk_id=78, confidence=0.9
-    )
+    dst_id = graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM, source_chunk_id=42, confidence=0.9)
+    gruul_id = graph.upsert_entity("Gruul the Dragonkiller", EntityType.BOSS, source_chunk_id=78, confidence=0.9)
     phase1_id = graph.upsert_entity("Phase 1", EntityType.PHASE, confidence=0.95)
     haste_id = graph.upsert_entity("haste proc", EntityType.STAT, confidence=0.85)
     combat_spec_id = graph.upsert_entity("Combat Swords", EntityType.SPEC, confidence=0.7)
     test_db.commit()
 
     # Relationships
-    graph.upsert_relationship(
-        dst_id, gruul_id, RelationType.DROPS_FROM, source_chunk_id=42, confidence=0.9
-    )
-    graph.upsert_relationship(
-        dst_id, phase1_id, RelationType.AVAILABLE_IN, confidence=0.95
-    )
-    graph.upsert_relationship(
-        dst_id, haste_id, RelationType.HAS_STAT, confidence=0.85
-    )
-    graph.upsert_relationship(
-        combat_spec_id, dst_id, RelationType.BEST_IN_SLOT, confidence=0.7
-    )
+    graph.upsert_relationship(dst_id, gruul_id, RelationType.DROPS_FROM, source_chunk_id=42, confidence=0.9)
+    graph.upsert_relationship(dst_id, phase1_id, RelationType.AVAILABLE_IN, confidence=0.95)
+    graph.upsert_relationship(dst_id, haste_id, RelationType.HAS_STAT, confidence=0.85)
+    graph.upsert_relationship(combat_spec_id, dst_id, RelationType.BEST_IN_SLOT, confidence=0.7)
     test_db.commit()
 
     return graph
@@ -121,29 +111,19 @@ class TestGraphSearchEntityLookup:
 class TestGraphSearchFiltering:
     """Tests for relationship filtering."""
 
-    async def test_filter_by_relation_type(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_filter_by_relation_type(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
-        result = await tool.execute(
-            {"entity": "Dragonspine Trophy", "relation_types": ["drops_from"]}
-        )
+        result = await tool.execute({"entity": "Dragonspine Trophy", "relation_types": ["drops_from"]})
         assert "drops_from" in result
         assert "available_in" not in result
 
-    async def test_filter_by_target_type(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_filter_by_target_type(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
-        result = await tool.execute(
-            {"entity": "Dragonspine Trophy", "target_type": "boss"}
-        )
+        result = await tool.execute({"entity": "Dragonspine Trophy", "target_type": "boss"})
         assert "Gruul" in result
         assert "Phase 1" not in result
 
-    async def test_both_filters_combined(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_both_filters_combined(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
         result = await tool.execute(
             {"entity": "Dragonspine Trophy", "relation_types": ["drops_from"], "target_type": "boss"}
@@ -156,9 +136,7 @@ class TestGraphSearchFiltering:
 class TestGraphSearchBidirectional:
     """Tests for bidirectional relationship display."""
 
-    async def test_outgoing_shown_with_arrow(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_outgoing_shown_with_arrow(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
         result = await tool.execute({"entity": "Dragonspine Trophy"})
         assert "\u2192" in result
@@ -172,9 +150,7 @@ class TestGraphSearchBidirectional:
         assert "\u2190" in result
         assert "Incoming" in result
 
-    async def test_entity_with_both_directions(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_entity_with_both_directions(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
         result = await tool.execute({"entity": "Dragonspine Trophy"})
         assert "Outgoing" in result
@@ -184,9 +160,7 @@ class TestGraphSearchBidirectional:
 class TestGraphSearchOutputFormat:
     """Tests for output formatting."""
 
-    async def test_related_chunks_collected(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_related_chunks_collected(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
         result = await tool.execute({"entity": "Dragonspine Trophy"})
         assert "Related chunks:" in result
@@ -201,9 +175,7 @@ class TestGraphSearchOutputFormat:
         chunks_section = result.split("Related chunks:")[-1] if "Related chunks:" in result else ""
         assert "None" not in chunks_section
 
-    async def test_results_sorted_by_confidence(
-        self, populated_graph: GraphStore, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_results_sorted_by_confidence(self, populated_graph: GraphStore, test_db: sqlite3.Connection) -> None:
         tool = GraphSearchTool(test_db)
         result = await tool.execute({"entity": "Dragonspine Trophy"})
         # available_in (0.95) should appear before drops_from (0.9) in outgoing

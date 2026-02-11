@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from code.shukketsu import config
 from code.shukketsu.rag.search import SearchResult
 from code.shukketsu.tools.knowledge.search import RagSearchTool

@@ -1,7 +1,5 @@
 """Tests for Phase 2 Step 3 foundation: config, errors, circuit breaker."""
 
-import pytest
-
 from code.shukketsu import config
 from code.shukketsu.resilience.errors import (
     FailureMode,

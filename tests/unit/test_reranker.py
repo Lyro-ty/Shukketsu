@@ -38,9 +38,7 @@ class TestRerankerSchemas:
             RankedItem(index=0, relevance="SUPER_HIGH", reason="nope")
 
     def test_reranker_response_validates(self) -> None:
-        resp = RerankerResponse(
-            rankings=[RankedItem(index=0, relevance="HIGH", reason="good")]
-        )
+        resp = RerankerResponse(rankings=[RankedItem(index=0, relevance="HIGH", reason="good")])
         assert len(resp.rankings) == 1
 
 
@@ -166,7 +164,6 @@ class TestRerank:
     @patch("code.shukketsu.rag.reranker._rerank_impl")
     async def test_falls_back_on_circuit_open(self, mock_impl: AsyncMock) -> None:
         from code.shukketsu.resilience.circuit_breaker import qwen_reranker_breaker
-        from code.shukketsu.resilience.errors import CircuitOpenError
 
         # Force breaker open
         qwen_reranker_breaker._state = qwen_reranker_breaker._state.__class__("open")

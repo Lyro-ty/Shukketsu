@@ -5,7 +5,7 @@ import sqlite3
 from typing import Any
 
 from code.shukketsu import config
-from code.shukketsu.rag.entities import RelationType, resolve_canonical
+from code.shukketsu.rag.entities import RelationType
 from code.shukketsu.rag.graph import GraphStore
 from code.shukketsu.tools.schemas import Tool
 
@@ -99,12 +99,8 @@ class GraphSearchTool(Tool):
         entity_id = entity["id"]
 
         # Fetch both directions
-        outgoing = self._graph.get_relationships(
-            entity_id, relation_types=relation_types, direction="outgoing"
-        )
-        incoming = self._graph.get_relationships(
-            entity_id, relation_types=relation_types, direction="incoming"
-        )
+        outgoing = self._graph.get_relationships(entity_id, relation_types=relation_types, direction="outgoing")
+        incoming = self._graph.get_relationships(entity_id, relation_types=relation_types, direction="incoming")
 
         # Apply target_type filter
         if target_type:
@@ -160,10 +156,7 @@ class GraphSearchTool(Tool):
         lines: list[str] = []
 
         # Header
-        lines.append(
-            f"Entity: {entity['name']} ({entity['entity_type_name']}, "
-            f"confidence: {entity['confidence']:.2f})"
-        )
+        lines.append(f"Entity: {entity['name']} ({entity['entity_type_name']}, confidence: {entity['confidence']:.2f})")
         lines.append("")
 
         # Outgoing
