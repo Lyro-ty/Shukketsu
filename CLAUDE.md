@@ -173,6 +173,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-6 are complete (
 | `2026-02-11-phase2-step5-writer-wiki.md` | Step 5 design doc (Writer agent, KnowledgeManager, schema v3) |
 | `2026-02-11-phase2-step5-implementation.md` | Step 5 implementation plan (complete) |
 | `2026-02-11-phase2-step6-editor-agent.md` | Step 6 design doc (Editor agent, claim verification, confidence scoring) |
+| `2026-02-11-phase2-step7-orchestrator-agent.md` | Step 7 design doc (Orchestrator agent, task decomposition, dispatch, synthesis) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
