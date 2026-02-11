@@ -110,11 +110,25 @@ class ResearchResult(AgentResult):
 class WriteTask(AgentTask):
     """Task for the Writer agent.
 
-    Requires research results and an article type.
+    Requires research results, an article type, and target spec/category.
+    The Orchestrator populates spec and category when dispatching.
     """
 
-    research: AgentResult
+    research: ResearchResult
     article_type: ArticleType
+    spec: str
+    category: str
+
+
+class WriteResult(AgentResult):
+    """Structured output from the Writer agent."""
+
+    article_path: str
+    title: str
+    claims: list[str] = Field(default_factory=list)
+    research_gaps: list[str] = Field(default_factory=list)
+    word_count: int = 0
+    entity_refs: list[str] = Field(default_factory=list)
 
 
 class EditTask(AgentTask):

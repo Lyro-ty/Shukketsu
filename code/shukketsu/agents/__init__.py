@@ -16,6 +16,7 @@ from code.shukketsu.agents.tasks import (
     SearchStrategy,
     SubTask,
     TaskStatus,
+    WriteResult,
     WriteTask,
 )
 
@@ -35,5 +36,6 @@ __all__ = [
     "SearchStrategy",
     "SubTask",
     "TaskStatus",
+    "WriteResult",
     "WriteTask",
 ]

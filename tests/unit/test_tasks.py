@@ -11,11 +11,14 @@ from code.shukketsu.agents.tasks import (
     AgentTask,
     ArticleType,
     EditTask,
+    Finding,
     OrchestratorPlan,
+    ResearchResult,
     ResearchTask,
     SearchStrategy,
     SubTask,
     TaskStatus,
+    WriteResult,
     WriteTask,
 )
 
@@ -156,24 +159,94 @@ class TestResearchTask:
 
 class TestWriteTask:
     def test_requires_research_result(self) -> None:
+        research = ResearchResult(
+            task_id="r1",
+            agent_role=AgentRole.RESEARCHER,
+            status=TaskStatus.SUCCESS,
+            output="findings",
+            findings=[Finding(claim="Hit cap is 142", confidence=0.9)],
+            sufficient=True,
+        )
+        task = WriteTask(
+            query="Write a gear guide",
+            research=research,
+            article_type=ArticleType.GUIDE,
+            spec="combat",
+            category="gear",
+        )
+        assert task.research.task_id == "r1"
+        assert task.article_type == ArticleType.GUIDE
+        assert task.spec == "combat"
+        assert task.category == "gear"
+
+    def test_rejects_plain_agent_result(self) -> None:
+        """WriteTask.research no longer accepts plain AgentResult."""
         research = AgentResult(
             task_id="r1",
             agent_role=AgentRole.RESEARCHER,
             status=TaskStatus.SUCCESS,
             output="findings",
         )
-        task = WriteTask(query="Write a gear guide", research=research, article_type=ArticleType.GUIDE)
-        assert task.research.task_id == "r1"
-        assert task.article_type == ArticleType.GUIDE
+        with pytest.raises(ValidationError):
+            WriteTask(
+                query="Write",
+                research=research,
+                article_type=ArticleType.GUIDE,
+                spec="combat",
+                category="gear",
+            )
 
     def test_rejects_missing_research(self) -> None:
         with pytest.raises(ValidationError):
-            WriteTask(query="Write", article_type=ArticleType.GUIDE)  # type: ignore[call-arg]
+            WriteTask(query="Write", article_type=ArticleType.GUIDE, spec="combat", category="gear")  # type: ignore[call-arg]
 
     def test_rejects_missing_article_type(self) -> None:
-        research = AgentResult(task_id="r1", agent_role=AgentRole.RESEARCHER, status=TaskStatus.SUCCESS, output="x")
+        research = ResearchResult(task_id="r1", agent_role=AgentRole.RESEARCHER, status=TaskStatus.SUCCESS, output="x")
         with pytest.raises(ValidationError):
-            WriteTask(query="Write", research=research)  # type: ignore[call-arg]
+            WriteTask(query="Write", research=research, spec="combat", category="gear")  # type: ignore[call-arg]
+
+    def test_rejects_missing_spec(self) -> None:
+        research = ResearchResult(task_id="r1", agent_role=AgentRole.RESEARCHER, status=TaskStatus.SUCCESS, output="x")
+        with pytest.raises(ValidationError):
+            WriteTask(query="Write", research=research, article_type=ArticleType.GUIDE, category="gear")  # type: ignore[call-arg]
+
+    def test_rejects_missing_category(self) -> None:
+        research = ResearchResult(task_id="r1", agent_role=AgentRole.RESEARCHER, status=TaskStatus.SUCCESS, output="x")
+        with pytest.raises(ValidationError):
+            WriteTask(query="Write", research=research, article_type=ArticleType.GUIDE, spec="combat")  # type: ignore[call-arg]
+
+
+class TestWriteResult:
+    def test_creation(self) -> None:
+        result = WriteResult(
+            task_id="w1",
+            agent_role=AgentRole.WRITER,
+            status=TaskStatus.SUCCESS,
+            output="Article written",
+            article_path="combat/gear/trinkets.md",
+            title="Combat Trinkets",
+        )
+        assert result.article_path == "combat/gear/trinkets.md"
+        assert result.claims == []
+        assert result.research_gaps == []
+        assert result.word_count == 0
+        assert result.entity_refs == []
+
+    def test_with_all_fields(self) -> None:
+        result = WriteResult(
+            task_id="w1",
+            agent_role=AgentRole.WRITER,
+            status=TaskStatus.SUCCESS,
+            output="Article written",
+            article_path="combat/gear/trinkets.md",
+            title="Combat Trinkets",
+            claims=["DST is BiS"],
+            research_gaps=["proc rates"],
+            word_count=500,
+            entity_refs=["Dragonspine Trophy"],
+        )
+        assert result.claims == ["DST is BiS"]
+        assert result.word_count == 500
 
 
 class TestEditTask:
