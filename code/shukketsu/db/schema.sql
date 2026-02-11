@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT INTO schema_version (version) VALUES (1);
+INSERT INTO schema_version (version) VALUES (2);
 
 -- ============================================================
 -- Ingested Content
@@ -90,3 +90,47 @@ CREATE TABLE articles (
     unverified_claims INTEGER NOT NULL DEFAULT 0,
     needs_review INTEGER NOT NULL DEFAULT 0        -- 0 or 1
 );
+
+-- ============================================================
+-- Knowledge Graph (Phase 2)
+-- ============================================================
+
+-- Entity type catalog (seeded from code on first use)
+CREATE TABLE entity_types (
+    id INTEGER PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    display_name TEXT NOT NULL
+);
+
+-- Named entities extracted from source content
+CREATE TABLE entities (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,                                -- original surface form
+    entity_type_id INTEGER NOT NULL REFERENCES entity_types(id),
+    canonical_name TEXT NOT NULL,                      -- normalized for dedup
+    properties_json TEXT,                              -- {"ilvl": 141, ...}
+    source_chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(canonical_name, entity_type_id)
+);
+
+CREATE INDEX idx_entities_type ON entities(entity_type_id);
+CREATE INDEX idx_entities_canonical ON entities(canonical_name);
+
+-- Typed edges between entities
+CREATE TABLE relationships (
+    id INTEGER PRIMARY KEY,
+    source_entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    target_entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL,                       -- from RelationType enum
+    properties_json TEXT,                              -- {"phase": 1, ...}
+    source_chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_entity_id, target_entity_id, relation_type)
+);
+
+CREATE INDEX idx_relationships_source ON relationships(source_entity_id);
+CREATE INDEX idx_relationships_target ON relationships(target_entity_id);
+CREATE INDEX idx_relationships_type ON relationships(relation_type);

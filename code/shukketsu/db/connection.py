@@ -30,6 +30,46 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+_GRAPH_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS entity_types (
+    id INTEGER PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    display_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS entities (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    entity_type_id INTEGER NOT NULL REFERENCES entity_types(id),
+    canonical_name TEXT NOT NULL,
+    properties_json TEXT,
+    source_chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(canonical_name, entity_type_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type_id);
+CREATE INDEX IF NOT EXISTS idx_entities_canonical ON entities(canonical_name);
+
+CREATE TABLE IF NOT EXISTS relationships (
+    id INTEGER PRIMARY KEY,
+    source_entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    target_entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL,
+    properties_json TEXT,
+    source_chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_entity_id, target_entity_id, relation_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_entity_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_type ON relationships(relation_type);
+"""
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     """Initialize database schema from schema.sql. Idempotent.
 
@@ -38,13 +78,23 @@ def init_db(conn: sqlite3.Connection) -> None:
     try:
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         if version is not None:
+            if version < 2:
+                _migrate_v1_to_v2(conn)
             return
     except sqlite3.OperationalError:
         pass  # Table doesn't exist yet — need to initialize
 
     schema_sql = (_DB_DIR / "schema.sql").read_text()
     conn.executescript(schema_sql)
-    logger.info("Database schema initialized (version 1)")
+    logger.info("Database schema initialized (version 2)")
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Migrate v1 schema to v2: add knowledge graph tables."""
+    conn.executescript(_GRAPH_TABLES_SQL)
+    conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+    conn.commit()
+    logger.info("Database migrated from v1 to v2 (knowledge graph tables)")
 
 
 def _configure(conn: sqlite3.Connection) -> None:

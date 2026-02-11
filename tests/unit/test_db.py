@@ -80,9 +80,9 @@ class TestInitDb:
         assert "chunks_vec" in tables
 
     def test_sets_schema_version(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 1 after initialization."""
+        """Schema version should be 2 after initialization."""
         version = db.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 1
+        assert version == 2
 
     def test_is_idempotent(self, db: sqlite3.Connection) -> None:
         """Calling init_db twice should not raise or duplicate data."""
@@ -139,6 +139,102 @@ class TestInitDb:
 
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("INSERT INTO sources (url, title) VALUES ('https://example.com', 'Duplicate')")
+
+    def test_creates_graph_tables(self, db: sqlite3.Connection) -> None:
+        """init_db should create entity_types, entities, relationships tables."""
+        tables = _get_tables(db)
+        for name in ("entity_types", "entities", "relationships"):
+            assert name in tables, f"Missing table: {name}"
+
+    def test_schema_version_is_2(self, db: sqlite3.Connection) -> None:
+        """Schema version should be 2 after fresh initialization."""
+        version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        assert version == 2
+
+    def test_entity_type_unique_name(self, db: sqlite3.Connection) -> None:
+        """entity_types.name should enforce uniqueness."""
+        db.execute("INSERT INTO entity_types (name, display_name) VALUES ('item', 'Item')")
+        db.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("INSERT INTO entity_types (name, display_name) VALUES ('item', 'Item Duplicate')")
+
+    def test_entity_unique_canonical_per_type(self, db: sqlite3.Connection) -> None:
+        """entities should enforce UNIQUE(canonical_name, entity_type_id)."""
+        db.execute("INSERT INTO entity_types (name, display_name) VALUES ('item', 'Item')")
+        type_id = db.execute("SELECT id FROM entity_types WHERE name = 'item'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+            ("Dragonspine Trophy", type_id, "dragonspine trophy"),
+        )
+        db.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute(
+                "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+                ("DST", type_id, "dragonspine trophy"),
+            )
+
+    def test_relationship_unique_triple(self, db: sqlite3.Connection) -> None:
+        """relationships should enforce UNIQUE(source_entity_id, target_entity_id, relation_type)."""
+        db.execute("INSERT INTO entity_types (name, display_name) VALUES ('item', 'Item')")
+        db.execute("INSERT INTO entity_types (name, display_name) VALUES ('boss', 'Boss')")
+        type_item = db.execute("SELECT id FROM entity_types WHERE name = 'item'").fetchone()["id"]
+        type_boss = db.execute("SELECT id FROM entity_types WHERE name = 'boss'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+            ("DST", type_item, "dragonspine trophy"),
+        )
+        db.execute(
+            "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+            ("Gruul", type_boss, "gruul"),
+        )
+        db.commit()
+        item_id = db.execute("SELECT id FROM entities WHERE canonical_name = 'dragonspine trophy'").fetchone()["id"]
+        boss_id = db.execute("SELECT id FROM entities WHERE canonical_name = 'gruul'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO relationships (source_entity_id, target_entity_id, relation_type) VALUES (?, ?, ?)",
+            (item_id, boss_id, "drops_from"),
+        )
+        db.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute(
+                "INSERT INTO relationships (source_entity_id, target_entity_id, relation_type) VALUES (?, ?, ?)",
+                (item_id, boss_id, "drops_from"),
+            )
+
+    def test_entity_fk_to_entity_types(self, db: sqlite3.Connection) -> None:
+        """entities.entity_type_id should reference entity_types(id)."""
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute(
+                "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+                ("Ghost Item", 999, "ghost item"),
+            )
+
+    def test_relationship_fk_cascade_on_entity_delete(self, db: sqlite3.Connection) -> None:
+        """Deleting an entity should cascade-delete its relationships."""
+        db.execute("INSERT INTO entity_types (name, display_name) VALUES ('item', 'Item')")
+        db.execute("INSERT INTO entity_types (name, display_name) VALUES ('boss', 'Boss')")
+        type_item = db.execute("SELECT id FROM entity_types WHERE name = 'item'").fetchone()["id"]
+        type_boss = db.execute("SELECT id FROM entity_types WHERE name = 'boss'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+            ("DST", type_item, "dragonspine trophy"),
+        )
+        db.execute(
+            "INSERT INTO entities (name, entity_type_id, canonical_name) VALUES (?, ?, ?)",
+            ("Gruul", type_boss, "gruul"),
+        )
+        db.commit()
+        item_id = db.execute("SELECT id FROM entities WHERE canonical_name = 'dragonspine trophy'").fetchone()["id"]
+        boss_id = db.execute("SELECT id FROM entities WHERE canonical_name = 'gruul'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO relationships (source_entity_id, target_entity_id, relation_type) VALUES (?, ?, ?)",
+            (item_id, boss_id, "drops_from"),
+        )
+        db.commit()
+        db.execute("DELETE FROM entities WHERE id = ?", (item_id,))
+        db.commit()
+        count = db.execute("SELECT COUNT(*) FROM relationships").fetchone()[0]
+        assert count == 0
 
 
 # --- Helpers ---
