@@ -127,7 +127,6 @@ from code.shukketsu.llm.prompts.writer import (  # noqa: E402
 # Editor
 EDITOR_CONFIDENCE_THRESHOLD = float(os.getenv("EDITOR_CONFIDENCE_THRESHOLD", "0.6"))
 
-ORCHESTRATOR_SYSTEM_PROMPT = (
-    "You are the Orchestrator for a WoW TBC Rogue knowledge system. "
-    "You decompose complex queries into sub-tasks for specialist agents."
+from code.shukketsu.llm.prompts.orchestrator import (  # noqa: E402
+    ORCHESTRATOR_SYSTEM_PROMPT as ORCHESTRATOR_SYSTEM_PROMPT,
 )
