@@ -113,11 +113,8 @@ GRAPH_SEARCH_DEFAULT_TOP_K = int(os.getenv("GRAPH_SEARCH_DEFAULT_TOP_K", "20"))
 RERANKER_FETCH_MULTIPLIER = int(os.getenv("RERANKER_FETCH_MULTIPLIER", "3"))
 RERANKER_TOP_K = int(os.getenv("RERANKER_TOP_K", "5"))
 
-# Role-specific system prompts (placeholder — specialist prompts added in later steps)
-RESEARCHER_SYSTEM_PROMPT = (
-    "You are a Research Specialist for WoW TBC Rogue content. "
-    "Your job is to gather comprehensive, accurate information using your search tools."
-)
+# Role-specific system prompts
+from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT  # noqa: E402
 WRITER_SYSTEM_PROMPT = (
     "You are a Wiki Writer for WoW TBC Rogue content. "
     "You produce clear, accurate, well-structured Markdown articles from research findings."
