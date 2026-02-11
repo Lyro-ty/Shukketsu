@@ -16,12 +16,14 @@ operations: creating drafts, reading articles, updating content, querying by sta
 enforcing lifecycle transitions (draft → review → published).
 
 The database schema is upgraded to v3 to add `status`, `spec`, `category`, and `created_at`
-columns to the `articles` table. Since the table has never contained data, this is a clean
-replacement rather than a migration.
+columns to the `articles` table. Fresh databases get v3 via `schema.sql`; existing v2 databases
+are migrated via a new `_migrate_v2_to_v3()` function in `connection.py` (DROP + recreate the
+empty `articles` table).
 
-This step also tightens `WriteTask.research` from `AgentResult` to `ResearchResult`, and evolves
-the `AgentFactory` to forward `**kwargs` to agent constructors — enabling the Writer to receive
-its `KnowledgeManager` dependency via the factory without changing the factory signature per role.
+This step also tightens `WriteTask.research` from `AgentResult` to `ResearchResult`, adds `spec`
+and `category` fields to `WriteTask`, and evolves the `AgentFactory` to forward `**kwargs` to
+agent constructors — enabling the Writer to receive its `KnowledgeManager` dependency via the
+factory without changing the factory signature per role.
 
 ## Design Decisions
 
@@ -36,8 +38,12 @@ its `KnowledgeManager` dependency via the factory without changing the factory s
 | YAML frontmatter | `python-frontmatter` library | Battle-tested parse/serialize. Rolling our own `---` parser is asking for bugs. |
 | Article generation | Two-pass: generate prose, then extract claims/entities | Same pattern as Researcher structuring pass. Each call has a focused job. Better quality. |
 | Factory dependency injection | `**kwargs` forwarding to agent constructor | Writer needs `KnowledgeManager`, Editor will too. Generic forwarding scales without signature changes. |
-| KnowledgeManager sync/async | Sync methods | SQLite and filesystem I/O are blocking. Consistent with `GraphStore`. |
+| KnowledgeManager sync/async | Sync methods, called from async `execute()` | SQLite and filesystem I/O are blocking. Consistent with `GraphStore`. Single-user system — event loop blocking is acceptable. Wrap in `asyncio.to_thread()` if concurrency needed later. |
 | Slug generation | `re.sub` regex (lowercase, hyphens, strip) | No slugify library needed for simple title → filename conversion. |
+| Spec validation | `Spec` StrEnum with 4 values | Prevents LLM-generated typos (`"Combat"` vs `"combat"`) from creating wrong paths. Category remains free-form. |
+| Frontmatter datetime serialization | `ArticleMeta.model_dump(mode='json')` before passing to `python-frontmatter` | Pydantic v2 JSON mode serializes datetimes as ISO 8601 strings. Avoids PyYAML's ugly `!!python/object` format. |
+| Confidence calculation | Simple average of all `ResearchResult.findings[].confidence` | Deterministic, no ambiguity about "which findings were used". All findings are input to the Writer. |
+| Exists check timing | Check for existing article AFTER generation (using LLM-generated title) | Eliminates preliminary-title vs LLM-title mismatch. One title, one path, one check. |
 
 ## File Changes
 
@@ -56,11 +62,13 @@ its `KnowledgeManager` dependency via the factory without changing the factory s
 
 | File | Change |
 |------|--------|
-| `code/shukketsu/agents/tasks.py` | Add `WriteResult` model; tighten `WriteTask.research` from `AgentResult` to `ResearchResult` |
+| `code/shukketsu/agents/tasks.py` | Add `WriteResult` model; tighten `WriteTask.research` to `ResearchResult`; add `spec` and `category` fields to `WriteTask` |
 | `code/shukketsu/agents/factory.py` | Add `Writer` to `_ROLE_CLASSES`; change `create()` to forward `**kwargs` to constructor |
 | `code/shukketsu/agents/__init__.py` | Export `Writer`, `WriteResult` |
 | `code/shukketsu/config.py` | Import `WRITER_SYSTEM_PROMPT` from `llm.prompts.writer` instead of inline placeholder |
 | `code/shukketsu/db/schema.sql` | Replace `articles` table with v3 schema (add `status`, `spec`, `category`, `created_at`) |
+| `code/shukketsu/db/connection.py` | Add `_migrate_v2_to_v3()` function; update version check in `init_db()` to handle v2→v3 |
+| `tests/unit/test_tasks.py` | Update `TestWriteTask` to use `ResearchResult` instead of `AgentResult`; add tests for new `spec`/`category` fields |
 | `requirements.txt` | Add `python-frontmatter` |
 
 ### Directory Changes
@@ -108,8 +116,33 @@ CREATE INDEX idx_articles_status ON articles(status);
 CREATE INDEX idx_articles_spec ON articles(spec);
 ```
 
-Schema version bumped from 2 to 3. Since the `articles` table has never contained data,
-this is a clean replacement — no migration logic needed.
+Schema version bumped from 2 to 3.
+
+### Migration: `db/connection.py`
+
+The `articles` table has never contained data, so migration is a simple DROP + recreate:
+
+```python
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Migrate v2 schema to v3: replace articles table with richer columns."""
+    conn.execute("DROP TABLE IF EXISTS articles")
+    conn.executescript(_ARTICLES_V3_SQL)  # CREATE TABLE + indexes
+    conn.execute("INSERT INTO schema_version (version) VALUES (3)")
+    conn.commit()
+```
+
+Update the version check in `init_db()`:
+```python
+if version is not None:
+    if version < 2:
+        _migrate_v1_to_v2(conn)
+    if version < 3:
+        _migrate_v2_to_v3(conn)
+    return
+```
+
+Fresh databases get v3 via `schema.sql` directly. The `INSERT INTO schema_version` line in
+`schema.sql` changes from `VALUES (2)` to `VALUES (3)`.
 
 ### Changes from v2
 
@@ -131,6 +164,13 @@ class ArticleStatus(StrEnum):
     REVIEW = "review"
     PUBLISHED = "published"
 
+class Spec(StrEnum):
+    """Valid spec values for article classification."""
+    COMBAT = "combat"
+    ASSASSINATION = "assassination"
+    SUBTLETY = "subtlety"
+    GENERAL = "general"
+
 class SourceRef(BaseModel):
     """A source referenced in an article."""
     url: str
@@ -142,10 +182,20 @@ class ClaimRef(BaseModel):
     verified: bool = False
     evidence: list[str] = Field(default_factory=list)  # chunk IDs or URLs
 
+class ArticleSummary(BaseModel):
+    """Lightweight article record from DB queries."""
+    path: str
+    title: str
+    spec: str
+    category: str
+    status: ArticleStatus
+    confidence_score: float
+    last_updated: str
+
 class ArticleMeta(BaseModel):
     """Pydantic model for article YAML frontmatter."""
     title: str
-    spec: str
+    spec: Spec
     category: str
     status: ArticleStatus = ArticleStatus.DRAFT
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
@@ -156,6 +206,18 @@ class ArticleMeta(BaseModel):
     entity_refs: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
 ```
+
+### Serialization
+
+`ArticleMeta` is converted to a dict via `.model_dump(mode='json')` before passing to
+`python-frontmatter` for YAML serialization. Pydantic v2's JSON mode serializes:
+- `datetime` → ISO 8601 string (`"2026-02-11T14:30:00"`)
+- `StrEnum` → string value (`"draft"`, `"combat"`)
+- Nested models (`SourceRef`, `ClaimRef`) → dicts
+
+When reading back, `frontmatter.loads()` returns a metadata dict that is validated into
+`ArticleMeta` via `ArticleMeta(**metadata_dict)`. PyYAML parses ISO 8601 strings back to
+`datetime` objects automatically.
 
 ### Class Signature
 
@@ -188,15 +250,17 @@ Example: `derive_path("combat", "gear", "Phase 1 BiS Gear Guide")` → `"combat/
 #### `create_draft(meta: ArticleMeta, content: str) -> str`
 
 1. Derive path from `meta.spec`, `meta.category`, `meta.title`
-2. Create parent directories under `knowledge_dir` if needed (`mkdir -p`)
-3. Serialize `meta` to YAML frontmatter + `content` to markdown via `python-frontmatter`
-4. Write file to `knowledge_dir / path`
-5. INSERT row into `articles` table: `path`, `title`, `spec`, `category`, `status='draft'`, `confidence_score`, `created_at`, `last_updated`
-6. Commit
-7. Return the relative path string
+2. **Check DB first**: query `articles` for this path — if exists, raise `ValueError` (caller should use `exists()` + `update_draft()`)
+3. Create parent directories under `knowledge_dir` if needed (`mkdir -p`)
+4. Serialize `meta` to YAML frontmatter + `content` to markdown via `python-frontmatter` (using `meta.model_dump(mode='json')`)
+5. Write file to `knowledge_dir / path`
+6. INSERT row into `articles` table: `path`, `title`, `spec`, `category`, `status='draft'`, `confidence_score`, `created_at`, `last_updated`
+7. Commit
+8. Return the relative path string
 
-Error cases:
-- If file already exists at that path, raise `ValueError` (caller should use `exists()` + `update_draft()`)
+Error handling:
+- DB check (step 2) prevents orphaned files from failed INSERTs
+- If INSERT fails despite the check (race condition), delete the written file and re-raise
 
 #### `read_article(path: str) -> tuple[ArticleMeta, str]`
 
@@ -217,10 +281,10 @@ Error cases:
 5. UPDATE DB row: `title`, `confidence_score`, `verified_claims`, `unverified_claims`, `last_updated`
 6. Commit
 
-#### `list_articles(*, status: ArticleStatus | None = None, spec: str | None = None) -> list[dict]`
+#### `list_articles(*, status: ArticleStatus | None = None, spec: Spec | None = None) -> list[ArticleSummary]`
 
-Query the `articles` table with optional `WHERE` clauses. Returns list of dicts with
-`path`, `title`, `spec`, `category`, `status`, `confidence_score`, `last_updated`.
+Query the `articles` table with optional `WHERE` clauses. Returns typed `ArticleSummary`
+objects (not raw dicts) for type safety — consistent with the Pydantic-everywhere pattern.
 
 Uses parameterized query building (no f-strings in SQL).
 
@@ -280,16 +344,13 @@ async def execute(self, task: AgentTask, *, on_status=None) -> WriteResult:
 - Verify `task` is a `WriteTask` (isinstance check)
 - Verify `task.research` is a `ResearchResult`
 
-**Step 2: Check for existing article**
-- Call `self._km.exists(spec, category, title)` where title is derived from query + article_type
-- If exists:
-  - Read current article via `self._km.read_article(path)`
-  - If status is `draft` → will overwrite in step 4
-  - If status is `review` or `published` → return `WriteResult` with `status=FAILED` and explanation
+**Step 2: Guard — empty findings**
+- If `task.research.findings` is empty, return `WriteResult(status=FAILED, output="No findings to write about")`
+- This prevents calling the LLM with nothing to write about
 
 **Step 3: Generate article content (Pass 1 — Llama 70B)**
 - Build messages with writer system prompt + formatted findings
-- Input includes: query, article_type, findings (claim + evidence + confidence each), gaps
+- Input includes: query, article_type, spec, category, findings (claim + evidence + confidence each), gaps
 - Call `get_structured_output()` with a `GeneratedArticle` schema:
   ```python
   class GeneratedArticle(BaseModel):
@@ -298,7 +359,15 @@ async def execute(self, task: AgentTask, *, on_status=None) -> WriteResult:
   ```
 - The LLM generates a well-structured Markdown article from the findings
 
-**Step 4: Extract claims and entities (Pass 2 — Llama 70B)**
+**Step 4: Check for existing article (using LLM-generated title)**
+- Call `self._km.exists(task.spec, task.category, generated.title)` with the actual title from Pass 1
+- If exists:
+  - Read current article via `self._km.read_article(path)`
+  - If status is `draft` → will overwrite in step 6
+  - If status is `review` or `published` → return `WriteResult` with `status=FAILED` and explanation
+- This eliminates the preliminary-title vs LLM-title mismatch — one title, one path, one check
+
+**Step 5: Extract claims and entities (Pass 2 — Llama 70B)**
 - Input: the generated article content
 - Call `get_structured_output()` with an `ArticleExtraction` schema:
   ```python
@@ -308,15 +377,14 @@ async def execute(self, task: AgentTask, *, on_status=None) -> WriteResult:
   ```
 - This mirrors the Researcher's structuring pass pattern
 
-**Step 5: Build metadata and write**
-- Compute `confidence` as weighted average of finding confidences (weighted by how many
-  findings the article used vs total findings available)
+**Step 6: Build metadata and write**
+- Compute `confidence` as simple average of all `task.research.findings[].confidence`
 - Build `SourceRef` list by deduplicating evidence URLs from `ResearchResult.findings`
 - Build `ClaimRef` list from extraction pass claims (all `verified=False` initially)
-- Build `ArticleMeta` with all fields
+- Build `ArticleMeta` with spec from `task.spec`, category from `task.category`, title from Pass 1
 - Call `self._km.create_draft(meta, content)` or `self._km.update_draft(path, meta, content)`
 
-**Step 6: Return WriteResult**
+**Step 7: Return WriteResult**
 ```python
 return WriteResult(
     task_id=task.task_id,
@@ -335,6 +403,7 @@ return WriteResult(
 
 ### Error Handling
 
+- If findings are empty: return `WriteResult` with `status=FAILED` (step 2 guard)
 - If article generation fails (LLM error): return `WriteResult` with `status=FAILED`
 - If extraction pass fails: fall back to empty claims/entity_refs (article is still written)
 - If KnowledgeManager write fails: propagate exception (filesystem/DB error is not recoverable)
@@ -342,12 +411,9 @@ return WriteResult(
 ### Title Derivation
 
 The article title comes from the generation pass (Pass 1). The LLM produces a title based on
-the query, article_type, and findings. The Writer does not hardcode titles.
-
-For the `exists()` check before generation, the Writer uses a preliminary title derived from
-`task.query` + `task.article_type` to check for conflicts. After generation, if the LLM
-produces a different title (and thus different slug), there's no conflict issue — the new
-path simply won't match any existing article.
+the query, article_type, and findings. The Writer does not hardcode titles. The `exists()` check
+runs AFTER generation, using the actual LLM-generated title — eliminating any mismatch between
+a preliminary title and the final one.
 
 ## Component 4: WriteResult Model
 
@@ -364,13 +430,18 @@ class WriteResult(AgentResult):
     entity_refs: list[str] = Field(default_factory=list)
 ```
 
-Also in `tasks.py`, tighten `WriteTask`:
+Also in `tasks.py`, tighten and extend `WriteTask`:
 
 ```python
 class WriteTask(AgentTask):
-    research: ResearchResult    # was AgentResult
+    research: ResearchResult    # was AgentResult — tightened for type safety
     article_type: ArticleType
+    spec: str                   # NEW — "combat", "assassination", "subtlety", "general"
+    category: str               # NEW — "gear", "rotation", "mechanics", etc.
 ```
+
+The `spec` and `category` fields are required so the Writer knows where to place the article.
+The Orchestrator (Step 7) populates these when dispatching a WriteTask.
 
 ## Component 5: Writer System Prompt
 
@@ -530,8 +601,9 @@ If `knowledge_manager` is omitted, `Writer.__init__` raises `TypeError` — clea
 | LLM generates poor article titles | Slug collisions or nonsensical paths | Title comes from structured output (Pydantic validated). Fallback: derive title from query + article_type if generation fails. |
 | Two-pass latency (~5-6s total) | Slow article generation | Acceptable — article writing is a background task, not real-time chat. |
 | Extraction pass misses claims | Unverified claims slip through to published articles | Editor (Step 6) independently verifies. Extraction is best-effort for frontmatter; Editor is the safety net. |
-| Schema v3 breaks existing `init_db()` | DB initialization fails | No data in `articles` table. Schema is applied on fresh DB or test fixtures. `init_db()` uses `CREATE TABLE IF NOT EXISTS` — existing empty tables are fine. |
-| `WriteTask.research` type tightening | Breaks any code passing `AgentResult` | Only `tasks.py` and tests reference `WriteTask`. No production callers yet. Clean break. |
+| Schema v3 breaks existing `init_db()` | Existing v2 databases keep old `articles` table | `_migrate_v2_to_v3()` handles this: DROP empty table + recreate. Version check updated to cascade v2→v3. |
+| `WriteTask.research` type tightening | Breaks existing `test_tasks.py` tests that pass `AgentResult` | Update tests to use `ResearchResult`. No production callers yet. Clean break. |
+| File/DB desync in `create_draft` | Orphaned file if DB INSERT fails | DB uniqueness check BEFORE file write. If INSERT still fails (race), delete file in exception handler. |
 
 ## What This Does NOT Include
 
@@ -555,9 +627,9 @@ What must exist before this can be implemented:
 
 ## Test Plan
 
-Starting count: **473 tests** → Estimated after this step: **~510-515 tests**
+Starting count: **473 tests** → Estimated after this step: **~515-520 tests**
 
-### `tests/unit/test_knowledge_manager.py` (~20 tests)
+### `tests/unit/test_knowledge_manager.py` (~22 tests)
 
 **Slug generation:**
 - `test_slugify_basic` — simple title to slug
@@ -573,7 +645,8 @@ Starting count: **473 tests** → Estimated after this step: **~510-515 tests**
 - `test_create_draft_inserts_db_row` — articles table has matching row
 - `test_create_draft_frontmatter_roundtrip` — read back file, frontmatter matches input meta
 - `test_create_draft_creates_parent_dirs` — nested dirs created automatically
-- `test_create_draft_duplicate_raises` — creating at existing path raises ValueError
+- `test_create_draft_duplicate_raises` — creating at existing path raises ValueError (DB check)
+- `test_create_draft_datetime_serialization` — datetimes appear as ISO 8601 strings in YAML, not `!!python/object`
 
 **read_article:**
 - `test_read_article_parses_frontmatter` — returns correct ArticleMeta + content
@@ -586,7 +659,7 @@ Starting count: **473 tests** → Estimated after this step: **~510-515 tests**
 - `test_update_draft_refuses_published` — ValueError when status is "published"
 
 **list_articles:**
-- `test_list_articles_no_filter` — returns all articles
+- `test_list_articles_no_filter` — returns all articles as `ArticleSummary` objects
 - `test_list_articles_filter_by_status` — only matching status
 - `test_list_articles_filter_by_spec` — only matching spec
 - `test_list_articles_empty` — returns empty list when no articles
@@ -601,11 +674,14 @@ Starting count: **473 tests** → Estimated after this step: **~510-515 tests**
 - `test_exists_returns_path_when_found` — article exists, returns path string
 - `test_exists_returns_none_when_missing` — no article, returns None
 
-### `tests/unit/test_writer.py` (~15-18 tests)
+### `tests/unit/test_writer.py` (~17-19 tests)
 
 **Input validation:**
 - `test_execute_requires_role` — ValueError when role is None
 - `test_execute_requires_write_task` — fails gracefully on non-WriteTask input
+
+**Empty findings guard:**
+- `test_execute_empty_findings_returns_failed` — returns FAILED when ResearchResult has 0 findings
 
 **Article generation:**
 - `test_execute_produces_article_file` — file exists at expected path after execute
@@ -615,7 +691,8 @@ Starting count: **473 tests** → Estimated after this step: **~510-515 tests**
 - `test_execute_entity_refs_extracted` — WriteResult.entity_refs is non-empty
 - `test_execute_word_count_accurate` — word_count matches content
 - `test_execute_gaps_carried_through` — research_gaps from ResearchResult appear in WriteResult
-- `test_execute_confidence_computed` — confidence is weighted average of finding confidences
+- `test_execute_confidence_is_average` — confidence equals mean of finding confidences
+- `test_execute_uses_task_spec_category` — article path uses `task.spec` and `task.category`, not LLM-generated values
 
 **Existing article handling:**
 - `test_execute_overwrites_draft` — existing draft article is replaced
@@ -630,12 +707,19 @@ Starting count: **473 tests** → Estimated after this step: **~510-515 tests**
 - `test_factory_creates_writer` — `AgentFactory.create(WRITER, knowledge_manager=km)` returns Writer
 - `test_factory_writer_requires_knowledge_manager` — omitting kwarg raises TypeError
 
+### `tests/unit/test_tasks.py` (modify existing, ~2-3 updated tests)
+
+- Update `test_requires_research_result` — use `ResearchResult` instead of `AgentResult`
+- `test_write_task_has_spec_category` — verify new `spec` and `category` fields
+- `test_write_task_rejects_plain_agent_result` — `AgentResult` no longer accepted
+
 ### `tests/unit/test_factory.py` (modify existing, ~2-3 new tests)
 
 - `test_factory_kwargs_forwarded` — verify `**kwargs` reach the constructor
 - `test_factory_writer_in_role_classes` — Writer in `_ROLE_CLASSES` registry
 
-### Schema test (in existing `tests/unit/test_db_schema.py`, ~1-2 new tests)
+### Schema test (in existing `tests/unit/test_db_schema.py`, ~2-3 new tests)
 
 - `test_articles_table_v3_columns` — verify `status`, `spec`, `category`, `created_at` columns exist
 - `test_articles_status_index_exists` — verify index on `status`
+- `test_schema_version_is_3` — verify `schema_version` table has version 3
