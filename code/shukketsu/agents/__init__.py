@@ -1,6 +1,7 @@
 """Multi-agent system: BaseAgent, AgentFactory, and Structured Task Protocol."""
 
 from code.shukketsu.agents.base import BaseAgent
+from code.shukketsu.agents.editor import Editor
 from code.shukketsu.agents.factory import AgentFactory
 from code.shukketsu.agents.researcher import Researcher
 from code.shukketsu.agents.tasks import (
@@ -8,6 +9,9 @@ from code.shukketsu.agents.tasks import (
     AgentRole,
     AgentTask,
     ArticleType,
+    ClaimJudgment,
+    ClaimVerification,
+    EditResult,
     EditTask,
     Finding,
     OrchestratorPlan,
@@ -16,6 +20,7 @@ from code.shukketsu.agents.tasks import (
     SearchStrategy,
     SubTask,
     TaskStatus,
+    VerificationStatus,
     WriteResult,
     WriteTask,
 )
@@ -28,7 +33,11 @@ __all__ = [
     "AgentTask",
     "ArticleType",
     "BaseAgent",
+    "ClaimJudgment",
+    "ClaimVerification",
+    "EditResult",
     "EditTask",
+    "Editor",
     "Finding",
     "OrchestratorPlan",
     "Researcher",
@@ -37,6 +46,7 @@ __all__ = [
     "SearchStrategy",
     "SubTask",
     "TaskStatus",
+    "VerificationStatus",
     "Writer",
     "WriteResult",
     "WriteTask",

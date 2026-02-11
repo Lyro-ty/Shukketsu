@@ -114,6 +114,9 @@ RERANKER_FETCH_MULTIPLIER = int(os.getenv("RERANKER_FETCH_MULTIPLIER", "3"))
 RERANKER_TOP_K = int(os.getenv("RERANKER_TOP_K", "5"))
 
 # Role-specific system prompts
+from code.shukketsu.llm.prompts.editor import (  # noqa: E402
+    EDITOR_SYSTEM_PROMPT as EDITOR_SYSTEM_PROMPT,
+)
 from code.shukketsu.llm.prompts.researcher import (  # noqa: E402
     RESEARCHER_SYSTEM_PROMPT as RESEARCHER_SYSTEM_PROMPT,
 )
@@ -121,10 +124,9 @@ from code.shukketsu.llm.prompts.writer import (  # noqa: E402
     WRITER_SYSTEM_PROMPT as WRITER_SYSTEM_PROMPT,
 )
 
-EDITOR_SYSTEM_PROMPT = (
-    "You are a Fact-Checking Editor for WoW TBC Rogue content. "
-    "Your job is to verify claims in draft articles against the knowledge base."
-)
+# Editor
+EDITOR_CONFIDENCE_THRESHOLD = float(os.getenv("EDITOR_CONFIDENCE_THRESHOLD", "0.6"))
+
 ORCHESTRATOR_SYSTEM_PROMPT = (
     "You are the Orchestrator for a WoW TBC Rogue knowledge system. "
     "You decompose complex queries into sub-tasks for specialist agents."

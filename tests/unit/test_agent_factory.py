@@ -26,8 +26,8 @@ def _mock_km() -> KnowledgeManager:
 
 
 def _factory_create(factory: AgentFactory, role: AgentRole, **kwargs: Any) -> BaseAgent:
-    """Create an agent, passing knowledge_manager for Writer role."""
-    if role == AgentRole.WRITER and "knowledge_manager" not in kwargs:
+    """Create an agent, passing knowledge_manager for roles that require it."""
+    if role in (AgentRole.WRITER, AgentRole.EDITOR) and "knowledge_manager" not in kwargs:
         kwargs["knowledge_manager"] = _mock_km()
     return factory.create(role, **kwargs)
 
@@ -62,7 +62,7 @@ class TestAgentFactoryCreate:
 
     def test_editor_prompt_mentions_verify(self) -> None:
         factory = AgentFactory()
-        agent = factory.create(AgentRole.EDITOR)
+        agent = _factory_create(factory, AgentRole.EDITOR)
         assert "verify" in agent._system_prompt.lower()
 
     def test_orchestrator_prompt_mentions_decompose(self) -> None:

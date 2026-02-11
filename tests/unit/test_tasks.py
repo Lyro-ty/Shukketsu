@@ -10,6 +10,9 @@ from code.shukketsu.agents.tasks import (
     AgentRole,
     AgentTask,
     ArticleType,
+    ClaimJudgment,
+    ClaimVerification,
+    EditResult,
     EditTask,
     Finding,
     OrchestratorPlan,
@@ -18,6 +21,7 @@ from code.shukketsu.agents.tasks import (
     SearchStrategy,
     SubTask,
     TaskStatus,
+    VerificationStatus,
     WriteResult,
     WriteTask,
 )
@@ -266,6 +270,79 @@ class TestEditTask:
     def test_rejects_missing_fields(self) -> None:
         with pytest.raises(ValidationError):
             EditTask(query="q")  # type: ignore[call-arg]
+
+
+class TestVerificationStatus:
+    def test_all_values_exist(self) -> None:
+        assert VerificationStatus.VERIFIED == "verified"
+        assert VerificationStatus.UNCERTAIN == "uncertain"
+        assert VerificationStatus.CONTRADICTED == "contradicted"
+        assert VerificationStatus.UNSUPPORTED == "unsupported"
+
+    def test_is_str_enum(self) -> None:
+        assert isinstance(VerificationStatus.VERIFIED, str)
+
+
+class TestClaimVerification:
+    def test_valid_creation(self) -> None:
+        cv = ClaimVerification(
+            claim="DST drops from Gruul",
+            status=VerificationStatus.VERIFIED,
+            supporting_evidence=["Source A"],
+            confidence=0.9,
+            note="Confirmed",
+        )
+        assert cv.claim == "DST drops from Gruul"
+        assert cv.status == VerificationStatus.VERIFIED
+
+    def test_confidence_bounds(self) -> None:
+        with pytest.raises(ValidationError):
+            ClaimVerification(claim="c", status=VerificationStatus.VERIFIED, confidence=1.5)
+        with pytest.raises(ValidationError):
+            ClaimVerification(claim="c", status=VerificationStatus.VERIFIED, confidence=-0.1)
+
+
+class TestClaimJudgment:
+    def test_valid_creation(self) -> None:
+        j = ClaimJudgment(
+            status=VerificationStatus.UNCERTAIN,
+            confidence=0.5,
+            supporting=["Partial match"],
+            note="Not conclusive",
+        )
+        assert j.status == VerificationStatus.UNCERTAIN
+        assert j.confidence == 0.5
+
+
+class TestEditResult:
+    def test_valid_creation(self) -> None:
+        result = EditResult(
+            task_id="e1",
+            agent_role=AgentRole.EDITOR,
+            status=TaskStatus.SUCCESS,
+            output="Verified 3 claims",
+            article_path="combat/gear/trinkets.md",
+            claim_results=[],
+            overall_confidence=0.75,
+            approved_for_review=True,
+        )
+        assert result.article_path == "combat/gear/trinkets.md"
+        assert result.approved_for_review is True
+
+    def test_defaults(self) -> None:
+        result = EditResult(
+            task_id="e1",
+            agent_role=AgentRole.EDITOR,
+            status=TaskStatus.SUCCESS,
+            output="Done",
+            article_path="p.md",
+        )
+        assert result.claim_results == []
+        assert result.overall_confidence == 0.0
+        assert result.approved_for_review is False
+        assert result.internal_consistency is True
+        assert result.corrections == []
+        assert result.needs_more_research == []
 
 
 class TestSubTask:

@@ -131,6 +131,36 @@ class WriteResult(AgentResult):
     entity_refs: list[str] = Field(default_factory=list)
 
 
+class VerificationStatus(StrEnum):
+    """Outcome of verifying a single claim against the knowledge base."""
+
+    VERIFIED = "verified"
+    UNCERTAIN = "uncertain"
+    CONTRADICTED = "contradicted"
+    UNSUPPORTED = "unsupported"
+
+
+class ClaimVerification(BaseModel):
+    """Verification result for a single claim."""
+
+    claim: str
+    status: VerificationStatus
+    supporting_evidence: list[str] = Field(default_factory=list)
+    contradicting_evidence: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+    note: str = ""
+
+
+class ClaimJudgment(BaseModel):
+    """LLM's assessment of a single claim against gathered evidence."""
+
+    status: VerificationStatus
+    confidence: float = Field(ge=0.0, le=1.0)
+    supporting: list[str] = Field(default_factory=list)
+    contradicting: list[str] = Field(default_factory=list)
+    note: str
+
+
 class EditTask(AgentTask):
     """Task for the Editor agent.
 
@@ -139,6 +169,18 @@ class EditTask(AgentTask):
 
     article_path: str
     claims: list[str]
+
+
+class EditResult(AgentResult):
+    """Structured output from the Editor agent."""
+
+    article_path: str
+    claim_results: list[ClaimVerification] = Field(default_factory=list)
+    overall_confidence: float = 0.0
+    approved_for_review: bool = False
+    internal_consistency: bool = True
+    corrections: list[str] = Field(default_factory=list)
+    needs_more_research: list[str] = Field(default_factory=list)
 
 
 class SubTask(BaseModel):
