@@ -13,11 +13,20 @@ from typing import TYPE_CHECKING
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
 from code.shukketsu.agents.tasks import (
+    AgentResult,
     AgentRole,
     AgentTask,
+    ArticleType,
+    EditTask,
+    Finding,
     OrchestratorPlan,
     OrchestratorResult,
+    ResearchResult,
+    ResearchTask,
     SubTask,
+    TaskStatus,
+    WriteResult,
+    WriteTask,
 )
 from code.shukketsu.knowledge.manager import KnowledgeManager
 from code.shukketsu.tools.registry import ToolRegistry
@@ -141,3 +150,87 @@ class Orchestrator(BaseAgent):
             raise ValueError("Dependency cycle detected")
 
         return order
+
+    def _build_task(
+        self,
+        subtask: SubTask,
+        results: list[AgentResult | None],
+        trace_id: str,
+    ) -> AgentTask:
+        """Build a typed task from a SubTask and completed dependency results."""
+        if subtask.agent_role == AgentRole.RESEARCHER:
+            return ResearchTask(query=subtask.description, trace_id=trace_id)
+
+        if subtask.agent_role == AgentRole.WRITER:
+            research_results = [
+                results[d]
+                for d in subtask.depends_on
+                if results[d] is not None and isinstance(results[d], ResearchResult)
+            ]
+            if not research_results:
+                raise ValueError("WRITER subtask has no ResearchResult dependencies")
+
+            research = self._merge_research(research_results) if len(research_results) > 1 else research_results[0]
+
+            spec = subtask.task_params.get("spec", "general")
+            category = subtask.task_params.get("category", "general")
+            article_type_str = subtask.task_params.get("article_type", "guide")
+            try:
+                article_type = ArticleType(article_type_str)
+            except ValueError:
+                article_type = ArticleType.GUIDE
+
+            return WriteTask(
+                query=subtask.description,
+                trace_id=trace_id,
+                research=research,
+                article_type=article_type,
+                spec=spec,
+                category=category,
+            )
+
+        if subtask.agent_role == AgentRole.EDITOR:
+            write_result = next(
+                (
+                    results[d]
+                    for d in subtask.depends_on
+                    if results[d] is not None and isinstance(results[d], WriteResult)
+                ),
+                None,
+            )
+            if write_result is None:
+                raise ValueError("EDITOR subtask has no WriteResult dependency")
+
+            return EditTask(
+                query=subtask.description,
+                trace_id=trace_id,
+                article_path=write_result.article_path,
+                claims=write_result.claims,
+            )
+
+        raise ValueError(f"Unsupported agent role: {subtask.agent_role}")
+
+    def _merge_research(
+        self,
+        results: list[ResearchResult],
+    ) -> ResearchResult:
+        """Merge multiple ResearchResults into one for the Writer."""
+        seen_claims: set[str] = set()
+        merged_findings: list[Finding] = []
+        for r in results:
+            for f in r.findings:
+                if f.claim not in seen_claims:
+                    seen_claims.add(f.claim)
+                    merged_findings.append(f)
+
+        return ResearchResult(
+            task_id=results[0].task_id,
+            agent_role=AgentRole.RESEARCHER,
+            status=(TaskStatus.SUCCESS if all(r.status == TaskStatus.SUCCESS for r in results) else TaskStatus.PARTIAL),
+            output="\n\n---\n\n".join(r.output for r in results),
+            findings=merged_findings,
+            sources_used=list(dict.fromkeys(s for r in results for s in r.sources_used)),
+            strategies_used=list(dict.fromkeys(s for r in results for s in r.strategies_used)),
+            gaps=list(dict.fromkeys(g for r in results for g in r.gaps)),
+            sufficient=all(r.sufficient for r in results),
+        )
