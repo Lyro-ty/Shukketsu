@@ -117,11 +117,10 @@ RERANKER_TOP_K = int(os.getenv("RERANKER_TOP_K", "5"))
 from code.shukketsu.llm.prompts.researcher import (  # noqa: E402
     RESEARCHER_SYSTEM_PROMPT as RESEARCHER_SYSTEM_PROMPT,
 )
-
-WRITER_SYSTEM_PROMPT = (
-    "You are a Wiki Writer for WoW TBC Rogue content. "
-    "You produce clear, accurate, well-structured Markdown articles from research findings."
+from code.shukketsu.llm.prompts.writer import (  # noqa: E402
+    WRITER_SYSTEM_PROMPT as WRITER_SYSTEM_PROMPT,
 )
+
 EDITOR_SYSTEM_PROMPT = (
     "You are a Fact-Checking Editor for WoW TBC Rogue content. "
     "Your job is to verify claims in draft articles against the knowledge base."
