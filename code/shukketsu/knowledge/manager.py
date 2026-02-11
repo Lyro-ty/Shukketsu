@@ -157,3 +157,98 @@ class KnowledgeManager:
         post = frontmatter.loads(full_path.read_text(encoding="utf-8"))
         meta = ArticleMeta(**post.metadata)
         return meta, post.content
+
+    def update_draft(self, path: str, meta: ArticleMeta, content: str) -> None:
+        """Overwrite a draft article's content and metadata.
+
+        Only works on articles with status 'draft'. Raises ValueError
+        for review or published articles.
+        """
+        row = self._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        if row is None:
+            raise ValueError(f"Article not found: {path}")
+
+        status = row["status"]
+        if status != ArticleStatus.DRAFT:
+            raise ValueError(f"Cannot update article with status '{status}'")
+
+        # Write file
+        full_path = self._knowledge_dir / path
+        now = datetime.now(tz=meta.updated_at.tzinfo)
+        meta_updated = meta.model_copy(update={"updated_at": now})
+
+        post = frontmatter.Post(content, **meta_updated.model_dump(mode="json"))
+        full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+        # Update DB row
+        self._conn.execute(
+            """UPDATE articles SET title = ?, confidence_score = ?, last_updated = ?
+            WHERE path = ?""",
+            (meta_updated.title, meta_updated.confidence, now.isoformat(), path),
+        )
+        self._conn.commit()
+        logger.info("Updated draft article: %s", path)
+
+    def list_articles(
+        self,
+        *,
+        status: ArticleStatus | None = None,
+        spec: Spec | None = None,
+    ) -> list[ArticleSummary]:
+        """Query articles with optional filters. Returns typed ArticleSummary objects."""
+        query = "SELECT path, title, spec, category, status, confidence_score, last_updated FROM articles"
+        conditions: list[str] = []
+        params: list[str] = []
+
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        if spec is not None:
+            conditions.append("spec = ?")
+            params.append(spec)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY last_updated DESC"
+
+        rows = self._conn.execute(query, params).fetchall()
+        return [
+            ArticleSummary(
+                path=row["path"],
+                title=row["title"],
+                spec=row["spec"],
+                category=row["category"],
+                status=ArticleStatus(row["status"]),
+                confidence_score=row["confidence_score"],
+                last_updated=row["last_updated"],
+            )
+            for row in rows
+        ]
+
+    def set_status(self, path: str, new_status: ArticleStatus) -> None:
+        """Transition article status. Enforces draft->review->published order."""
+        row = self._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        if row is None:
+            raise ValueError(f"Article not found: {path}")
+
+        current = ArticleStatus(row["status"])
+        valid_transitions = {
+            ArticleStatus.DRAFT: ArticleStatus.REVIEW,
+            ArticleStatus.REVIEW: ArticleStatus.PUBLISHED,
+        }
+
+        if valid_transitions.get(current) != new_status:
+            raise ValueError(f"Invalid status transition: {current} -> {new_status}")
+
+        self._conn.execute(
+            "UPDATE articles SET status = ?, last_updated = ? WHERE path = ?",
+            (new_status, datetime.now().isoformat(), path),
+        )
+        self._conn.commit()
+        logger.info("Article %s status: %s -> %s", path, current, new_status)
+
+    def exists(self, spec: str, category: str, title: str) -> str | None:
+        """Check if an article exists at the derived path. Returns path or None."""
+        path = derive_path(spec, category, title)
+        row = self._conn.execute("SELECT path FROM articles WHERE path = ?", (path,)).fetchone()
+        return row["path"] if row else None

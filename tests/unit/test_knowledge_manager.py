@@ -1,6 +1,7 @@
 """Tests for KnowledgeManager article CRUD."""
 
 import sqlite3
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -134,3 +135,105 @@ class TestReadArticle:
     def test_missing_file_raises(self, km: KnowledgeManager) -> None:
         with pytest.raises(FileNotFoundError):
             km.read_article("nonexistent/path.md")
+
+
+class TestUpdateDraft:
+    def test_overwrites_content(self, km: KnowledgeManager) -> None:
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Original content")
+        updated_meta = _sample_meta()
+        km.update_draft(path, updated_meta, "Updated content")
+        _, content = km.read_article(path)
+        assert "Updated content" in content
+        assert "Original content" not in content
+
+    def test_bumps_timestamp(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Content")
+        original_updated = test_db.execute("SELECT last_updated FROM articles WHERE path = ?", (path,)).fetchone()[0]
+        time.sleep(0.01)  # Ensure time difference
+        km.update_draft(path, _sample_meta(confidence=0.9), "New content")
+        new_updated = test_db.execute("SELECT last_updated FROM articles WHERE path = ?", (path,)).fetchone()[0]
+        assert new_updated > original_updated
+
+    def test_refuses_review(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Content")
+        test_db.execute("UPDATE articles SET status = 'review' WHERE path = ?", (path,))
+        test_db.commit()
+        with pytest.raises(ValueError, match="Cannot update"):
+            km.update_draft(path, _sample_meta(), "New")
+
+    def test_refuses_published(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Content")
+        test_db.execute("UPDATE articles SET status = 'published' WHERE path = ?", (path,))
+        test_db.commit()
+        with pytest.raises(ValueError, match="Cannot update"):
+            km.update_draft(path, _sample_meta(), "New")
+
+
+class TestListArticles:
+    def test_no_filter(self, km: KnowledgeManager) -> None:
+        km.create_draft(_sample_meta(title="Article 1"), "A")
+        km.create_draft(_sample_meta(title="Article 2"), "B")
+        articles = km.list_articles()
+        assert len(articles) == 2
+        assert all(hasattr(a, "path") for a in articles)  # ArticleSummary objects
+
+    def test_filter_by_status(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        path1 = km.create_draft(_sample_meta(title="Draft One"), "A")
+        km.create_draft(_sample_meta(title="Draft Two"), "B")
+        test_db.execute("UPDATE articles SET status = 'review' WHERE path = ?", (path1,))
+        test_db.commit()
+        drafts = km.list_articles(status=ArticleStatus.DRAFT)
+        assert len(drafts) == 1
+        assert drafts[0].title == "Draft Two"
+
+    def test_filter_by_spec(self, km: KnowledgeManager) -> None:
+        km.create_draft(_sample_meta(title="Combat Guide", spec=Spec.COMBAT), "A")
+        km.create_draft(_sample_meta(title="Mut Guide", spec=Spec.ASSASSINATION), "B")
+        combat = km.list_articles(spec=Spec.COMBAT)
+        assert len(combat) == 1
+        assert combat[0].spec == "combat"
+
+    def test_empty(self, km: KnowledgeManager) -> None:
+        assert km.list_articles() == []
+
+
+class TestSetStatus:
+    def test_draft_to_review(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        row = test_db.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        assert row["status"] == "review"
+
+    def test_review_to_published(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        km.set_status(path, ArticleStatus.PUBLISHED)
+        row = test_db.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        assert row["status"] == "published"
+
+    def test_invalid_transition_raises(self, km: KnowledgeManager) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        with pytest.raises(ValueError, match="Invalid.*transition"):
+            km.set_status(path, ArticleStatus.PUBLISHED)  # draft -> published not allowed
+
+    def test_backward_raises(self, km: KnowledgeManager) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        with pytest.raises(ValueError, match="Invalid.*transition"):
+            km.set_status(path, ArticleStatus.DRAFT)  # review -> draft not allowed
+
+
+class TestExists:
+    def test_returns_path_when_found(self, km: KnowledgeManager) -> None:
+        km.create_draft(_sample_meta(), "Content")
+        result = km.exists("combat", "gear", "Phase 1 Trinkets")
+        assert result is not None
+        assert result.endswith(".md")
+
+    def test_returns_none_when_missing(self, km: KnowledgeManager) -> None:
+        result = km.exists("combat", "gear", "Nonexistent Article")
+        assert result is None
