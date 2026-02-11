@@ -27,7 +27,7 @@ to the Orchestrator (new).
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Decomposition strategy | Single LLM call, retry only on structural invalidity | Simpler, predictable. Validation catches cycles, too many subtasks, invalid roles. No "quality" retries. |
-| Task wiring | Deterministic Python (`_build_task()`) | LLM plans what; Python wires how. Consistent with Writer/Editor pattern. Avoids LLM needing to know task field schemas. |
+| Task wiring | Deterministic Python (`_build_task()`) + `task_params` for simple metadata | Python wires complex dependencies (ResearchResult → WriteTask.research). LLM provides simple metadata (spec, category, article_type) via `task_params`. Best of both: reliable wiring + reliable metadata. |
 | Concurrent execution | Sequential with topological ordering | Ollama serializes inference on single GB10. Topological sort respects dependencies. `asyncio.gather()` can be added later trivially. |
 | Synthesis strategy | Conditional: LLM for research answers, template for article workflows | Research queries need natural language; article workflows just need confirmation of what happened. |
 | Error handling | No retries at Orchestrator level | Specialists have their own retry/circuit-breaker logic. Orchestrator manages outcomes: failed deps → skip dependents, partial → proceed, all failed → FAILED. |
@@ -129,13 +129,22 @@ decompose complex queries into sub-tasks for specialist agents.
    can_answer_directly=True and provide direct_answer.
 5. Maximum 6 sub-tasks. If the question needs more, simplify.
 
+## task_params
+
+For WRITER sub-tasks, you MUST include these fields in task_params:
+- "spec": one of "combat", "assassination", "subtlety", "general"
+- "category": a short topic category like "gear", "rotation", "talents", "consumables", "general"
+- "article_type": one of "guide", "reference", "analysis"
+
+For RESEARCHER and EDITOR sub-tasks, task_params can be empty.
+
 ## Examples
 
 Query: "What are the best trinkets for combat rogues in Phase 1?"
 → 1 RESEARCHER task (straightforward retrieval)
 
 Query: "Write a guide about Phase 1 BiS trinkets for combat rogues"
-→ RESEARCHER (find trinkets + stat priorities) → WRITER (draft guide) → EDITOR (verify)
+→ RESEARCHER (find trinkets + stat priorities) → WRITER (draft guide, task_params: {"spec": "combat", "category": "gear", "article_type": "guide"}) → EDITOR (verify)
 
 Query: "Compare combat swords vs mutilate for Gruul"
 → RESEARCHER (combat swords gear + rotation for Gruul)
@@ -233,7 +242,11 @@ def _validate_plan(self, plan: OrchestratorPlan) -> list[str]: ...
      - RESEARCHER → `ResearchTask(query=subtask.description)`
      - WRITER → `WriteTask(research=results[dep_idx], ...)` pulling from completed Researcher
      - EDITOR → `EditTask(article_path=results[dep_idx].article_path, claims=results[dep_idx].claims)` pulling from completed Writer
-   - Create the specialist agent via `self._factory.create(subtask.agent_role, ...)`
+   - Create the specialist agent via `self._factory.create(subtask.agent_role, ...)` with role-conditional kwargs:
+     - RESEARCHER: `factory.create(RESEARCHER, tool_registry=self.tool_registry)`
+     - WRITER: `factory.create(WRITER, tool_registry=self.tool_registry, knowledge_manager=self._km)`
+     - EDITOR: `factory.create(EDITOR, tool_registry=self.tool_registry, knowledge_manager=self._km)`
+     - **Important**: Writer/Editor constructors require `knowledge_manager` but Researcher does not accept it — passing it would raise `TypeError`. The Orchestrator must only pass `knowledge_manager` to roles that accept it.
    - Execute: `result = await agent.execute(typed_task, on_status=on_status)`
    - Store result at the subtask's index
 
@@ -278,9 +291,15 @@ The `_build_task()` method handles the deterministic wiring:
 
 **WriteTask**: Needs a `ResearchResult`, `article_type`, `spec`, and `category`.
 - Finds the first successful ResearchResult in dependencies
-- If multiple Researcher dependencies: merge findings from all of them into a single synthetic ResearchResult
-- Derives `spec`, `category`, and `article_type` from the subtask description using simple keyword matching (e.g., "combat" → spec="combat", "guide" → article_type=GUIDE)
-- Falls back to `spec="general"`, `category="general"`, `article_type=GUIDE` if no keywords match
+- If multiple Researcher dependencies: merge findings into a single synthetic ResearchResult:
+  - `findings` = concatenated lists, deduped by `claim` text
+  - `output` = joined with `"\n\n---\n\n"` separator
+  - `sources_used` = union of both lists
+  - `strategies_used` = union of both lists
+  - `gaps` = union of both lists
+  - `sufficient` = `all(r.sufficient for r in research_results)` (conservative)
+- Reads `spec`, `category`, and `article_type` from `subtask.task_params` (populated by LLM per prompt instructions)
+- Falls back to `spec="general"`, `category="general"`, `article_type=GUIDE` if task_params are missing
 
 **EditTask**: Needs `article_path` and `claims`.
 - Finds the WriteResult in dependencies
@@ -463,17 +482,18 @@ with an error message in `skipped_tasks`.
 |------|--------|------------|
 | LLM produces invalid dependency indices | Dispatch crashes with IndexError | Validation catches this; retry with feedback |
 | LLM can't reliably produce OrchestratorPlan | Decomposition always fails | Structured output via Instructor handles schema enforcement; prompt includes examples |
-| Spec/category extraction from description is brittle | Writer gets wrong path | Use simple keyword matching with safe fallbacks; Orchestrator prompt teaches LLM to include spec names in descriptions |
-| Merging multiple ResearchResults for Writer is lossy | Writer gets incomplete info | Concatenate findings lists; dedup by claim text |
+| LLM omits task_params for Writer subtask | Writer gets default spec/category | Prompt explicitly instructs LLM; validation could warn but safe fallbacks (general/general/GUIDE) prevent crashes |
+| Merging multiple ResearchResults for Writer is lossy | Writer gets incomplete info | Concatenate findings; dedup by claim; conservative `sufficient` (all must agree) |
 | Chat handler refactor breaks existing functionality | TRIVIAL/MODERATE queries regress | Existing trivial path unchanged; MODERATE path tests agent.run → agent.execute migration |
 | Factory circular reference (Orchestrator holds factory that can create Orchestrators) | Recursive orchestration | Validation rejects ORCHESTRATOR role in subtasks; MAX_DEPTH=1 in config |
+| Passing knowledge_manager to Researcher via factory.create() | TypeError crash | Orchestrator uses role-conditional kwargs — only passes knowledge_manager to Writer/Editor |
 
 ## What This Does NOT Include
 
 - **Concurrent subtask execution** — Sequential only. Add `asyncio.gather()` when multi-GPU warrants it.
 - **Retry at orchestration level** — Specialists handle their own resilience.
 - **Recursive orchestration** — MAX_DEPTH=1, no Orchestrator-creates-Orchestrator.
-- **Smart spec/category extraction** — Simple keyword matching, not an LLM call. Good enough for the domain (three specs: combat, assassination, subtlety).
+- **Validation of task_params values** — If the LLM puts an invalid spec in task_params (e.g., "rogue"), we fall back to "general" rather than validating against the Spec enum. Strict validation is unnecessary overhead for three known specs.
 - **Status callback forwarding** — The Orchestrator passes `on_status` to specialists. No aggregation or prefixing (e.g., "Researcher: searching...") — that's Step 10 polish.
 - **Timeout enforcement** — `ORCHESTRATOR_TIMEOUT_SECONDS` exists in config but is not enforced in this step. Specialists have their own iteration limits. Full timeout is Step 10.
 - **Orchestrator-initiated article writing** — The plan mentions "when research reveals comprehensive coverage, Writer auto-drafts." This step only writes articles when the LLM plan includes a WRITER subtask. Autonomous article triggering is a future enhancement.
@@ -526,11 +546,13 @@ All tests in `tests/unit/`. No integration tests in this step (those are Step 10
 - `test_build_edit_task_from_write` — SubTask with EDITOR pulls article_path + claims
 - `test_build_write_task_merges_multiple_research` — Two Researcher deps → merged findings
 - `test_build_task_propagates_trace_id` — trace_id flows from parent task
-- `test_build_write_task_extracts_spec` — "combat" in description → spec="combat"
+- `test_build_write_task_reads_task_params` — task_params={"spec": "combat", "category": "gear"} → WriteTask fields
+- `test_build_write_task_defaults_on_missing_params` — empty task_params → spec="general", category="general"
 
-### `tests/unit/test_orchestrator_execute.py` (~9 tests)
+### `tests/unit/test_orchestrator_execute.py` (~10 tests)
 - `test_direct_answer_skips_dispatch` — can_answer_directly returns immediately
 - `test_single_researcher_plan` — One subtask dispatches and returns
+- `test_writer_receives_knowledge_manager_researcher_does_not` — Role-conditional factory kwargs
 - `test_research_write_edit_chain` — Full pipeline chains correctly
 - `test_failed_dependency_skips_dependents` — Failed Researcher → Writer skipped
 - `test_partial_dependency_proceeds` — Partial Researcher → Writer still runs
@@ -551,4 +573,4 @@ All tests in `tests/unit/`. No integration tests in this step (those are Step 10
 - `test_article_path_appended_to_response` — OrchestratorResult with article_path → message
 - `test_fallback_routes_to_orchestrator` — Router failure → COMPLEX → Orchestrator
 
-**Starting count: 570 tests → Estimated after this step: ~612 tests**
+**Starting count: 570 tests → Estimated after this step: ~615 tests**
