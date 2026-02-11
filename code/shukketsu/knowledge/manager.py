@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
-import frontmatter  # noqa: F401
+import frontmatter
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -102,3 +102,58 @@ class KnowledgeManager:
     def __init__(self, conn: sqlite3.Connection, knowledge_dir: Path) -> None:
         self._conn = conn
         self._knowledge_dir = knowledge_dir
+
+    def create_draft(self, meta: ArticleMeta, content: str) -> str:
+        """Write markdown file + insert DB row. Returns relative path.
+
+        Checks DB uniqueness before writing to prevent orphaned files.
+        """
+        path = derive_path(meta.spec, meta.category, meta.title)
+
+        # Check DB first to prevent orphaned files
+        existing = self._conn.execute("SELECT id FROM articles WHERE path = ?", (path,)).fetchone()
+        if existing is not None:
+            raise ValueError(f"Article already exists at path: {path}")
+
+        # Write file
+        full_path = self._knowledge_dir / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        post = frontmatter.Post(content, **meta.model_dump(mode="json"))
+        full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+        # Insert DB row
+        try:
+            self._conn.execute(
+                """INSERT INTO articles
+                (path, title, spec, category, status, confidence_score, created_at, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    path,
+                    meta.title,
+                    meta.spec,
+                    meta.category,
+                    meta.status,
+                    meta.confidence,
+                    meta.created_at.isoformat() if isinstance(meta.created_at, datetime) else meta.created_at,
+                    meta.updated_at.isoformat() if isinstance(meta.updated_at, datetime) else meta.updated_at,
+                ),
+            )
+            self._conn.commit()
+        except sqlite3.IntegrityError:
+            # Race condition: another process inserted between check and insert
+            full_path.unlink(missing_ok=True)
+            raise ValueError(f"Article already exists at path: {path}")
+
+        logger.info("Created draft article: %s", path)
+        return path
+
+    def read_article(self, path: str) -> tuple[ArticleMeta, str]:
+        """Read and parse frontmatter + content from a markdown file."""
+        full_path = self._knowledge_dir / path
+        if not full_path.exists():
+            raise FileNotFoundError(f"Article not found: {path}")
+
+        post = frontmatter.loads(full_path.read_text(encoding="utf-8"))
+        meta = ArticleMeta(**post.metadata)
+        return meta, post.content
