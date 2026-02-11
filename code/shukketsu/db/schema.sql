@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT INTO schema_version (version) VALUES (2);
+INSERT INTO schema_version (version) VALUES (3);
 
 -- ============================================================
 -- Ingested Content
@@ -82,14 +82,20 @@ END;
 -- Wiki article metadata (articles themselves are Markdown in knowledge/)
 CREATE TABLE articles (
     id INTEGER PRIMARY KEY,
-    path TEXT UNIQUE NOT NULL,                     -- "specs/combat/overview.md"
+    path TEXT UNIQUE NOT NULL,                     -- "combat/gear/trinkets.md"
     title TEXT NOT NULL,
-    last_updated TEXT,                              -- ISO 8601
-    confidence_score REAL,                         -- 0.0–1.0
+    spec TEXT NOT NULL,                            -- "combat", "assassination", "subtlety", "general"
+    category TEXT NOT NULL,                        -- "gear", "rotation", "mechanics", etc.
+    status TEXT NOT NULL DEFAULT 'draft',           -- "draft", "review", "published"
+    confidence_score REAL NOT NULL DEFAULT 0.0,    -- 0.0-1.0, average of finding confidences
     verified_claims INTEGER NOT NULL DEFAULT 0,
     unverified_claims INTEGER NOT NULL DEFAULT 0,
-    needs_review INTEGER NOT NULL DEFAULT 0        -- 0 or 1
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_updated TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX idx_articles_status ON articles(status);
+CREATE INDEX idx_articles_spec ON articles(spec);
 
 -- ============================================================
 -- Knowledge Graph (Phase 2)

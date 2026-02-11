@@ -80,9 +80,9 @@ class TestInitDb:
         assert "chunks_vec" in tables
 
     def test_sets_schema_version(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 2 after initialization."""
+        """Schema version should be 3 after initialization."""
         version = db.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 2
+        assert version == 3
 
     def test_is_idempotent(self, db: sqlite3.Connection) -> None:
         """Calling init_db twice should not raise or duplicate data."""
@@ -146,10 +146,10 @@ class TestInitDb:
         for name in ("entity_types", "entities", "relationships"):
             assert name in tables, f"Missing table: {name}"
 
-    def test_schema_version_is_2(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 2 after fresh initialization."""
+    def test_schema_version_is_3(self, db: sqlite3.Connection) -> None:
+        """Schema version should be 3 after fresh initialization."""
         version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 2
+        assert version == 3
 
     def test_entity_type_unique_name(self, db: sqlite3.Connection) -> None:
         """entity_types.name should enforce uniqueness."""
@@ -235,6 +235,19 @@ class TestInitDb:
         db.commit()
         count = db.execute("SELECT COUNT(*) FROM relationships").fetchone()[0]
         assert count == 0
+
+    def test_articles_table_v3_columns(self, db: sqlite3.Connection) -> None:
+        """articles table should have v3 columns: status, spec, category, created_at."""
+        columns = {row[1] for row in db.execute("PRAGMA table_info(articles)").fetchall()}
+        for col in ("status", "spec", "category", "created_at", "last_updated"):
+            assert col in columns, f"Missing column: {col}"
+        assert "needs_review" not in columns, "needs_review should be removed in v3"
+
+    def test_articles_status_index_exists(self, db: sqlite3.Connection) -> None:
+        """articles table should have indexes on status and spec."""
+        indexes = {row[1] for row in db.execute("PRAGMA index_list(articles)").fetchall()}
+        assert "idx_articles_status" in indexes
+        assert "idx_articles_spec" in indexes
 
 
 # --- Helpers ---
