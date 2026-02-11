@@ -1,14 +1,15 @@
 """Factory for creating configured agent instances.
 
-Each agent role gets a different system prompt and iteration limit.
-Tool registries are injected by the caller (or default to empty).
-Specialist tools are registered in later steps as they are implemented.
+Each agent role gets a different system prompt, iteration limit, and
+potentially a different class. Tool registries are injected by the caller
+(or default to empty).
 """
 
 import logging
 
 from code.shukketsu import config
 from code.shukketsu.agents.base import BaseAgent
+from code.shukketsu.agents.researcher import Researcher
 from code.shukketsu.agents.tasks import AgentRole
 from code.shukketsu.tools.registry import ToolRegistry
 
@@ -25,13 +26,17 @@ _ROLE_MAX_ITERATIONS: dict[AgentRole, int] = {
     AgentRole.RESEARCHER: config.RESEARCHER_MAX_ITERATIONS,
 }
 
+_ROLE_CLASSES: dict[AgentRole, type[BaseAgent]] = {
+    AgentRole.RESEARCHER: Researcher,
+}
+
 
 class AgentFactory:
     """Creates configured agent instances for each specialist role.
 
     Each role gets a different system prompt and may have different
-    iteration limits. Tool registries are either provided by the caller
-    or default to empty (tools registered by later pipeline steps).
+    iteration limits and agent classes. Tool registries are either
+    provided by the caller or default to empty.
     """
 
     def create(
@@ -48,18 +53,19 @@ class AgentFactory:
                 If None, a new empty registry is created.
 
         Returns:
-            A BaseAgent configured with the role's prompt and limits.
+            An agent configured with the role's prompt, limits, and class.
         """
         registry = tool_registry if tool_registry is not None else ToolRegistry()
         prompt = _ROLE_PROMPTS.get(role, config.SYSTEM_PROMPT)
         max_iter = _ROLE_MAX_ITERATIONS.get(role, config.AGENT_MAX_ITERATIONS)
+        cls = _ROLE_CLASSES.get(role, BaseAgent)
 
-        agent = BaseAgent(
+        agent = cls(
             tool_registry=registry,
             role=role,
             max_iterations=max_iter,
             system_prompt=prompt,
         )
 
-        logger.info("Created %s agent (max_iter=%d)", role.value, max_iter)
+        logger.info("Created %s agent (%s, max_iter=%d)", role.value, cls.__name__, max_iter)
         return agent

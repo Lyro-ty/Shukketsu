@@ -434,3 +434,39 @@ class TestResearcherBehavior:
         assert result.findings == []
         assert result.sufficient is False
         mock_struct_llm.assert_not_called()
+
+
+class TestResearcherFactory:
+    def test_factory_returns_researcher_type(self) -> None:
+        """factory.create(RESEARCHER) returns a Researcher instance."""
+        from code.shukketsu.agents.factory import AgentFactory
+
+        factory = AgentFactory()
+        agent = factory.create(AgentRole.RESEARCHER)
+        assert isinstance(agent, Researcher)
+
+    def test_factory_other_roles_return_base_agent(self) -> None:
+        """Non-researcher roles still return BaseAgent (not Researcher)."""
+        from code.shukketsu.agents.base import BaseAgent
+        from code.shukketsu.agents.factory import AgentFactory
+
+        factory = AgentFactory()
+        writer = factory.create(AgentRole.WRITER)
+        assert type(writer) is BaseAgent
+
+    def test_researcher_has_correct_prompt(self) -> None:
+        """Researcher gets the full prompt from llm/prompts/researcher.py."""
+        from code.shukketsu.agents.factory import AgentFactory
+        from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT as FULL_PROMPT
+
+        factory = AgentFactory()
+        agent = factory.create(AgentRole.RESEARCHER)
+        assert agent._system_prompt is FULL_PROMPT
+
+    def test_researcher_has_correct_max_iter(self) -> None:
+        from code.shukketsu import config
+        from code.shukketsu.agents.factory import AgentFactory
+
+        factory = AgentFactory()
+        agent = factory.create(AgentRole.RESEARCHER)
+        assert agent.max_iterations == config.RESEARCHER_MAX_ITERATIONS

@@ -56,6 +56,12 @@ class TestAgentFactoryCreate:
         agent = factory.create(AgentRole.ORCHESTRATOR)
         assert "decompose" in agent._system_prompt.lower()
 
+    def test_role_classes_registry_exists(self) -> None:
+        from code.shukketsu.agents.factory import _ROLE_CLASSES
+        from code.shukketsu.agents.tasks import AgentRole
+
+        assert AgentRole.RESEARCHER in _ROLE_CLASSES
+
 
 class TestAgentFactoryToolRegistry:
     def test_default_empty_registry(self) -> None:
