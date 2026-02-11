@@ -170,6 +170,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-3 are complete (
 | `2026-02-10-deployment-setup.md` | Deployment setup (complete) |
 | `2026-02-11-phase2-step4-researcher-agent.md` | Step 4 design doc (Researcher agent, structuring pass, prompts) |
 | `2026-02-11-phase2-step4-implementation.md` | Step 4 implementation plan (complete) |
+| `2026-02-11-phase2-step5-writer-wiki.md` | Step 5 design doc (Writer agent, KnowledgeManager, schema v3) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
@@ -184,7 +185,7 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 2. ~~Knowledge Graph Schema + Entity Extraction~~ — COMPLETE (381 tests: schema v2, entity types/aliases, GraphStore, extraction pipeline)
 3. ~~Graph Traversal Tool + Qwen 4B Reranking~~ — COMPLETE (438 tests: graph_search tool, reranker, rag_search reranking)
 4. ~~Researcher Agent~~ — COMPLETE (473 tests: Researcher subclass, structuring pass, prompts, factory registry)
-5. Writer Agent + Wiki Backend (article generation, KnowledgeManager, YAML frontmatter) — **NEXT**
+5. Writer Agent + Wiki Backend (article generation, KnowledgeManager, YAML frontmatter) — **DESIGN COMPLETE, NEXT: implementation plan**
 6. Editor Agent (claim verification, confidence scoring, fact-checking)
 7. Orchestrator Agent (task decomposition, dispatch, synthesis)
 8. Wiki UI (article browser, review/approve flow, HTMX)
