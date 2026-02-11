@@ -3,11 +3,14 @@
 import pytest
 
 from code.shukketsu.rag.entities import (
+    KNOWN_ALIASES,
     ChunkExtraction,
     EntityType,
     ExtractedEntity,
     ExtractedRelationship,
     RelationType,
+    normalize_name,
+    resolve_canonical,
 )
 
 
@@ -153,3 +156,74 @@ class TestChunkExtraction:
         json_str = extraction.model_dump_json()
         restored = ChunkExtraction.model_validate_json(json_str)
         assert restored.entities[0].properties["energy_cost"] == 40
+
+
+class TestNormalizeName:
+    """Tests for entity name normalization."""
+
+    def test_lowercase(self) -> None:
+        assert normalize_name("Dragonspine Trophy") == "dragonspine trophy"
+
+    def test_strips_whitespace(self) -> None:
+        assert normalize_name("  Dragonspine Trophy  ") == "dragonspine trophy"
+
+    def test_strips_leading_articles(self) -> None:
+        assert normalize_name("The Black Temple") == "black temple"
+        assert normalize_name("A Random Item") == "random item"
+        assert normalize_name("An Enchant") == "enchant"
+
+    def test_collapses_whitespace(self) -> None:
+        assert normalize_name("Gruul   the   Dragonkiller") == "gruul the dragonkiller"
+
+    def test_empty_string(self) -> None:
+        assert normalize_name("") == ""
+
+    def test_already_normalized(self) -> None:
+        assert normalize_name("sinister strike") == "sinister strike"
+
+    def test_preserves_apostrophes(self) -> None:
+        assert normalize_name("Gruul's Lair") == "gruul's lair"
+
+    def test_preserves_hyphens(self) -> None:
+        assert normalize_name("Best-in-Slot") == "best-in-slot"
+
+
+class TestResolveCanonical:
+    """Tests for canonical name resolution with alias support."""
+
+    def test_known_alias(self) -> None:
+        assert resolve_canonical("DST") == "dragonspine trophy"
+
+    def test_known_alias_case_insensitive(self) -> None:
+        assert resolve_canonical("dst") == "dragonspine trophy"
+
+    def test_unknown_name_normalized(self) -> None:
+        assert resolve_canonical("Some New Item") == "some new item"
+
+    def test_already_canonical(self) -> None:
+        assert resolve_canonical("dragonspine trophy") == "dragonspine trophy"
+
+    def test_alias_with_article(self) -> None:
+        """Alias lookup should work after article stripping."""
+        assert resolve_canonical("the BT") == "black temple"
+
+    def test_kara_alias(self) -> None:
+        assert resolve_canonical("Kara") == "karazhan"
+
+    def test_snd_alias(self) -> None:
+        assert resolve_canonical("SnD") == "slice and dice"
+
+
+class TestKnownAliases:
+    """Tests for the alias table."""
+
+    def test_aliases_are_normalized(self) -> None:
+        """All alias keys should be in normalized form (lowercase, no articles)."""
+        for key in KNOWN_ALIASES:
+            assert key == key.lower(), f"Alias key '{key}' is not lowercase"
+            assert not key.startswith(("the ", "a ", "an ")), f"Alias key '{key}' has leading article"
+
+    def test_alias_values_are_normalized(self) -> None:
+        """All alias values should be in normalized form."""
+        for value in KNOWN_ALIASES.values():
+            assert value == normalize_name(value), f"Alias value '{value}' is not normalized"
