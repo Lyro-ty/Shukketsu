@@ -43,14 +43,9 @@ class GraphStore:
         Raises:
             ValueError: If the entity type has not been seeded.
         """
-        row = self._conn.execute(
-            "SELECT id FROM entity_types WHERE name = ?", (entity_type.value,)
-        ).fetchone()
+        row = self._conn.execute("SELECT id FROM entity_types WHERE name = ?", (entity_type.value,)).fetchone()
         if row is None:
-            raise ValueError(
-                f"Entity type '{entity_type.value}' not seeded. "
-                "Call seed_entity_types() first."
-            )
+            raise ValueError(f"Entity type '{entity_type.value}' not seeded. Call seed_entity_types() first.")
         return row["id"]
 
     def upsert_entity(
@@ -115,8 +110,7 @@ class GraphStore:
         props_json = json.dumps(properties) if properties else None
 
         existing = self._conn.execute(
-            "SELECT id FROM relationships "
-            "WHERE source_entity_id = ? AND target_entity_id = ? AND relation_type = ?",
+            "SELECT id FROM relationships WHERE source_entity_id = ? AND target_entity_id = ? AND relation_type = ?",
             (source_entity_id, target_entity_id, relation_type.value),
         ).fetchone()
 
@@ -135,8 +129,7 @@ class GraphStore:
             "(source_entity_id, target_entity_id, relation_type, "
             "properties_json, source_chunk_id, confidence) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (source_entity_id, target_entity_id, relation_type.value,
-             props_json, source_chunk_id, confidence),
+            (source_entity_id, target_entity_id, relation_type.value, props_json, source_chunk_id, confidence),
         )
         return cursor.lastrowid  # type: ignore[return-value]
 
@@ -159,9 +152,7 @@ class GraphStore:
                 (canonical, type_id),
             ).fetchone()
 
-        return self._conn.execute(
-            "SELECT * FROM entities WHERE canonical_name = ?", (canonical,)
-        ).fetchone()
+        return self._conn.execute("SELECT * FROM entities WHERE canonical_name = ?", (canonical,)).fetchone()
 
     def get_relationships(
         self,

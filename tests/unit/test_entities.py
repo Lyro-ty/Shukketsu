@@ -20,9 +20,23 @@ class TestEntityType:
     def test_all_types_defined(self) -> None:
         """EntityType should have all WoW TBC entity types."""
         expected = {
-            "item", "spell", "talent", "talent_tree", "spec", "boss",
-            "instance", "phase", "stat", "consumable", "enchant", "gem",
-            "profession", "buff", "debuff", "mechanic", "slot",
+            "item",
+            "spell",
+            "talent",
+            "talent_tree",
+            "spec",
+            "boss",
+            "instance",
+            "phase",
+            "stat",
+            "consumable",
+            "enchant",
+            "gem",
+            "profession",
+            "buff",
+            "debuff",
+            "mechanic",
+            "slot",
         }
         assert {e.value for e in EntityType} == expected
 
@@ -38,11 +52,23 @@ class TestRelationType:
     def test_all_types_defined(self) -> None:
         """RelationType should have all WoW TBC relationship types."""
         expected = {
-            "drops_from", "available_in", "equips_in", "has_stat",
-            "crafted_by", "best_in_slot", "belongs_to", "spec_uses",
-            "benefits_from", "synergizes_with", "affected_by",
-            "threshold_at", "counters", "applies", "contains",
-            "has_mechanic", "requires",
+            "drops_from",
+            "available_in",
+            "equips_in",
+            "has_stat",
+            "crafted_by",
+            "best_in_slot",
+            "belongs_to",
+            "spec_uses",
+            "benefits_from",
+            "synergizes_with",
+            "affected_by",
+            "threshold_at",
+            "counters",
+            "applies",
+            "contains",
+            "has_mechanic",
+            "requires",
         }
         assert {r.value for r in RelationType} == expected
 
@@ -101,9 +127,7 @@ class TestExtractedRelationship:
 
     def test_relationship_rejects_invalid_type(self) -> None:
         with pytest.raises(ValueError):
-            ExtractedRelationship(
-                source="A", target="B", relation_type="invalid"
-            )
+            ExtractedRelationship(source="A", target="B", relation_type="invalid")
 
 
 class TestChunkExtraction:

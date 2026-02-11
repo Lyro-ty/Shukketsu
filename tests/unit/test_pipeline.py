@@ -215,18 +215,14 @@ class TestIngestPipelineWithExtraction:
         )
         extractor.assert_not_called()
 
-    async def test_extraction_failure_does_not_abort_ingest(
-        self, test_db: sqlite3.Connection
-    ) -> None:
+    async def test_extraction_failure_does_not_abort_ingest(self, test_db: sqlite3.Connection) -> None:
         """If extraction fails for a chunk, ingest should still succeed."""
         from code.shukketsu.resilience.errors import EntityExtractionError
 
         graph = GraphStore(test_db)
         graph.seed_entity_types()
 
-        failing_extractor = AsyncMock(
-            side_effect=EntityExtractionError("LLM down")
-        )
+        failing_extractor = AsyncMock(side_effect=EntityExtractionError("LLM down"))
         pipeline = IngestPipeline(
             conn=test_db,
             embedder=_mock_embedder(),

@@ -35,9 +35,7 @@ class TestSeedEntityTypes:
     def test_display_names(self, test_db: sqlite3.Connection) -> None:
         store = GraphStore(test_db)
         store.seed_entity_types()
-        row = test_db.execute(
-            "SELECT display_name FROM entity_types WHERE name = 'talent_tree'"
-        ).fetchone()
+        row = test_db.execute("SELECT display_name FROM entity_types WHERE name = 'talent_tree'").fetchone()
         assert row["display_name"] == "Talent Tree"
 
 
@@ -62,9 +60,7 @@ class TestUpsertEntity:
     def test_insert_new_entity(self, graph: GraphStore) -> None:
         entity_id = graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM)
         assert entity_id > 0
-        row = graph._conn.execute(
-            "SELECT name, canonical_name FROM entities WHERE id = ?", (entity_id,)
-        ).fetchone()
+        row = graph._conn.execute("SELECT name, canonical_name FROM entities WHERE id = ?", (entity_id,)).fetchone()
         assert row["name"] == "Dragonspine Trophy"
         assert row["canonical_name"] == "dragonspine trophy"
 
@@ -96,7 +92,8 @@ class TestUpsertEntity:
 
     def test_stores_properties(self, graph: GraphStore) -> None:
         graph.upsert_entity(
-            "Dragonspine Trophy", EntityType.ITEM,
+            "Dragonspine Trophy",
+            EntityType.ITEM,
             properties={"ilvl": 141},
         )
         row = graph._conn.execute(
@@ -107,9 +104,7 @@ class TestUpsertEntity:
     def test_stores_source_chunk_id(self, graph: GraphStore) -> None:
         # Insert a source + chunk first
         graph._conn.execute("INSERT INTO sources (url, title) VALUES ('https://example.com', 'Test')")
-        graph._conn.execute(
-            "INSERT INTO chunks (source_id, content, chunk_index) VALUES (1, 'test', 0)"
-        )
+        graph._conn.execute("INSERT INTO chunks (source_id, content, chunk_index) VALUES (1, 'test', 0)")
         graph._conn.commit()
         graph.upsert_entity("DST", EntityType.ITEM, source_chunk_id=1)
         row = graph._conn.execute(
@@ -125,7 +120,9 @@ class TestUpsertRelationship:
         item_id = graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM)
         boss_id = graph.upsert_entity("Gruul the Dragonkiller", EntityType.BOSS)
         rel_id = graph.upsert_relationship(
-            item_id, boss_id, RelationType.DROPS_FROM,
+            item_id,
+            boss_id,
+            RelationType.DROPS_FROM,
         )
         assert rel_id > 0
 
@@ -147,12 +144,12 @@ class TestUpsertRelationship:
         item_id = graph.upsert_entity("DST", EntityType.ITEM)
         boss_id = graph.upsert_entity("Gruul", EntityType.BOSS)
         graph.upsert_relationship(
-            item_id, boss_id, RelationType.DROPS_FROM,
+            item_id,
+            boss_id,
+            RelationType.DROPS_FROM,
             properties={"drop_rate": 0.15},
         )
-        row = graph._conn.execute(
-            "SELECT properties_json FROM relationships WHERE id = 1"
-        ).fetchone()
+        row = graph._conn.execute("SELECT properties_json FROM relationships WHERE id = 1").fetchone()
         assert '"drop_rate": 0.15' in row["properties_json"]
 
     def test_higher_confidence_updates(self, graph: GraphStore) -> None:
@@ -219,7 +216,8 @@ class TestGetRelationships:
         graph.upsert_relationship(item_id, boss_id, RelationType.DROPS_FROM)
         graph.upsert_relationship(item_id, phase_id, RelationType.AVAILABLE_IN)
         rels = graph.get_relationships(
-            item_id, relation_types=[RelationType.DROPS_FROM],
+            item_id,
+            relation_types=[RelationType.DROPS_FROM],
         )
         assert len(rels) == 1
         assert rels[0]["relation_type"] == "drops_from"

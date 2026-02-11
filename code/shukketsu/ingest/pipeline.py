@@ -143,7 +143,10 @@ class IngestPipeline:
 
         logger.info(
             "Ingested %d chunks, %d entities from %s (%s)",
-            len(chunks), entity_count, url, title,
+            len(chunks),
+            entity_count,
+            url,
+            title,
         )
 
         return IngestResult(
@@ -187,11 +190,14 @@ class IngestPipeline:
                 if src_id is None or tgt_id is None:
                     logger.debug(
                         "Skipping relationship %s->%s: entity not in this chunk's extraction",
-                        rel.source, rel.target,
+                        rel.source,
+                        rel.target,
                     )
                     continue
                 self._graph_store.upsert_relationship(  # type: ignore[union-attr]
-                    src_id, tgt_id, rel.relation_type,
+                    src_id,
+                    tgt_id,
+                    rel.relation_type,
                     properties=rel.properties or None,
                     source_chunk_id=chunk_id,
                 )
