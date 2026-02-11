@@ -246,6 +246,28 @@ class TestRunLoop:
         assert outcome.status == TaskStatus.PARTIAL
         assert "partial" in outcome.output.lower()
 
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_run_outcome_has_scratchpad(self, mock_llm: AsyncMock) -> None:
+        """_RunOutcome includes the scratchpad field."""
+        mock_llm.return_value = _final_answer("answer")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        outcome = await agent._run_loop("query", on_status=None)
+        assert hasattr(outcome, "scratchpad")
+        assert isinstance(outcome.scratchpad, list)
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_run_loop_returns_scratchpad_with_entries(self, mock_llm: AsyncMock) -> None:
+        """_run_loop scratchpad contains tool call entries."""
+        mock_llm.side_effect = [
+            _tool_call("echo", {"text": "hello"}),
+            _final_answer("Done"),
+        ]
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        outcome = await agent._run_loop("query", on_status=None)
+        assert len(outcome.scratchpad) == 1
+        assert outcome.scratchpad[0]["tool_name"] == "echo"
+        assert "Echo: hello" in outcome.scratchpad[0]["observation"]
+
 
 class TestBaseAgentExecute:
     @patch("code.shukketsu.agents.base.get_structured_output")

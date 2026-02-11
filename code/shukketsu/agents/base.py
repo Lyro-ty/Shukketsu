@@ -32,12 +32,14 @@ Once you have useful information from any source, provide your final_answer — 
 class _RunOutcome(NamedTuple):
     """Internal return type from the ReAct loop.
 
-    Carries both the output string and the execution status, so that
-    run() and execute() can consume the loop result without mutable state.
+    Carries the output string, execution status, and the full scratchpad
+    so that specialist agents (e.g. Researcher) can access tool observations
+    for post-processing.
     """
 
     output: str
     status: TaskStatus
+    scratchpad: list[dict[str, Any]]
 
 
 class BaseAgent:
@@ -139,7 +141,7 @@ class BaseAgent:
 
             if step.action == ActionType.FINAL_ANSWER:
                 logger.info("Agent reached final answer after %d iteration(s)", iteration + 1)
-                return _RunOutcome(output=step.answer, status=TaskStatus.SUCCESS)  # type: ignore[arg-type]
+                return _RunOutcome(output=step.answer, status=TaskStatus.SUCCESS, scratchpad=scratchpad)  # type: ignore[arg-type]
 
             tool_call = step.tool_call
             assert tool_call is not None  # guaranteed by AgentStep validator
@@ -165,10 +167,11 @@ class BaseAgent:
                 return _RunOutcome(
                     output=self._synthesize_partial_answer(scratchpad),
                     status=TaskStatus.PARTIAL,
+                    scratchpad=scratchpad,
                 )
 
         logger.warning("Agent reached max iterations (%d) without final answer", self.max_iterations)
-        return _RunOutcome(output=config.AGENT_GRACEFUL_FAILURE, status=TaskStatus.FAILED)
+        return _RunOutcome(output=config.AGENT_GRACEFUL_FAILURE, status=TaskStatus.FAILED, scratchpad=scratchpad)
 
     def _synthesize_partial_answer(self, scratchpad: list[dict[str, Any]]) -> str:
         """Build an answer from partial observations when a loop is detected."""
