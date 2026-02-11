@@ -204,3 +204,13 @@ class OrchestratorPlan(BaseModel):
     subtasks: list[SubTask]
     can_answer_directly: bool = False
     direct_answer: str | None = None
+
+
+class OrchestratorResult(AgentResult):
+    """Structured output from the Orchestrator agent."""
+
+    plan: OrchestratorPlan
+    specialist_results: list[AgentResult] = Field(default_factory=list)
+    article_path: str | None = None
+    needs_human_review: bool = False
+    skipped_tasks: list[str] = Field(default_factory=list)

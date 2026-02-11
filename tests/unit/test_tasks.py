@@ -16,6 +16,7 @@ from code.shukketsu.agents.tasks import (
     EditTask,
     Finding,
     OrchestratorPlan,
+    OrchestratorResult,
     ResearchResult,
     ResearchTask,
     SearchStrategy,
@@ -385,3 +386,78 @@ class TestOrchestratorPlan:
         )
         assert plan.can_answer_directly is True
         assert plan.direct_answer is not None
+
+
+class TestOrchestratorResult:
+    def test_validates_with_all_fields(self) -> None:
+        """OrchestratorResult round-trips with all fields populated."""
+        plan = OrchestratorPlan(
+            reasoning="Simple research",
+            subtasks=[SubTask(agent_role=AgentRole.RESEARCHER, description="Find info")],
+        )
+        result = OrchestratorResult(
+            task_id="t1",
+            agent_role=AgentRole.ORCHESTRATOR,
+            status=TaskStatus.SUCCESS,
+            output="Here are the findings.",
+            plan=plan,
+            specialist_results=[
+                AgentResult(
+                    task_id="r1",
+                    agent_role=AgentRole.RESEARCHER,
+                    status=TaskStatus.SUCCESS,
+                    output="Found it.",
+                ),
+            ],
+            article_path="combat/gear/trinkets.md",
+            needs_human_review=True,
+            skipped_tasks=["skipped task"],
+        )
+        assert result.plan.reasoning == "Simple research"
+        assert len(result.specialist_results) == 1
+        assert result.article_path == "combat/gear/trinkets.md"
+        assert result.needs_human_review is True
+        assert result.skipped_tasks == ["skipped task"]
+
+    def test_defaults(self) -> None:
+        """Default values for optional fields."""
+        plan = OrchestratorPlan(reasoning="test", subtasks=[])
+        result = OrchestratorResult(
+            task_id="t1",
+            agent_role=AgentRole.ORCHESTRATOR,
+            status=TaskStatus.SUCCESS,
+            output="answer",
+            plan=plan,
+        )
+        assert result.specialist_results == []
+        assert result.article_path is None
+        assert result.needs_human_review is False
+        assert result.skipped_tasks == []
+
+    def test_with_skipped_tasks(self) -> None:
+        """skipped_tasks stores descriptions of tasks skipped due to failed deps."""
+        plan = OrchestratorPlan(reasoning="test", subtasks=[])
+        result = OrchestratorResult(
+            task_id="t1",
+            agent_role=AgentRole.ORCHESTRATOR,
+            status=TaskStatus.PARTIAL,
+            output="partial",
+            plan=plan,
+            skipped_tasks=["Write article", "Verify claims"],
+        )
+        assert len(result.skipped_tasks) == 2
+
+    def test_inherits_agent_result(self) -> None:
+        """OrchestratorResult has all AgentResult fields."""
+        plan = OrchestratorPlan(reasoning="test", subtasks=[])
+        result = OrchestratorResult(
+            task_id="t1",
+            agent_role=AgentRole.ORCHESTRATOR,
+            status=TaskStatus.SUCCESS,
+            output="answer",
+            evidence=["src1", "src2"],
+            plan=plan,
+        )
+        assert isinstance(result, AgentResult)
+        assert result.evidence == ["src1", "src2"]
+        assert result.metadata == {}
