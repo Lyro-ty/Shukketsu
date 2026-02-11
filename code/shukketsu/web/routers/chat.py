@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from langfuse import get_client, observe
 
 from code.shukketsu import config
+from code.shukketsu.agents.tasks import AgentTask, OrchestratorResult, ResearchTask
 from code.shukketsu.resilience.errors import ShukketsuError
 from code.shukketsu.routing.models import TaskComplexity
 from code.shukketsu.routing.router import classify_query
@@ -20,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_agent_instance: BaseAgent | None = None
+_researcher_instance: BaseAgent | None = None
+_orchestrator_instance: BaseAgent | None = None
 
 
 class ChatSession:
@@ -38,22 +40,25 @@ class ChatSession:
             self.history = self.history[-max_messages:]
 
 
-def _get_agent() -> BaseAgent:
-    """Get or create the agent singleton.
+def _get_agents() -> tuple[BaseAgent, BaseAgent]:
+    """Get or create agent singletons (researcher + orchestrator).
 
     Lazy initialization avoids import-time side effects (DB connection,
-    extension loading). The agent is created once and reused.
+    extension loading). Agents are created once and reused.
     """
-    global _agent_instance  # noqa: PLW0603
+    global _researcher_instance, _orchestrator_instance  # noqa: PLW0603
 
-    if _agent_instance is None:
-        from code.shukketsu.agents.base import BaseAgent
+    if _researcher_instance is None:
+        from code.shukketsu.agents.factory import AgentFactory
+        from code.shukketsu.agents.tasks import AgentRole
         from code.shukketsu.db.connection import get_connection, init_db
         from code.shukketsu.ingest.embedder import get_embedder
         from code.shukketsu.ingest.pipeline import IngestPipeline
+        from code.shukketsu.knowledge.manager import KnowledgeManager
         from code.shukketsu.scraping.fetcher import WebFetcher
         from code.shukketsu.scraping.rate_limiter import RateLimiter
         from code.shukketsu.scraping.robots import RobotsChecker
+        from code.shukketsu.tools.knowledge.graph_search import GraphSearchTool
         from code.shukketsu.tools.knowledge.search import RagSearchTool
         from code.shukketsu.tools.registry import ToolRegistry
         from code.shukketsu.tools.research.web_ingest import WebIngestTool
@@ -65,6 +70,7 @@ def _get_agent() -> BaseAgent:
 
         registry = ToolRegistry()
         registry.register(RagSearchTool(conn=conn, embed_fn=embedder.embed_query))
+        registry.register(GraphSearchTool(conn=conn))
 
         # Web search + ingest tools
         fetcher = WebFetcher(rate_limiter=RateLimiter(), robots_checker=RobotsChecker())
@@ -72,9 +78,21 @@ def _get_agent() -> BaseAgent:
         registry.register(WebSearchTool())
         registry.register(WebIngestTool(fetcher=fetcher, pipeline=pipeline))
 
-        _agent_instance = BaseAgent(tool_registry=registry)
+        factory = AgentFactory()
+        km = KnowledgeManager(conn, config.WIKI_PATH)
 
-    return _agent_instance
+        _researcher_instance = factory.create(
+            AgentRole.RESEARCHER,
+            tool_registry=registry,
+        )
+        _orchestrator_instance = factory.create(
+            AgentRole.ORCHESTRATOR,
+            tool_registry=registry,
+            factory=factory,
+            knowledge_manager=km,
+        )
+
+    return _researcher_instance, _orchestrator_instance
 
 
 @router.websocket("/ws/chat")
@@ -133,7 +151,8 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
     """Get an agent response for the given user message.
 
     Routes through Qwen 4B first: trivial queries get a direct answer,
-    everything else goes to the Llama 70B agent with tools.
+    moderate queries go to the Researcher, complex queries go to the
+    Orchestrator for multi-agent coordination.
     """
     session.is_streaming = True
     session.add_message("user", content)
@@ -149,23 +168,39 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         decision = await classify_query(content)
         logger.info("Route: %s → %s", decision.complexity, decision.category)
 
+        async def _send_status(msg: str) -> None:
+            await websocket.send_json({"type": "status", "content": msg})
+
         if (
             decision.complexity == TaskComplexity.TRIVIAL
             and decision.direct_answer is not None
             and decision.direct_answer.strip()
         ):
-            session.add_message("assistant", decision.direct_answer)
-            await websocket.send_json({"type": "done", "content": decision.direct_answer})
+            answer = decision.direct_answer
+        elif decision.complexity == TaskComplexity.MODERATE:
+            await websocket.send_json({"type": "status", "content": "researching..."})
+            researcher, _ = _get_agents()
+            result = await researcher.execute(
+                ResearchTask(query=content),
+                on_status=_send_status,
+            )
+            answer = result.output
         else:
-            await websocket.send_json({"type": "status", "content": "thinking..."})
-            agent = _get_agent()
+            await websocket.send_json({"type": "status", "content": "planning..."})
+            _, orchestrator = _get_agents()
+            result = await orchestrator.execute(
+                AgentTask(query=content),
+                on_status=_send_status,
+            )
+            answer = result.output
+            if isinstance(result, OrchestratorResult):
+                if result.article_path:
+                    answer += f"\n\n---\n*Draft article created: {result.article_path}*"
+                if result.needs_human_review:
+                    answer += "\n*Article pending review in Wiki*"
 
-            async def _send_status(msg: str) -> None:
-                await websocket.send_json({"type": "status", "content": msg})
-
-            answer = await agent.run(content, on_status=_send_status)
-            session.add_message("assistant", answer)
-            await websocket.send_json({"type": "done", "content": answer})
+        session.add_message("assistant", answer)
+        await websocket.send_json({"type": "done", "content": answer})
     except ShukketsuError as exc:
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()
