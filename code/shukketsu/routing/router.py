@@ -87,4 +87,4 @@ async def classify_query(query: str) -> RoutingDecision:
         decision.category,
         decision.needs_tools,
     )
-    return decision
+    return decision  # type: ignore[no-any-return]

@@ -79,7 +79,7 @@ class WebIngestTool(Tool):
         if not title:
             metadata = trafilatura.bare_extraction(fetch_result.html)
             if metadata is not None:
-                title = metadata.title if hasattr(metadata, "title") else metadata.get("title")  # type: ignore[union-attr]
+                title = metadata.title if hasattr(metadata, "title") else metadata.get("title")  # type: ignore[union-attr,unused-ignore]
         if not title:
             title = urlparse(fetch_result.final_url).netloc
 

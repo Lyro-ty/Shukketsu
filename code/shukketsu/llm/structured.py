@@ -96,7 +96,7 @@ async def get_structured_output[T: BaseModel](
     langfuse = get_client()
     langfuse.update_current_generation(
         model=model,
-        model_parameters={"temperature": temperature, "max_tokens": max_tokens},
+        model_parameters={"temperature": str(temperature), "max_tokens": str(max_tokens)},
     )
 
     client = _get_client(backend)

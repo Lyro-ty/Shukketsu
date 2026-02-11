@@ -170,12 +170,10 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()
         await websocket.send_json({"type": "error", "content": str(exc)})
-    except Exception as exc:
+    except Exception:
         logger.exception("Unexpected error in agent response")
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()
-        await websocket.send_json(
-            {"type": "error", "content": "An unexpected error occurred. Please try again."}
-        )
+        await websocket.send_json({"type": "error", "content": "An unexpected error occurred. Please try again."})
     finally:
         session.is_streaming = False

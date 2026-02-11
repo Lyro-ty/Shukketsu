@@ -42,9 +42,7 @@ async def stream_chat(
             max_tokens=max_tokens,
         )
     except (httpx.ConnectError, APIConnectionError) as exc:
-        raise LLMUnavailableError(
-            f"Cannot connect to Ollama at {_OLLAMA_OPENAI_URL}. Is Ollama running?"
-        ) from exc
+        raise LLMUnavailableError(f"Cannot connect to Ollama at {_OLLAMA_OPENAI_URL}. Is Ollama running?") from exc
     except httpx.TimeoutException as exc:
         raise LLMUnavailableError(
             f"Ollama at {_OLLAMA_OPENAI_URL} did not respond within "

@@ -46,7 +46,7 @@ class RobotsChecker:
                 parser.parse(robots_text.splitlines())
             else:
                 # No robots.txt → allow everything
-                parser.allow_all = True
+                parser.allow_all = True  # type: ignore[attr-defined]
             self._cache[domain] = (parser, time.monotonic())
 
         return parser.can_fetch(config.SCRAPING_USER_AGENT, url)

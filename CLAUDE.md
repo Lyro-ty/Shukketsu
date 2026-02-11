@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-The project is in early development — Phase 1 is complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -40,24 +40,27 @@ mypy code/shukketsu/
 
 ## Architecture
 
-### Three-Model System
+### Model System (All via Ollama)
 
-- **Llama 3.3 70B AWQ INT4** via vLLM (port 8000) — all substantive reasoning, tool calling, article writing
-- **Qwen3 4B** via Ollama (port 11434) — fast query classification/routing, trivial answers
-- **nomic-embed-text-v2** via Ollama (port 11434) — 768-dim embeddings for RAG
+All models are served via Ollama on port 11434 (llama.cpp has native Blackwell/GB10 support; PyTorch CUDA kernels are not compiled for sm_121):
 
-Both model servers are accessed via OpenAI-compatible HTTP APIs from Python using `instructor` + `openai` clients for structured output (Pydantic models).
+- **Llama 3.3 70B** via Ollama — all substantive reasoning, tool calling, article writing (`ModelBackend.REASONING`)
+- **Qwen3 4B** via Ollama — fast query classification/routing, trivial answers (`ModelBackend.ROUTER`)
+- **nomic-embed-text-v2** via Ollama — 768-dim embeddings for RAG
+
+All accessed via OpenAI-compatible HTTP APIs (`/v1`) using `instructor` + `openai` clients for structured output (Pydantic models).
 
 ### Multi-Agent System (no external framework)
 
-Plain Python classes with ReAct loops, no external framework (LangChain, CrewAI, etc.). Phase 1 starts with a single **General Agent** that answers questions using tools. In Phase 2, this grows into five specialists:
-- **Orchestrator** — decomposes complex tasks, coordinates other agents
-- **Researcher** — information gathering (web search, APIs, RAG); promoted from General Agent
-- **Analyst** — simulations, log analysis, quantitative work
-- **Writer** — wiki article creation
-- **Editor** — fact-checking, verification
+Plain Python classes with ReAct loops, no external framework (LangChain, CrewAI, etc.). Phase 1 has a single **General Agent** that answers questions using tools. Phase 2 adds four specialists via a **Structured Task Protocol** (typed Pydantic Task/Result objects, all communication flows through the Orchestrator):
 
-Agents communicate via an in-memory async `MessageBus`. The Orchestrator routes queries through Qwen 4B first (trivial → answered directly, moderate → single agent, complex → multi-agent plan).
+- **Orchestrator** — decomposes complex tasks, dispatches to specialists, synthesizes results
+- **Researcher** — information gathering (hybrid search, graph search, web search); promoted from General Agent
+- **Writer** — wiki article creation from research findings
+- **Editor** — fact-checking articles against knowledge base and graph
+- **Analyst** — deferred to Phase 3 (requires simulation engine)
+
+The Orchestrator routes queries through Qwen 4B first (trivial → answered directly, moderate → Researcher solo, complex → multi-agent plan).
 
 ### Storage
 
@@ -79,7 +82,7 @@ code/shukketsu/          # Main Python package (import as code.shukketsu)
   config.py              # All env vars, model names, paths, agent defaults
   routing/               # Qwen 4B query classification
   agents/                # BaseAgent, Orchestrator, Researcher, Analyst, Writer, Editor
-  llm/                   # vLLM + Ollama clients, Instructor integration, prompts
+  llm/                   # Ollama clients, Instructor integration, prompts
   tools/                 # Agent tools: research/, analysis/, knowledge/
   rag/                   # Agentic RAG: decomposer, iterative retrieval, self-RAG, corrective
   ingest/                # Chunking (semantic + WoW-specific) and embedding pipeline
@@ -96,7 +99,7 @@ code/shukketsu/          # Main Python package (import as code.shukketsu)
 tests/                   # pytest: unit/ (pure logic), integration/ (needs services), e2e/
 knowledge/               # Git-tracked Markdown wiki articles
 data/                    # Git-lfs: database, backups; scratch/ is gitignored
-infra/                   # Docker Compose for Langfuse, vLLM/Ollama start scripts
+infra/                   # Docker Compose for Langfuse, Ollama config, startup scripts
 ```
 
 ## NVIDIA AI Workbench Conventions
@@ -121,7 +124,7 @@ The following MCP servers are configured and should be used during development:
 
 ## Configuration
 
-All config is read from environment variables in `code/shukketsu/config.py`. API keys for Brave Search, Warcraft Logs, and Blizzard go in `variables.env`. Model URLs default to localhost (vLLM :8000, Ollama :11434, Langfuse :3000).
+All config is read from environment variables in `code/shukketsu/config.py`. API keys for Brave Search, Warcraft Logs, and Blizzard go in `variables.env`. Model URLs default to localhost (Ollama :11434, Langfuse :3000).
 
 ## Testing Conventions
 
@@ -132,45 +135,40 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Phase 1 is complete with 245 unit tests passing. The project planning is split across documents in `docs/plans/`:
+Phase 1 is complete (245 unit tests, deployed). Phase 2 is the active development phase. Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
 | `2026-02-09-shukketsu-design.md` | Original comprehensive design spec (full system vision, schema, all phases) |
 | `shukketsu-architecture.md` | Architecture reference (design rationale, not implementation steps) |
-| `phase-1-agent-core.md` | **Active plan** — 10-step implementation guide for Phase 1 |
-| `2026-02-09-step1-chat-ui.md` | Step 1 detailed plan (complete) |
-| `2026-02-09-step2-database.md` | Step 2 detailed plan (complete) |
-| `2026-02-09-step3-structured-output.md` | Step 3 detailed plan (complete) |
-| `2026-02-09-step7-multi-model-router.md` | Step 7 detailed plan (complete) |
-| `2026-02-09-step8-web-search-ingest.md` | Step 8 detailed plan (complete) |
-| `2026-02-09-step9-resilience.md` | Step 9 design spec (complete) |
-| `2026-02-09-step9-resilience-impl.md` | Step 9 implementation plan (complete) |
-| `2026-02-09-code-review-fixes.md` | Code review fixes after Step 9 (complete) |
-| `2026-02-10-step10-observability.md` | Step 10 design spec (complete) |
-| `2026-02-10-step10-observability-impl.md` | Step 10 implementation plan (complete) |
+| `phase-1-agent-core.md` | Phase 1 implementation guide (complete) |
+| `phase-2-multi-agent-rag.md` | **Active plan** — 10-step implementation guide for Phase 2 |
+| `2026-02-10-deployment-setup.md` | Deployment setup (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
-### Phase 1: Agent Core (10 steps)
+### Phase 1: Agent Core — COMPLETE
 
-The active implementation plan (`phase-1-agent-core.md`) builds the system incrementally:
+All 10 steps done. 245 unit tests passing. System deployed and accessible in browser.
 
-1. ~~Chat UI + streaming LLM (WebSocket + vLLM)~~ **DONE**
-2. ~~Database foundation (SQLite + schema + WAL mode)~~ **DONE**
-3. ~~Structured output (Instructor + Pydantic)~~ **DONE**
-4. ~~First tool + ReAct loop (BaseAgent + rag_search)~~ **DONE**
-5. ~~Ingest pipeline (chunking + embedding + storage)~~ **DONE**
-6. ~~Hybrid search (vector + FTS5 + RRF)~~ **DONE**
-7. ~~Multi-model router (Qwen 4B classification)~~ **DONE**
-8. ~~Web search + ingest tools (Brave API + scraping)~~ **DONE**
-9. ~~Resilience (circuit breakers, loop detection, retries)~~ **DONE**
-10. ~~Observability (Langfuse tracing)~~ **DONE**
+### Phase 2: Multi-Agent + Agentic RAG (10 steps) — ACTIVE
 
-**Phase gate**: Chat with agent in browser. It classifies queries, routes to correct model, calls tools, answers from knowledge base. Traces visible in Langfuse.
+The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
+
+1. Structured Task Protocol + Agent Framework (tasks.py, base.py refactor, factory.py)
+2. Knowledge Graph Schema + Entity Extraction (graph tables, entity types, extraction pipeline)
+3. Graph Traversal Tool + Qwen 4B Reranking (graph_search tool, reranker, unified search)
+4. Researcher Agent (specialized prompts, ResearchResult, multi-strategy retrieval)
+5. Writer Agent + Wiki Backend (article generation, KnowledgeManager, YAML frontmatter)
+6. Editor Agent (claim verification, confidence scoring, fact-checking)
+7. Orchestrator Agent (task decomposition, dispatch, synthesis)
+8. Wiki UI (article browser, review/approve flow, HTMX)
+9. Content Freshness + Automated Backups (staleness detection, SQLite backup)
+10. Integration + Phase Gate Evaluation (end-to-end wiring, eval harness)
+
+**Phase gate**: Complex multi-part question → Orchestrator decomposes → specialists cooperate → wiki articles produced and verified → traces in Langfuse. RAG faithfulness > 0.8, trajectory precision > 0.7, domain accuracy > 70%.
 
 ### Future Phases
 
-- **Phase 2**: Multi-agent + knowledge building (Orchestrator, specialist agents, agentic RAG, API integrations, wiki)
 - **Phase 3**: DPS simulation engine (TBC combat mechanics, validation vs WoWSims)
 - **Phase 4**: Evaluation + observability polish (Ragas, trajectory eval, feedback)
 - **Phase 5**: UI polish + growth (talent trees, sim builder, charts, PvP)
