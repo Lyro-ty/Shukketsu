@@ -96,3 +96,28 @@ RETRY_MAX_DELAY = 30.0
 # Loop detection
 LOOP_MAX_CONSECUTIVE_SAME = 3
 LOOP_MAX_TOTAL_REPEATS = 3
+
+# Phase 2 agent limits
+RESEARCHER_MAX_ITERATIONS = 10  # Multi-step research needs more room
+RESEARCHER_MAX_TOKENS = 150_000  # Research produces more context
+ORCHESTRATOR_MAX_SUBTASKS = 6  # Prevent over-decomposition
+ORCHESTRATOR_MAX_DEPTH = 1  # No recursive orchestration
+ORCHESTRATOR_TIMEOUT_SECONDS = 120  # Total wall-clock budget
+
+# Role-specific system prompts (placeholder — specialist prompts added in later steps)
+RESEARCHER_SYSTEM_PROMPT = (
+    "You are a Research Specialist for WoW TBC Rogue content. "
+    "Your job is to gather comprehensive, accurate information using your search tools."
+)
+WRITER_SYSTEM_PROMPT = (
+    "You are a Wiki Writer for WoW TBC Rogue content. "
+    "You produce clear, accurate, well-structured Markdown articles from research findings."
+)
+EDITOR_SYSTEM_PROMPT = (
+    "You are a Fact-Checking Editor for WoW TBC Rogue content. "
+    "Your job is to verify claims in draft articles against the knowledge base."
+)
+ORCHESTRATOR_SYSTEM_PROMPT = (
+    "You are the Orchestrator for a WoW TBC Rogue knowledge system. "
+    "You decompose complex queries into sub-tasks for specialist agents."
+)

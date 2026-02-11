@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from code.shukketsu.agents.base import BaseAgent
+from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskStatus
 from code.shukketsu.llm.schemas import ActionType, AgentStep, ToolCall
 from code.shukketsu.resilience.errors import LLMUnavailableError, StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
@@ -207,3 +208,121 @@ class TestLoopDetection:
         result = agent._synthesize_partial_answer(scratchpad)
         assert "9% hit cap" in result
         assert "Combat swords" in result
+
+
+class TestBaseAgentRole:
+    def test_default_role_is_none(self) -> None:
+        agent = BaseAgent(tool_registry=_registry())
+        assert agent.role is None
+
+    def test_explicit_role(self) -> None:
+        agent = BaseAgent(tool_registry=_registry(), role=AgentRole.RESEARCHER)
+        assert agent.role == AgentRole.RESEARCHER
+
+
+class TestRunLoop:
+    """Tests for _run_loop() returning _RunOutcome with status."""
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_success_outcome(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _final_answer("The answer.")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        outcome = await agent._run_loop("query", on_status=None)
+        assert outcome.output == "The answer."
+        assert outcome.status == TaskStatus.SUCCESS
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_failed_outcome_on_max_iterations(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _tool_call("echo", {"text": "loop"})
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), max_iterations=1)
+        outcome = await agent._run_loop("query", on_status=None)
+        assert outcome.status == TaskStatus.FAILED
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_partial_outcome_on_loop_detection(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _tool_call("echo", {"text": "stuck"})
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), max_iterations=10)
+        outcome = await agent._run_loop("query", on_status=None)
+        assert outcome.status == TaskStatus.PARTIAL
+        assert "partial" in outcome.output.lower()
+
+
+class TestBaseAgentExecute:
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_returns_agent_result(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _final_answer("The answer.")
+        agent = BaseAgent(tool_registry=_registry(), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="What is the hit cap?")
+        result = await agent.execute(task)
+        assert isinstance(result, AgentResult)
+        assert result.task_id == task.task_id
+        assert result.agent_role == AgentRole.RESEARCHER
+        assert result.output == "The answer."
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_success_status(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _final_answer("Good answer.")
+        agent = BaseAgent(tool_registry=_registry(), role=AgentRole.RESEARCHER)
+        result = await agent.execute(AgentTask(query="q"))
+        assert result.status == TaskStatus.SUCCESS
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_failed_status_on_graceful_failure(self, mock_llm: AsyncMock) -> None:
+        """Max iterations reached -> AGENT_GRACEFUL_FAILURE -> FAILED status."""
+        mock_llm.return_value = _tool_call("echo", {"text": "loop"})
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER, max_iterations=1)
+        result = await agent.execute(AgentTask(query="q"))
+        assert result.status == TaskStatus.FAILED
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_partial_status_on_loop(self, mock_llm: AsyncMock) -> None:
+        """Loop detected -> partial answer -> PARTIAL status."""
+        mock_llm.return_value = _tool_call("echo", {"text": "stuck"})
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER, max_iterations=10)
+        result = await agent.execute(AgentTask(query="q"))
+        assert result.status == TaskStatus.PARTIAL
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_execute_propagates_llm_errors(self, mock_llm: AsyncMock) -> None:
+        mock_llm.side_effect = LLMUnavailableError("Server down")
+        agent = BaseAgent(tool_registry=_registry(), role=AgentRole.RESEARCHER)
+        with pytest.raises(LLMUnavailableError):
+            await agent.execute(AgentTask(query="q"))
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_execute_requires_role(self, mock_llm: AsyncMock) -> None:
+        """execute() requires a role to be set (needed for AgentResult)."""
+        mock_llm.return_value = _final_answer("answer")
+        agent = BaseAgent(tool_registry=_registry())  # no role
+        with pytest.raises(ValueError, match="role"):
+            await agent.execute(AgentTask(query="q"))
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_on_status_callback(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _final_answer("answer")
+        agent = BaseAgent(tool_registry=_registry(), role=AgentRole.RESEARCHER)
+        statuses: list[str] = []
+
+        async def capture(msg: str) -> None:
+            statuses.append(msg)
+
+        await agent.execute(AgentTask(query="q"), on_status=capture)
+        assert len(statuses) > 0
+
+
+class TestBackwardCompat:
+    """Verify that the run() interface is completely unchanged."""
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_run_still_returns_string(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = _final_answer("42")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        result = await agent.run("What?")
+        assert isinstance(result, str)
+        assert result == "42"
+
+    def test_init_without_role(self) -> None:
+        """Existing code that creates BaseAgent without role still works."""
+        agent = BaseAgent(tool_registry=_registry())
+        assert agent.role is None
+        assert agent.max_iterations > 0

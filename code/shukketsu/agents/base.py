@@ -2,12 +2,13 @@
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from langfuse import observe
 
 from code.shukketsu import config
 from code.shukketsu.agents.guardrails import LoopDetector
+from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskStatus
 from code.shukketsu.llm.schemas import ActionType, AgentStep
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.tools.registry import ToolRegistry
@@ -28,20 +29,37 @@ If rag_search finds nothing, try web_search. If web_search finds relevant pages,
 Once you have useful information from any source, provide your final_answer — do not keep searching."""
 
 
+class _RunOutcome(NamedTuple):
+    """Internal return type from the ReAct loop.
+
+    Carries both the output string and the execution status, so that
+    run() and execute() can consume the loop result without mutable state.
+    """
+
+    output: str
+    status: TaskStatus
+
+
 class BaseAgent:
     """Agent that uses a ReAct loop to answer questions with tools.
 
     Iterates: think -> act (call tool) -> observe (read result)
     until it reaches a final answer or hits the iteration limit.
+
+    Two public entry points share the same loop:
+    - run(query) -> str           — Phase 1 backward-compat interface
+    - execute(task) -> AgentResult — Phase 2 task-based interface
     """
 
     def __init__(
         self,
         tool_registry: ToolRegistry,
         *,
+        role: AgentRole | None = None,
         max_iterations: int = config.AGENT_MAX_ITERATIONS,
         system_prompt: str = config.SYSTEM_PROMPT,
     ) -> None:
+        self.role = role
         self.tool_registry = tool_registry
         self.max_iterations = max_iterations
         self._system_prompt = system_prompt
@@ -62,6 +80,50 @@ class BaseAgent:
             LLMUnavailableError: If the LLM backend is unreachable.
             StructuredOutputError: If structured output validation fails.
         """
+        outcome = await self._run_loop(query, on_status=on_status)
+        return outcome.output
+
+    @observe(as_type="agent")
+    async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> AgentResult:
+        """Execute a typed task and return a structured result.
+
+        This is the task-based interface used by the multi-agent system.
+        Calls the same ReAct loop as run() but wraps the result in a
+        typed AgentResult with status tracking.
+
+        Note: task.context is intentionally ignored in the base implementation.
+        Specialist agents override execute() to incorporate context.
+
+        Args:
+            task: The task to execute.
+            on_status: Optional async callback for progress updates.
+
+        Returns:
+            AgentResult with the output and execution status.
+
+        Raises:
+            ValueError: If no role is set on this agent.
+            LLMUnavailableError: If the LLM backend is unreachable.
+            StructuredOutputError: If structured output validation fails.
+        """
+        if self.role is None:
+            raise ValueError("Cannot execute() without a role. Use AgentFactory or set role in constructor.")
+
+        outcome = await self._run_loop(task.query, on_status=on_status)
+
+        return AgentResult(
+            task_id=task.task_id,
+            agent_role=self.role,
+            status=outcome.status,
+            output=outcome.output,
+        )
+
+    async def _run_loop(self, query: str, *, on_status: StatusCallback | None = None) -> _RunOutcome:
+        """The core ReAct loop. Shared by run() and execute().
+
+        Returns a _RunOutcome with the output string and status, so callers
+        can decide how to surface the result without relying on mutable state.
+        """
         scratchpad: list[dict[str, Any]] = []
 
         for iteration in range(self.max_iterations):
@@ -77,7 +139,7 @@ class BaseAgent:
 
             if step.action == ActionType.FINAL_ANSWER:
                 logger.info("Agent reached final answer after %d iteration(s)", iteration + 1)
-                return step.answer  # type: ignore[return-value]
+                return _RunOutcome(output=step.answer, status=TaskStatus.SUCCESS)  # type: ignore[arg-type]
 
             tool_call = step.tool_call
             assert tool_call is not None  # guaranteed by AgentStep validator
@@ -100,10 +162,13 @@ class BaseAgent:
             loop_msg = self._loop_detector.check(scratchpad)
             if loop_msg:
                 logger.warning("Loop detected: %s", loop_msg)
-                return self._synthesize_partial_answer(scratchpad)
+                return _RunOutcome(
+                    output=self._synthesize_partial_answer(scratchpad),
+                    status=TaskStatus.PARTIAL,
+                )
 
         logger.warning("Agent reached max iterations (%d) without final answer", self.max_iterations)
-        return config.AGENT_GRACEFUL_FAILURE
+        return _RunOutcome(output=config.AGENT_GRACEFUL_FAILURE, status=TaskStatus.FAILED)
 
     def _synthesize_partial_answer(self, scratchpad: list[dict[str, Any]]) -> str:
         """Build an answer from partial observations when a loop is detected."""
