@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase — Steps 1-2 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -69,6 +69,8 @@ Single SQLite file (`data/shukketsu.db`) with three extensions:
 - **FTS5** for keyword search (BM25)
 - Results fused via Reciprocal Rank Fusion (RRF)
 
+The database also stores a **knowledge graph** (schema v2): `entity_types`, `entities` (deduplicated by canonical name + type), and `relationships` (deduplicated by source + target + type). Entity names are normalized and resolved through an alias table for WoW abbreviations (e.g., DST → Dragonspine Trophy). Entity extraction is performed via Llama 70B structured output during ingest (best-effort, non-blocking).
+
 Wiki articles are git-tracked Markdown files in `knowledge/` with YAML frontmatter (confidence scores, sources, tags).
 
 ### Key Data Flow
@@ -84,11 +86,11 @@ code/shukketsu/          # Main Python package (import as code.shukketsu)
   agents/                # BaseAgent, Orchestrator, Researcher, Analyst, Writer, Editor
   llm/                   # Ollama clients, Instructor integration, prompts
   tools/                 # Agent tools: research/, analysis/, knowledge/
-  rag/                   # Agentic RAG: decomposer, iterative retrieval, self-RAG, corrective
-  ingest/                # Chunking (semantic + WoW-specific) and embedding pipeline
+  rag/                   # Agentic RAG: entities.py (types, extraction), graph.py (GraphStore), fusion, search
+  ingest/                # Chunking, embedding, entity extraction pipeline (pipeline.py)
   scraping/              # Rate limiter, robots.txt compliance, httpx fetcher
   sim/                   # TBC Rogue DPS simulation engine (discrete event)
-  db/                    # SQLite connection factory, schema.sql (WAL, sqlite-vec, FTS5)
+  db/                    # SQLite connection factory, schema.sql v2 (WAL, sqlite-vec, FTS5, knowledge graph)
   web/                   # FastAPI app, Jinja2 templates, HTMX, static assets
   trust/                 # Source trust scoring with time-based decay
   freshness/             # Content staleness checking and re-ingestion
@@ -135,7 +137,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Phase 1 is complete (245 unit tests, deployed). Phase 2 is the active development phase. Planning docs live in `docs/plans/`:
+Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-2 are complete (381 unit tests). Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -143,6 +145,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 is the active developmen
 | `shukketsu-architecture.md` | Architecture reference (design rationale, not implementation steps) |
 | `phase-1-agent-core.md` | Phase 1 implementation guide (complete) |
 | `phase-2-multi-agent-rag.md` | **Active plan** — 10-step implementation guide for Phase 2 |
+| `2026-02-10-phase2-step2-knowledge-graph.md` | Step 2 detailed plan (complete) |
 | `2026-02-10-deployment-setup.md` | Deployment setup (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
@@ -154,9 +157,9 @@ All 10 steps done. 245 unit tests passing. System deployed and accessible in bro
 
 The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 
-1. Structured Task Protocol + Agent Framework (tasks.py, base.py refactor, factory.py)
-2. Knowledge Graph Schema + Entity Extraction (graph tables, entity types, extraction pipeline)
-3. Graph Traversal Tool + Qwen 4B Reranking (graph_search tool, reranker, unified search)
+1. ~~Structured Task Protocol + Agent Framework~~ — COMPLETE (302 tests: tasks.py, base.py refactor, factory.py)
+2. ~~Knowledge Graph Schema + Entity Extraction~~ — COMPLETE (381 tests: schema v2, entity types/aliases, GraphStore, extraction pipeline)
+3. Graph Traversal Tool + Qwen 4B Reranking (graph_search tool, reranker, unified search) — **NEXT**
 4. Researcher Agent (specialized prompts, ResearchResult, multi-strategy retrieval)
 5. Writer Agent + Wiki Backend (article generation, KnowledgeManager, YAML frontmatter)
 6. Editor Agent (claim verification, confidence scoring, fact-checking)
