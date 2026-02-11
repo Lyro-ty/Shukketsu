@@ -226,3 +226,64 @@ class TestGetRelationships:
         item_id = graph.upsert_entity("Lonely Item", EntityType.ITEM)
         rels = graph.get_relationships(item_id)
         assert rels == []
+
+
+class TestFindEntitiesByName:
+    """Tests for multi-match entity lookup."""
+
+    def test_finds_single_match(self, graph: GraphStore) -> None:
+        graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM)
+        results = graph.find_entities_by_name("Dragonspine Trophy")
+        assert len(results) == 1
+        assert results[0]["name"] == "Dragonspine Trophy"
+        assert results[0]["entity_type_name"] == "item"
+
+    def test_finds_multiple_types(self, graph: GraphStore) -> None:
+        graph.upsert_entity("Combat", EntityType.SPEC)
+        graph.upsert_entity("Combat", EntityType.TALENT_TREE)
+        results = graph.find_entities_by_name("Combat")
+        assert len(results) == 2
+        type_names = {r["entity_type_name"] for r in results}
+        assert type_names == {"spec", "talent_tree"}
+
+    def test_resolves_aliases(self, graph: GraphStore) -> None:
+        graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM)
+        results = graph.find_entities_by_name("DST")
+        assert len(results) == 1
+        assert results[0]["canonical_name"] == "dragonspine trophy"
+
+    def test_filters_by_entity_type(self, graph: GraphStore) -> None:
+        graph.upsert_entity("Combat", EntityType.SPEC)
+        graph.upsert_entity("Combat", EntityType.TALENT_TREE)
+        results = graph.find_entities_by_name("Combat", entity_type=EntityType.SPEC)
+        assert len(results) == 1
+        assert results[0]["entity_type_name"] == "spec"
+
+    def test_returns_empty_for_missing(self, graph: GraphStore) -> None:
+        results = graph.find_entities_by_name("nonexistent item")
+        assert results == []
+
+    def test_includes_entity_type_name(self, graph: GraphStore) -> None:
+        graph.upsert_entity("Gruul", EntityType.BOSS)
+        results = graph.find_entities_by_name("Gruul")
+        assert results[0]["entity_type_name"] == "boss"
+
+
+class TestGetRelationshipsWithType:
+    """Tests that get_relationships includes entity type name."""
+
+    def test_outgoing_includes_related_type(self, graph: GraphStore) -> None:
+        item_id = graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM)
+        boss_id = graph.upsert_entity("Gruul", EntityType.BOSS)
+        graph.upsert_relationship(item_id, boss_id, RelationType.DROPS_FROM)
+        rels = graph.get_relationships(item_id)
+        assert len(rels) == 1
+        assert rels[0]["related_type"] == "boss"
+
+    def test_incoming_includes_related_type(self, graph: GraphStore) -> None:
+        item_id = graph.upsert_entity("Dragonspine Trophy", EntityType.ITEM)
+        boss_id = graph.upsert_entity("Gruul", EntityType.BOSS)
+        graph.upsert_relationship(item_id, boss_id, RelationType.DROPS_FROM)
+        rels = graph.get_relationships(boss_id, direction="incoming")
+        assert len(rels) == 1
+        assert rels[0]["related_type"] == "item"

@@ -154,6 +154,32 @@ class GraphStore:
 
         return self._conn.execute("SELECT * FROM entities WHERE canonical_name = ?", (canonical,)).fetchone()
 
+    def find_entities_by_name(
+        self,
+        name: str,
+        entity_type: EntityType | None = None,
+    ) -> list[sqlite3.Row]:
+        """Look up all entities matching a name (resolves aliases).
+
+        Unlike get_entity_by_name() which returns one row, this returns all
+        matches — needed for ambiguity detection in the graph_search tool.
+        """
+        canonical = resolve_canonical(name)
+        if entity_type is not None:
+            type_id = self.get_entity_type_id(entity_type)
+            return self._conn.execute(
+                "SELECT e.*, et.name AS entity_type_name "
+                "FROM entities e JOIN entity_types et ON et.id = e.entity_type_id "
+                "WHERE e.canonical_name = ? AND e.entity_type_id = ?",
+                (canonical, type_id),
+            ).fetchall()
+        return self._conn.execute(
+            "SELECT e.*, et.name AS entity_type_name "
+            "FROM entities e JOIN entity_types et ON et.id = e.entity_type_id "
+            "WHERE e.canonical_name = ?",
+            (canonical,),
+        ).fetchall()
+
     def get_relationships(
         self,
         entity_id: int,
@@ -179,9 +205,11 @@ class GraphStore:
             join_col = "source_entity_id"
 
         query = (
-            f"SELECT r.*, e.name AS related_name, e.canonical_name AS related_canonical "
+            f"SELECT r.*, e.name AS related_name, e.canonical_name AS related_canonical, "
+            f"et.name AS related_type "
             f"FROM relationships r "
             f"JOIN entities e ON e.id = r.{join_col} "
+            f"JOIN entity_types et ON et.id = e.entity_type_id "
             f"WHERE r.{col} = ?"
         )
         params: list = [entity_id]
