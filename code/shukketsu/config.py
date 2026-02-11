@@ -114,7 +114,10 @@ RERANKER_FETCH_MULTIPLIER = int(os.getenv("RERANKER_FETCH_MULTIPLIER", "3"))
 RERANKER_TOP_K = int(os.getenv("RERANKER_TOP_K", "5"))
 
 # Role-specific system prompts
-from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT  # noqa: E402
+from code.shukketsu.llm.prompts.researcher import (  # noqa: E402
+    RESEARCHER_SYSTEM_PROMPT as RESEARCHER_SYSTEM_PROMPT,
+)
+
 WRITER_SYSTEM_PROMPT = (
     "You are a Wiki Writer for WoW TBC Rogue content. "
     "You produce clear, accurate, well-structured Markdown articles from research findings."

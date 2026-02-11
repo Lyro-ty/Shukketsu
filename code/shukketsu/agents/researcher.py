@@ -40,9 +40,7 @@ class Researcher(BaseAgent):
     """
 
     @observe(as_type="agent")
-    async def execute(
-        self, task: AgentTask, *, on_status: StatusCallback | None = None
-    ) -> ResearchResult:
+    async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> ResearchResult:
         """Execute a research task and return structured findings.
 
         Runs the ReAct loop, then structures the output via a second
@@ -131,17 +129,16 @@ class Researcher(BaseAgent):
             {
                 "role": "user",
                 "content": (
-                    f"Query: {query}\n\n"
-                    f"Researcher's answer:\n{output}\n\n"
-                    f"Tool observations:\n{observations_text}"
+                    f"Query: {query}\n\nResearcher's answer:\n{output}\n\nTool observations:\n{observations_text}"
                 ),
             },
         ]
 
-        return await get_structured_output(
+        result: StructuredFindings = await get_structured_output(
             response_model=StructuredFindings,
             messages=messages,
         )
+        return result
 
     def _extract_strategies(self, scratchpad: list[dict[str, Any]]) -> list[str]:
         """Extract unique tool names used during research."""
@@ -160,9 +157,5 @@ class Researcher(BaseAgent):
         for i, entry in enumerate(scratchpad, 1):
             observation = str(entry.get("observation", ""))
             truncated = observation[:500] + "..." if len(observation) > 500 else observation
-            parts.append(
-                f"[{i}] Tool: {entry['tool_name']}\n"
-                f"    Input: {entry['tool_input']}\n"
-                f"    Result: {truncated}"
-            )
+            parts.append(f"[{i}] Tool: {entry['tool_name']}\n    Input: {entry['tool_input']}\n    Result: {truncated}")
         return "\n\n".join(parts)
