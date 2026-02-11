@@ -87,6 +87,8 @@ CB_OLLAMA_EMBED_FAILURE_THRESHOLD = 5
 CB_OLLAMA_EMBED_RECOVERY_TIMEOUT = 60.0
 CB_BRAVE_FAILURE_THRESHOLD = 5
 CB_BRAVE_RECOVERY_TIMEOUT = 120.0
+CB_QWEN_RERANKER_FAILURE_THRESHOLD = int(os.getenv("CB_QWEN_RERANKER_FAILURE_THRESHOLD", "3"))
+CB_QWEN_RERANKER_RECOVERY_TIMEOUT = float(os.getenv("CB_QWEN_RERANKER_RECOVERY_TIMEOUT", "30"))
 
 # Retry defaults
 RETRY_MAX_ATTEMPTS = 3
@@ -103,6 +105,13 @@ RESEARCHER_MAX_TOKENS = 150_000  # Research produces more context
 ORCHESTRATOR_MAX_SUBTASKS = 6  # Prevent over-decomposition
 ORCHESTRATOR_MAX_DEPTH = 1  # No recursive orchestration
 ORCHESTRATOR_TIMEOUT_SECONDS = 120  # Total wall-clock budget
+
+# Graph search
+GRAPH_SEARCH_DEFAULT_TOP_K = int(os.getenv("GRAPH_SEARCH_DEFAULT_TOP_K", "20"))
+
+# Reranker
+RERANKER_FETCH_MULTIPLIER = int(os.getenv("RERANKER_FETCH_MULTIPLIER", "3"))
+RERANKER_TOP_K = int(os.getenv("RERANKER_TOP_K", "5"))
 
 # Role-specific system prompts (placeholder — specialist prompts added in later steps)
 RESEARCHER_SYSTEM_PROMPT = (

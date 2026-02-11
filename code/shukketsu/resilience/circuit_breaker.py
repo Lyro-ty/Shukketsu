@@ -137,8 +137,20 @@ brave_breaker = CircuitBreaker(
     recovery_timeout=config.CB_BRAVE_RECOVERY_TIMEOUT,
 )
 
+qwen_reranker_breaker = CircuitBreaker(
+    "qwen_reranker",
+    failure_threshold=config.CB_QWEN_RERANKER_FAILURE_THRESHOLD,
+    recovery_timeout=config.CB_QWEN_RERANKER_RECOVERY_TIMEOUT,
+)
+
 
 def reset_all_breakers() -> None:
     """Reset all named circuit breakers to CLOSED. Used by test fixtures."""
-    for breaker in (reasoning_breaker, ollama_router_breaker, ollama_embed_breaker, brave_breaker):
+    for breaker in (
+        reasoning_breaker,
+        ollama_router_breaker,
+        ollama_embed_breaker,
+        brave_breaker,
+        qwen_reranker_breaker,
+    ):
         breaker.reset()

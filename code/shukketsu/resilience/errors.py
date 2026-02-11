@@ -124,3 +124,17 @@ class CircuitOpenError(ShukketsuError):
             FailureMode.MODEL_UNAVAILABLE,
         )
         self.breaker_name = breaker_name
+
+
+class RerankerError(ShukketsuError):
+    """Raised when the reranker LLM call fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.MODEL_UNAVAILABLE)
+
+
+class GraphTraversalError(ShukketsuError):
+    """Raised when a knowledge graph query fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.DB_ERROR)
