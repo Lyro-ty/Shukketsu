@@ -2,6 +2,7 @@
 
 from code.shukketsu.agents.base import BaseAgent
 from code.shukketsu.agents.factory import AgentFactory
+from code.shukketsu.agents.researcher import Researcher
 from code.shukketsu.agents.tasks import (
     AgentResult,
     AgentRole,
@@ -28,6 +29,7 @@ __all__ = [
     "EditTask",
     "Finding",
     "OrchestratorPlan",
+    "Researcher",
     "ResearchResult",
     "ResearchTask",
     "SearchStrategy",

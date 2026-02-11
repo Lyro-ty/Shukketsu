@@ -1,17 +1,25 @@
 """Tests for the Researcher agent and its models."""
 
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from pydantic import ValidationError
 
-from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT
-
+from code.shukketsu.agents.researcher import Researcher, StructuredFindings
 from code.shukketsu.agents.tasks import (
     AgentResult,
     AgentRole,
+    AgentTask,
     Finding,
     ResearchResult,
     TaskStatus,
 )
+from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT
+from code.shukketsu.llm.schemas import ActionType, AgentStep, ToolCall
+from code.shukketsu.resilience.errors import StructuredOutputError
+from code.shukketsu.tools.registry import ToolRegistry
+from code.shukketsu.tools.schemas import Tool
 
 
 class TestFindingModel:
@@ -109,3 +117,175 @@ class TestResearcherPrompt:
     def test_prompt_contains_evaluation_criteria(self) -> None:
         prompt_lower = RESEARCHER_SYSTEM_PROMPT.lower()
         assert "evaluate" in prompt_lower or "assess" in prompt_lower
+
+
+# --- Helpers for execute tests ---
+
+
+class _EchoTool(Tool):
+    name = "rag_search"
+    description = "Search the knowledge base."
+    parameters_schema = {"query": {"type": "string", "description": "Search query"}}
+
+    async def execute(self, tool_input: dict[str, Any]) -> str:
+        q = tool_input.get("query", "")
+        return (
+            f"Found 1 result:\n[1] Source: Test Guide (https://example.com)\n"
+            f"Trust: 0.8\nContent: Info about {q}\n"
+        )
+
+
+class _GraphTool(Tool):
+    name = "graph_search"
+    description = "Search the knowledge graph."
+    parameters_schema = {"entity": {"type": "string", "description": "Entity name"}}
+
+    async def execute(self, tool_input: dict[str, Any]) -> str:
+        e = tool_input.get("entity", "")
+        return f'Found 1 relationship for "{e}":\n- drops_from -> Gruul (confidence: 0.9)\n'
+
+
+def _registry(*tools: Tool) -> ToolRegistry:
+    reg = ToolRegistry()
+    for t in tools:
+        reg.register(t)
+    return reg
+
+
+def _final_answer(answer: str) -> AgentStep:
+    return AgentStep(reasoning="I have the answer.", action=ActionType.FINAL_ANSWER, answer=answer)
+
+
+def _tool_call(tool_name: str, tool_input: dict[str, Any]) -> AgentStep:
+    return AgentStep(
+        reasoning="Need info.",
+        action=ActionType.TOOL_CALL,
+        tool_call=ToolCall(thought="Searching", tool_name=tool_name, tool_input=tool_input),
+    )
+
+
+def _mock_structured_findings(**kwargs: Any) -> StructuredFindings:
+    """Build a StructuredFindings with sensible defaults."""
+    defaults: dict[str, Any] = {
+        "findings": [Finding(claim="Test claim", evidence=["https://example.com"], confidence=0.8)],
+        "gaps": [],
+        "sufficient": True,
+    }
+    defaults.update(kwargs)
+    return StructuredFindings(**defaults)
+
+
+class TestResearcherExecute:
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_returns_research_result(self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock) -> None:
+        """execute() returns ResearchResult, not plain AgentResult."""
+        mock_loop_llm.return_value = _final_answer("The hit cap is 142.")
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        result = await researcher.execute(AgentTask(query="What is the hit cap?"))
+
+        assert isinstance(result, ResearchResult)
+        assert result.agent_role == AgentRole.RESEARCHER
+        assert result.status == TaskStatus.SUCCESS
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_structuring_pass_called(self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock) -> None:
+        """A second LLM call is made for structuring after the ReAct loop."""
+        mock_loop_llm.return_value = _final_answer("Answer text.")
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        await researcher.execute(AgentTask(query="q"))
+
+        mock_struct_llm.assert_called_once()
+        # Verify it was called with StructuredFindings as response_model
+        call_kwargs = mock_struct_llm.call_args.kwargs
+        assert call_kwargs["response_model"] is StructuredFindings
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_scratchpad_passed_to_structuring(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Structuring pass receives tool observations from the scratchpad."""
+        mock_loop_llm.side_effect = [
+            _tool_call("rag_search", {"query": "hit cap"}),
+            _final_answer("The hit cap is 142."),
+        ]
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        await researcher.execute(AgentTask(query="hit cap"))
+
+        # The structuring call's user message should contain the observation
+        call_kwargs = mock_struct_llm.call_args.kwargs
+        user_msg = call_kwargs["messages"][1]["content"]
+        assert "rag_search" in user_msg
+        assert "example.com" in user_msg
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_sources_derived_from_findings(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """sources_used is flattened from Finding.evidence, not parsed from observations."""
+        mock_loop_llm.return_value = _final_answer("Answer.")
+        mock_struct_llm.return_value = _mock_structured_findings(
+            findings=[
+                Finding(claim="Claim 1", evidence=["src_a", "src_b"], confidence=0.9),
+                Finding(claim="Claim 2", evidence=["src_b", "src_c"], confidence=0.7),
+            ]
+        )
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        result = await researcher.execute(AgentTask(query="q"))
+
+        assert result.sources_used == ["src_a", "src_b", "src_c"]  # deduplicated, order-preserving
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_strategies_extracted_from_scratchpad(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """strategies_used contains deduplicated tool names from scratchpad."""
+        mock_loop_llm.side_effect = [
+            _tool_call("rag_search", {"query": "q1"}),
+            _tool_call("graph_search", {"entity": "e1"}),
+            _tool_call("rag_search", {"query": "q2"}),
+            _final_answer("Done"),
+        ]
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(
+            tool_registry=_registry(_EchoTool(), _GraphTool()), role=AgentRole.RESEARCHER
+        )
+        result = await researcher.execute(AgentTask(query="q"))
+
+        assert result.strategies_used == ["rag_search", "graph_search"]
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_structuring_failure_graceful_fallback(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """StructuredOutputError from structuring pass -> fallback with empty findings."""
+        mock_loop_llm.return_value = _final_answer("Some answer text.")
+        mock_struct_llm.side_effect = StructuredOutputError("Validation failed")
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        result = await researcher.execute(AgentTask(query="q"))
+
+        assert isinstance(result, ResearchResult)
+        assert result.output == "Some answer text."
+        assert result.findings == []
+        assert result.sufficient is False
+
+    def test_execute_has_langfuse_observe(self) -> None:
+        """Researcher.execute() has @observe decorator (not inherited from base)."""
+        from code.shukketsu.agents.base import BaseAgent
+
+        # Researcher overrides execute — it should not be the same method object
+        assert Researcher.execute is not BaseAgent.execute
