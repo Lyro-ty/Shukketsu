@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64).
 
-Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase — Steps 1-2 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase — Steps 1-3 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/knowledge/graph_search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/reranker.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Commands
 
@@ -137,7 +137,7 @@ All config is read from environment variables in `code/shukketsu/config.py`. API
 
 ## Development Phases
 
-Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-2 are complete (381 unit tests). Planning docs live in `docs/plans/`:
+Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-3 are complete (438 unit tests). Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -146,6 +146,8 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-2 are complete (
 | `phase-1-agent-core.md` | Phase 1 implementation guide (complete) |
 | `phase-2-multi-agent-rag.md` | **Active plan** — 10-step implementation guide for Phase 2 |
 | `2026-02-10-phase2-step2-knowledge-graph.md` | Step 2 detailed plan (complete) |
+| `2026-02-10-phase2-step3-graph-search-reranker.md` | Step 3 design doc (complete) |
+| `2026-02-10-phase2-step3-implementation.md` | Step 3 implementation plan (complete) |
 | `2026-02-10-deployment-setup.md` | Deployment setup (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
@@ -159,8 +161,8 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 
 1. ~~Structured Task Protocol + Agent Framework~~ — COMPLETE (302 tests: tasks.py, base.py refactor, factory.py)
 2. ~~Knowledge Graph Schema + Entity Extraction~~ — COMPLETE (381 tests: schema v2, entity types/aliases, GraphStore, extraction pipeline)
-3. Graph Traversal Tool + Qwen 4B Reranking (graph_search tool, reranker, unified search) — **NEXT**
-4. Researcher Agent (specialized prompts, ResearchResult, multi-strategy retrieval)
+3. ~~Graph Traversal Tool + Qwen 4B Reranking~~ — COMPLETE (438 tests: graph_search tool, reranker, rag_search reranking)
+4. Researcher Agent (specialized prompts, ResearchResult, multi-strategy retrieval) — **NEXT**
 5. Writer Agent + Wiki Backend (article generation, KnowledgeManager, YAML frontmatter)
 6. Editor Agent (claim verification, confidence scoring, fact-checking)
 7. Orchestrator Agent (task decomposition, dispatch, synthesis)
