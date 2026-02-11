@@ -26,9 +26,11 @@ def _mock_km() -> KnowledgeManager:
 
 
 def _factory_create(factory: AgentFactory, role: AgentRole, **kwargs: Any) -> BaseAgent:
-    """Create an agent, passing knowledge_manager for roles that require it."""
+    """Create an agent, passing required kwargs for roles that need them."""
     if role in (AgentRole.WRITER, AgentRole.EDITOR) and "knowledge_manager" not in kwargs:
         kwargs["knowledge_manager"] = _mock_km()
+    if role == AgentRole.ORCHESTRATOR and "factory" not in kwargs:
+        kwargs["factory"] = factory
     return factory.create(role, **kwargs)
 
 
@@ -67,7 +69,7 @@ class TestAgentFactoryCreate:
 
     def test_orchestrator_prompt_mentions_decompose(self) -> None:
         factory = AgentFactory()
-        agent = factory.create(AgentRole.ORCHESTRATOR)
+        agent = _factory_create(factory, AgentRole.ORCHESTRATOR)
         assert "decompose" in agent._system_prompt.lower()
 
     def test_role_classes_registry_exists(self) -> None:
@@ -113,3 +115,29 @@ class TestAgentFactoryIterationLimits:
         for role in [AgentRole.WRITER, AgentRole.EDITOR, AgentRole.ORCHESTRATOR]:
             agent = _factory_create(factory, role)
             assert agent.max_iterations == config.AGENT_MAX_ITERATIONS
+
+
+class TestOrchestratorFactory:
+    def test_factory_creates_orchestrator(self) -> None:
+        """AgentFactory creates an Orchestrator instance for ORCHESTRATOR role."""
+        from code.shukketsu.agents.orchestrator import Orchestrator
+
+        factory = AgentFactory()
+        agent = factory.create(AgentRole.ORCHESTRATOR, factory=factory)
+        assert isinstance(agent, Orchestrator)
+
+    def test_orchestrator_has_correct_prompt(self) -> None:
+        """Orchestrator gets ORCHESTRATOR_SYSTEM_PROMPT from config."""
+        from code.shukketsu.llm.prompts.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
+
+        factory = AgentFactory()
+        agent = factory.create(AgentRole.ORCHESTRATOR, factory=factory)
+        assert agent._system_prompt == ORCHESTRATOR_SYSTEM_PROMPT
+
+    def test_orchestrator_requires_factory_kwarg(self) -> None:
+        """Orchestrator via factory without factory kwarg raises TypeError."""
+        import pytest
+
+        factory = AgentFactory()
+        with pytest.raises(TypeError):
+            factory.create(AgentRole.ORCHESTRATOR)

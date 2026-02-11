@@ -416,14 +416,16 @@ class TestResearcherFactory:
         agent = factory.create(AgentRole.RESEARCHER)
         assert isinstance(agent, Researcher)
 
-    def test_factory_other_roles_return_base_agent(self) -> None:
-        """Non-researcher roles still return BaseAgent (not Researcher)."""
-        from code.shukketsu.agents.base import BaseAgent
+    def test_factory_orchestrator_is_not_researcher(self) -> None:
+        """Orchestrator role returns Orchestrator, not Researcher."""
         from code.shukketsu.agents.factory import AgentFactory
+        from code.shukketsu.agents.orchestrator import Orchestrator
+        from code.shukketsu.agents.researcher import Researcher
 
         factory = AgentFactory()
-        orchestrator = factory.create(AgentRole.ORCHESTRATOR)
-        assert type(orchestrator) is BaseAgent
+        agent = factory.create(AgentRole.ORCHESTRATOR, factory=factory)
+        assert isinstance(agent, Orchestrator)
+        assert not isinstance(agent, Researcher)
 
     def test_researcher_has_correct_prompt(self) -> None:
         """Researcher gets the full prompt from llm/prompts/researcher.py."""

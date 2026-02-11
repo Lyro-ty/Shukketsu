@@ -11,6 +11,7 @@ from typing import Any
 from code.shukketsu import config
 from code.shukketsu.agents.base import BaseAgent
 from code.shukketsu.agents.editor import Editor
+from code.shukketsu.agents.orchestrator import Orchestrator
 from code.shukketsu.agents.researcher import Researcher
 from code.shukketsu.agents.tasks import AgentRole
 from code.shukketsu.agents.writer import Writer
@@ -33,6 +34,7 @@ _ROLE_CLASSES: dict[AgentRole, type[BaseAgent]] = {
     AgentRole.RESEARCHER: Researcher,
     AgentRole.WRITER: Writer,
     AgentRole.EDITOR: Editor,
+    AgentRole.ORCHESTRATOR: Orchestrator,
 }
 
 
