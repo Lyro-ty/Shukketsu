@@ -108,6 +108,13 @@ class BraveSearchError(ShukketsuError):
         super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)
 
 
+class EntityExtractionError(ShukketsuError):
+    """Raised when entity extraction from a chunk fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.LLM_MALFORMED_OUTPUT)
+
+
 class CircuitOpenError(ShukketsuError):
     """Raised when a circuit breaker is open and rejecting requests."""
 
