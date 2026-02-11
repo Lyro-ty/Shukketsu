@@ -7,6 +7,7 @@ from typing import Any
 
 from code.shukketsu import config
 from code.shukketsu.rag.fusion import escape_fts_query
+from code.shukketsu.rag.reranker import rerank
 from code.shukketsu.rag.search import hybrid_search
 from code.shukketsu.resilience.circuit_breaker import ollama_embed_breaker
 from code.shukketsu.tools.schemas import Tool
@@ -36,7 +37,7 @@ class RagSearchTool(Tool):
         self._embed_fn = embed_fn
 
     async def execute(self, tool_input: dict[str, Any]) -> str:
-        """Execute a hybrid search (vector + FTS5 + RRF)."""
+        """Execute a hybrid search (vector + FTS5 + RRF) with reranking."""
         query = tool_input.get("query", "")
         top_k = tool_input.get("top_k", config.RAG_SEARCH_TOP_K)
 
@@ -49,7 +50,15 @@ class RagSearchTool(Tool):
             logger.warning("Embedding failed, falling back to keyword-only search: %s", exc)
             return self._fts_only_search(query, top_k)
 
-        results = await hybrid_search(self._conn, query, embedding, top_k=top_k)
+        # Over-retrieve for reranking
+        rerank_fetch = top_k * config.RERANKER_FETCH_MULTIPLIER
+        effective_fetch_k = max(config.RAG_SEARCH_FETCH_K, rerank_fetch)
+        raw_results = await hybrid_search(
+            self._conn, query, embedding, top_k=rerank_fetch, fetch_k=effective_fetch_k
+        )
+
+        # Rerank (falls back to truncated on failure internally)
+        results = await rerank(query, raw_results, top_k)
 
         if not results:
             return "No relevant documents found for this query."
