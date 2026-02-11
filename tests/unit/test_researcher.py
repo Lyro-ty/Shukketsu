@@ -289,3 +289,148 @@ class TestResearcherExecute:
 
         # Researcher overrides execute — it should not be the same method object
         assert Researcher.execute is not BaseAgent.execute
+
+
+class TestResearcherBehavior:
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_decompose_two_part_question(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Agent decomposes a multi-part question and calls tools multiple times."""
+        mock_loop_llm.side_effect = [
+            _tool_call("rag_search", {"query": "combat trinkets phase 1"}),
+            _tool_call("rag_search", {"query": "combat stat priority"}),
+            _final_answer("Trinkets ranked by stat priority..."),
+        ]
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        result = await researcher.execute(AgentTask(query="Best trinkets and why?"))
+
+        # ReAct loop made 3 calls (2 tool + 1 final), structuring made 1
+        assert mock_loop_llm.call_count == 3
+        assert result.status == TaskStatus.SUCCESS
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_multiple_strategies_used(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Agent uses both rag_search and graph_search tools."""
+        mock_loop_llm.side_effect = [
+            _tool_call("graph_search", {"entity": "combat swords"}),
+            _tool_call("rag_search", {"query": "combat swords gear"}),
+            _final_answer("Combined results."),
+        ]
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(
+            tool_registry=_registry(_EchoTool(), _GraphTool()), role=AgentRole.RESEARCHER
+        )
+        result = await researcher.execute(AgentTask(query="Combat gear"))
+
+        assert "graph_search" in result.strategies_used
+        assert "rag_search" in result.strategies_used
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_web_fallback_on_empty_kb(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Agent falls back to web_search when rag_search returns nothing useful."""
+
+        class _WebTool(Tool):
+            name = "web_search"
+            description = "Web search."
+            parameters_schema = {"query": {"type": "string", "description": "Query"}}
+
+            async def execute(self, tool_input: dict[str, Any]) -> str:
+                return "Found 1 web result for ...: [1] Guide Title\n    https://example.com/guide\n"
+
+        mock_loop_llm.side_effect = [
+            _tool_call("rag_search", {"query": "obscure topic"}),
+            _tool_call("web_search", {"query": "obscure topic TBC rogue"}),
+            _final_answer("Found info via web."),
+        ]
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(
+            tool_registry=_registry(_EchoTool(), _WebTool()), role=AgentRole.RESEARCHER
+        )
+        result = await researcher.execute(AgentTask(query="obscure topic"))
+
+        assert "web_search" in result.strategies_used
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_respects_max_iterations(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Agent stops after max_iterations even if no final answer."""
+        mock_loop_llm.return_value = _tool_call("rag_search", {"query": "endless"})
+        # structuring should NOT be called — FAILED status skips it
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(
+            tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER, max_iterations=2
+        )
+        result = await researcher.execute(AgentTask(query="q"))
+
+        assert result.status == TaskStatus.FAILED
+        assert mock_loop_llm.call_count == 2
+        mock_struct_llm.assert_not_called()
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_gaps_populated_on_partial_results(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """gaps list is non-empty when structuring reports incomplete research."""
+        mock_loop_llm.return_value = _final_answer("Partial info only.")
+        mock_struct_llm.return_value = _mock_structured_findings(
+            gaps=["Could not find proc rate data", "No Phase 2 comparison available"],
+            sufficient=False,
+        )
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        result = await researcher.execute(AgentTask(query="detailed analysis"))
+
+        assert len(result.gaps) == 2
+        assert result.sufficient is False
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_sufficient_false_on_empty_results(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """All tools return empty -> sufficient=False."""
+        mock_loop_llm.return_value = _final_answer("Could not find any information.")
+        mock_struct_llm.return_value = _mock_structured_findings(
+            findings=[], gaps=["No data found"], sufficient=False
+        )
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        result = await researcher.execute(AgentTask(query="nonexistent topic"))
+
+        assert result.findings == []
+        assert result.sufficient is False
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_failed_loop_skips_structuring(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """FAILED status from loop -> no structuring pass, minimal result."""
+        mock_loop_llm.return_value = _tool_call("rag_search", {"query": "loop"})
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(
+            tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER, max_iterations=1
+        )
+        result = await researcher.execute(AgentTask(query="q"))
+
+        assert result.status == TaskStatus.FAILED
+        assert result.findings == []
+        assert result.sufficient is False
+        mock_struct_llm.assert_not_called()
