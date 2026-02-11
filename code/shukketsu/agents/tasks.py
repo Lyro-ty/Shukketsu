@@ -84,6 +84,29 @@ class ResearchTask(AgentTask):
     max_sources: int = 10
 
 
+class Finding(BaseModel):
+    """A single research finding with evidence and confidence."""
+
+    claim: str
+    evidence: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+    entity_refs: list[str] = Field(default_factory=list)
+
+
+class ResearchResult(AgentResult):
+    """Structured output from the Researcher agent.
+
+    Extends AgentResult with research-specific fields that the Writer
+    and Orchestrator consume.
+    """
+
+    findings: list[Finding] = Field(default_factory=list)
+    sources_used: list[str] = Field(default_factory=list)
+    strategies_used: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    sufficient: bool = False
+
+
 class WriteTask(AgentTask):
     """Task for the Writer agent.
 
