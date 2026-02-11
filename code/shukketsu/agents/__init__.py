@@ -19,6 +19,7 @@ from code.shukketsu.agents.tasks import (
     WriteResult,
     WriteTask,
 )
+from code.shukketsu.agents.writer import Writer
 
 __all__ = [
     "AgentFactory",
@@ -36,6 +37,7 @@ __all__ = [
     "SearchStrategy",
     "SubTask",
     "TaskStatus",
+    "Writer",
     "WriteResult",
     "WriteTask",
 ]

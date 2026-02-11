@@ -422,8 +422,8 @@ class TestResearcherFactory:
         from code.shukketsu.agents.factory import AgentFactory
 
         factory = AgentFactory()
-        writer = factory.create(AgentRole.WRITER)
-        assert type(writer) is BaseAgent
+        editor = factory.create(AgentRole.EDITOR)
+        assert type(editor) is BaseAgent
 
     def test_researcher_has_correct_prompt(self) -> None:
         """Researcher gets the full prompt from llm/prompts/researcher.py."""

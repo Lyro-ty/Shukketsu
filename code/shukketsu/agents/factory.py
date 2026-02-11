@@ -6,11 +6,13 @@ potentially a different class. Tool registries are injected by the caller
 """
 
 import logging
+from typing import Any
 
 from code.shukketsu import config
 from code.shukketsu.agents.base import BaseAgent
 from code.shukketsu.agents.researcher import Researcher
 from code.shukketsu.agents.tasks import AgentRole
+from code.shukketsu.agents.writer import Writer
 from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,7 @@ _ROLE_MAX_ITERATIONS: dict[AgentRole, int] = {
 
 _ROLE_CLASSES: dict[AgentRole, type[BaseAgent]] = {
     AgentRole.RESEARCHER: Researcher,
+    AgentRole.WRITER: Writer,
 }
 
 
@@ -44,6 +47,7 @@ class AgentFactory:
         role: AgentRole,
         *,
         tool_registry: ToolRegistry | None = None,
+        **kwargs: Any,
     ) -> BaseAgent:
         """Create an agent configured for the given role.
 
@@ -51,6 +55,8 @@ class AgentFactory:
             role: The specialist role to configure.
             tool_registry: Optional pre-configured tool registry.
                 If None, a new empty registry is created.
+            **kwargs: Additional keyword arguments forwarded to the agent
+                constructor (e.g. ``knowledge_manager`` for Writer).
 
         Returns:
             An agent configured with the role's prompt, limits, and class.
@@ -65,6 +71,7 @@ class AgentFactory:
             role=role,
             max_iterations=max_iter,
             system_prompt=prompt,
+            **kwargs,
         )
 
         logger.info("Created %s agent (%s, max_iter=%d)", role.value, cls.__name__, max_iter)
