@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase — Steps 1-6 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `llm/prompts/researcher.py`, `llm/prompts/writer.py`, `llm/prompts/editor.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/researcher.py`, `agents/writer.py`, `agents/editor.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/knowledge/graph_search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/reranker.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `knowledge/manager.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+Phase 1 (Agent Core) is complete and deployed. Phase 2 (Multi-Agent + Agentic RAG) is the active development phase — Steps 1-7 are complete. Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `llm/prompts/researcher.py`, `llm/prompts/writer.py`, `llm/prompts/editor.py`, `llm/prompts/orchestrator.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/researcher.py`, `agents/writer.py`, `agents/editor.py`, `agents/orchestrator.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/knowledge/graph_search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/reranker.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `knowledge/manager.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Development Workflow
 
@@ -156,7 +156,7 @@ ruff check . --fix && ruff format . && python3 -m mypy . && python3 -m pytest
 
 ## Development Phases
 
-Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-6 are complete (570 unit tests). Planning docs live in `docs/plans/`:
+Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-7 are complete (620 unit tests). Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -174,6 +174,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-6 are complete (
 | `2026-02-11-phase2-step5-implementation.md` | Step 5 implementation plan (complete) |
 | `2026-02-11-phase2-step6-editor-agent.md` | Step 6 design doc (Editor agent, claim verification, confidence scoring) |
 | `2026-02-11-phase2-step7-orchestrator-agent.md` | Step 7 design doc (Orchestrator agent, task decomposition, dispatch, synthesis) |
+| `2026-02-11-phase2-step7-implementation.md` | Step 7 implementation plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
@@ -190,7 +191,7 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 4. ~~Researcher Agent~~ — COMPLETE (473 tests: Researcher subclass, structuring pass, prompts, factory registry)
 5. ~~Writer Agent + Wiki Backend~~ — COMPLETE (527 tests: Writer agent, KnowledgeManager, schema v3, YAML frontmatter, two-pass generation)
 6. ~~Editor Agent~~ — COMPLETE (570 tests: Editor subclass, claim verification, confidence scoring, VerificationStatus enum, ClaimJudgment/ClaimVerification/EditResult models, entity matching, frontmatter update)
-7. Orchestrator Agent (task decomposition, dispatch, synthesis)
+7. ~~Orchestrator Agent~~ — COMPLETE (620 tests: Orchestrator subclass, 3-phase execute, plan validation, topological sort, task building, research merge, synthesis, factory registration, chat routing by complexity)
 8. Wiki UI (article browser, review/approve flow, HTMX)
 9. Content Freshness + Automated Backups (staleness detection, SQLite backup)
 10. Integration + Phase Gate Evaluation (end-to-end wiring, eval harness)

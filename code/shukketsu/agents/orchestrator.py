@@ -181,7 +181,9 @@ class Orchestrator(BaseAgent):
 
             # Check failed dependencies
             failed_deps = [
-                d for d in subtask.depends_on if results[d] is not None and results[d].status == TaskStatus.FAILED
+                d
+                for d in subtask.depends_on
+                if results[d] is not None and results[d].status == TaskStatus.FAILED  # type: ignore[union-attr]
             ]
             if failed_deps:
                 skipped.append(subtask.description)
@@ -291,6 +293,7 @@ class Orchestrator(BaseAgent):
         # Aggregate evidence
         evidence = list(dict.fromkeys(e for r in completed for e in r.evidence))
 
+        assert self.role is not None  # Guaranteed by execute() guard
         return OrchestratorResult(
             task_id=task.task_id,
             agent_role=self.role,
@@ -443,10 +446,10 @@ class Orchestrator(BaseAgent):
             return ResearchTask(query=subtask.description, trace_id=trace_id)
 
         if subtask.agent_role == AgentRole.WRITER:
-            research_results = [
-                results[d]
+            research_results: list[ResearchResult] = [
+                r
                 for d in subtask.depends_on
-                if results[d] is not None and isinstance(results[d], ResearchResult)
+                if (r := results[d]) is not None and isinstance(r, ResearchResult)
             ]
             if not research_results:
                 raise ValueError("WRITER subtask has no ResearchResult dependencies")
@@ -471,11 +474,11 @@ class Orchestrator(BaseAgent):
             )
 
         if subtask.agent_role == AgentRole.EDITOR:
-            write_result = next(
+            write_result: WriteResult | None = next(
                 (
-                    results[d]
+                    r
                     for d in subtask.depends_on
-                    if results[d] is not None and isinstance(results[d], WriteResult)
+                    if (r := results[d]) is not None and isinstance(r, WriteResult)
                 ),
                 None,
             )

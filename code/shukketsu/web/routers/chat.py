@@ -92,6 +92,7 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent]:
             knowledge_manager=km,
         )
 
+    assert _orchestrator_instance is not None  # Set in same block as _researcher_instance
     return _researcher_instance, _orchestrator_instance
 
 
