@@ -114,8 +114,7 @@ class BaseAgent:
         outcome = await self._run_loop(task.query, on_status=on_status)
 
         trajectory = [
-            ToolCallRecord(tool_name=entry["tool_name"], tool_input=entry["tool_input"])
-            for entry in outcome.scratchpad
+            ToolCallRecord(tool_name=entry["tool_name"], tool_input=entry["tool_input"]) for entry in outcome.scratchpad
         ]
 
         return AgentResult(

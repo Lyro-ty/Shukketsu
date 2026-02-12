@@ -1,16 +1,12 @@
-"""Tests for the Qwen 4B categorical reranker."""
+"""Tests for the cross-encoder reranker."""
 
-from unittest.mock import AsyncMock, patch
+from dataclasses import replace
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
-from code.shukketsu.rag.reranker import (
-    RankedItem,
-    RerankerResponse,
-    _apply_rankings,
-    _build_rerank_messages,
-    rerank,
-)
+from code.shukketsu.rag.reranker import rerank
 from code.shukketsu.rag.search import SearchResult
 
 
@@ -26,164 +22,138 @@ def _make_result(chunk_id: int, content: str = "test", rrf_score: float = 0.5) -
     )
 
 
-class TestRerankerSchemas:
-    """Tests for Pydantic schemas."""
-
-    def test_ranked_item_validates(self) -> None:
-        item = RankedItem(index=0, relevance="HIGH", reason="directly relevant")
-        assert item.relevance == "HIGH"
-
-    def test_ranked_item_rejects_invalid_relevance(self) -> None:
-        with pytest.raises(Exception):
-            RankedItem(index=0, relevance="SUPER_HIGH", reason="nope")
-
-    def test_reranker_response_validates(self) -> None:
-        resp = RerankerResponse(rankings=[RankedItem(index=0, relevance="HIGH", reason="good")])
-        assert len(resp.rankings) == 1
-
-
-class TestBuildMessages:
-    """Tests for prompt construction."""
-
-    def test_includes_query(self) -> None:
-        results = [_make_result(1, "Hit cap is 142")]
-        messages = _build_rerank_messages("hit cap", results)
-        user_msg = messages[-1]["content"]
-        assert "hit cap" in user_msg
-
-    def test_includes_results_indexed(self) -> None:
-        results = [_make_result(1, "Content A"), _make_result(2, "Content B")]
-        messages = _build_rerank_messages("query", results)
-        user_msg = messages[-1]["content"]
-        assert "[0]" in user_msg
-        assert "[1]" in user_msg
-
-    def test_truncates_long_content(self) -> None:
-        long_content = "x" * 500
-        results = [_make_result(1, long_content)]
-        messages = _build_rerank_messages("query", results)
-        user_msg = messages[-1]["content"]
-        # Should not contain the full 500 chars
-        assert len(user_msg) < 400
-
-
-class TestApplyRankings:
-    """Tests for the index validation + categorical filtering logic."""
-
-    def test_filters_low_keeps_high(self) -> None:
-        results = [_make_result(i, rrf_score=0.5 - i * 0.1) for i in range(5)]
-        rankings = [
-            RankedItem(index=0, relevance="HIGH", reason=""),
-            RankedItem(index=1, relevance="HIGH", reason=""),
-            RankedItem(index=2, relevance="LOW", reason=""),
-            RankedItem(index=3, relevance="LOW", reason=""),
-            RankedItem(index=4, relevance="LOW", reason=""),
-        ]
-        filtered = _apply_rankings(results, rankings, top_k=3)
-        assert len(filtered) == 2  # only 2 HIGHs, no MEDIUMs to fill
-        assert filtered[0].chunk_id == 0
-        assert filtered[1].chunk_id == 1
-
-    def test_fills_medium_up_to_top_k(self) -> None:
-        results = [_make_result(i, rrf_score=0.5 - i * 0.1) for i in range(5)]
-        rankings = [
-            RankedItem(index=0, relevance="HIGH", reason=""),
-            RankedItem(index=1, relevance="MEDIUM", reason=""),
-            RankedItem(index=2, relevance="MEDIUM", reason=""),
-            RankedItem(index=3, relevance="MEDIUM", reason=""),
-            RankedItem(index=4, relevance="LOW", reason=""),
-        ]
-        filtered = _apply_rankings(results, rankings, top_k=3)
-        assert len(filtered) == 3
-        assert filtered[0].chunk_id == 0  # HIGH first
-        assert filtered[1].chunk_id == 1  # then MEDIUMs
-        assert filtered[2].chunk_id == 2
-
-    def test_preserves_original_order_within_category(self) -> None:
-        results = [_make_result(i, rrf_score=1.0 - i * 0.1) for i in range(4)]
-        rankings = [
-            RankedItem(index=2, relevance="HIGH", reason=""),
-            RankedItem(index=0, relevance="HIGH", reason=""),
-            RankedItem(index=3, relevance="HIGH", reason=""),
-            RankedItem(index=1, relevance="HIGH", reason=""),
-        ]
-        # All HIGH — order should follow original rrf_score order (0, 1, 2, 3)
-        filtered = _apply_rankings(results, rankings, top_k=4)
-        assert [r.chunk_id for r in filtered] == [0, 1, 2, 3]
-
-    def test_all_high_returns_top_k(self) -> None:
-        results = [_make_result(i) for i in range(6)]
-        rankings = [RankedItem(index=i, relevance="HIGH", reason="") for i in range(6)]
-        filtered = _apply_rankings(results, rankings, top_k=3)
-        assert len(filtered) == 3
-
-    def test_ignores_out_of_range_indices(self) -> None:
-        results = [_make_result(0), _make_result(1)]
-        rankings = [
-            RankedItem(index=0, relevance="HIGH", reason=""),
-            RankedItem(index=99, relevance="HIGH", reason=""),  # out of range
-            RankedItem(index=-1, relevance="HIGH", reason=""),  # negative
-        ]
-        filtered = _apply_rankings(results, rankings, top_k=5)
-        assert len(filtered) == 1
-        assert filtered[0].chunk_id == 0
-
-    def test_deduplicates_indices(self) -> None:
-        results = [_make_result(0), _make_result(1)]
-        rankings = [
-            RankedItem(index=0, relevance="HIGH", reason=""),
-            RankedItem(index=0, relevance="HIGH", reason=""),  # duplicate
-            RankedItem(index=1, relevance="MEDIUM", reason=""),
-        ]
-        filtered = _apply_rankings(results, rankings, top_k=5)
-        assert len(filtered) == 2
-
-    def test_unranked_treated_as_low(self) -> None:
-        results = [_make_result(0), _make_result(1), _make_result(2)]
-        rankings = [
-            RankedItem(index=0, relevance="HIGH", reason=""),
-            # indices 1 and 2 not ranked — should be treated as LOW
-        ]
-        filtered = _apply_rankings(results, rankings, top_k=5)
-        assert len(filtered) == 1
-        assert filtered[0].chunk_id == 0
-
-
-class TestRerank:
-    """Tests for the top-level rerank() function."""
-
-    async def test_skips_when_results_lte_top_k(self) -> None:
-        results = [_make_result(0), _make_result(1)]
-        filtered = await rerank("query", results, top_k=5)
-        assert filtered == results  # unchanged, no LLM call
+class TestRerankShortCircuit:
+    """Tests for short-circuit paths (no model needed)."""
 
     async def test_empty_results_returns_empty(self) -> None:
         filtered = await rerank("query", [], top_k=5)
         assert filtered == []
 
-    @patch("code.shukketsu.rag.reranker._rerank_impl")
-    async def test_falls_back_on_circuit_open(self, mock_impl: AsyncMock) -> None:
-        from code.shukketsu.resilience.circuit_breaker import qwen_reranker_breaker
+    async def test_skips_when_results_lte_top_k(self) -> None:
+        results = [_make_result(0), _make_result(1)]
+        filtered = await rerank("query", results, top_k=5)
+        assert filtered == results
 
-        # Force breaker open
-        qwen_reranker_breaker._state = qwen_reranker_breaker._state.__class__("open")
-        qwen_reranker_breaker._failure_count = 100
-        import time
 
-        qwen_reranker_breaker._last_failure_time = time.monotonic()
+class TestRerankScoring:
+    """Tests for cross-encoder scoring and sort order."""
+
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_sorts_by_score_descending(self, mock_get_model: MagicMock) -> None:
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.1, 0.9, 0.5, 0.2])
+        mock_get_model.return_value = mock_model
+
+        results = [_make_result(i) for i in range(4)]
+        filtered = await rerank("query", results, top_k=3)
+
+        assert [r.chunk_id for r in filtered] == [1, 2, 3]
+
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_returns_top_k_only(self, mock_get_model: MagicMock) -> None:
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.9, 0.1, 0.5, 0.3, 0.7])
+        mock_get_model.return_value = mock_model
+
+        results = [_make_result(i) for i in range(5)]
+        filtered = await rerank("query", results, top_k=3)
+
+        assert len(filtered) == 3
+        assert [r.chunk_id for r in filtered] == [0, 4, 2]
+
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_populates_rerank_score(self, mock_get_model: MagicMock) -> None:
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.8, 0.3])
+        mock_get_model.return_value = mock_model
+
+        results = [_make_result(0), _make_result(1)]
+        # Need more than top_k to trigger reranking
+        extra = [_make_result(i) for i in range(2, 8)]
+        filtered = await rerank("query", results + extra, top_k=2)
+
+        assert all(r.rerank_score is not None for r in filtered)
+        assert filtered[0].rerank_score >= filtered[1].rerank_score  # type: ignore[operator]
+
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_builds_query_document_pairs(self, mock_get_model: MagicMock) -> None:
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.5, 0.3, 0.8])
+        mock_get_model.return_value = mock_model
+
+        results = [
+            _make_result(0, content="alpha"),
+            _make_result(1, content="beta"),
+            _make_result(2, content="gamma"),
+        ]
+        await rerank("my query", results, top_k=2)
+
+        pairs = mock_model.predict.call_args[0][0]
+        assert len(pairs) == 3
+        assert pairs[0] == ("my query", "alpha")
+        assert pairs[1] == ("my query", "beta")
+        assert pairs[2] == ("my query", "gamma")
+
+
+class TestRerankFallback:
+    """Tests for fallback on model failure."""
+
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_falls_back_on_model_load_error(self, mock_get_model: MagicMock) -> None:
+        mock_get_model.side_effect = RuntimeError("Model not found")
 
         results = [_make_result(i) for i in range(10)]
         filtered = await rerank("query", results, top_k=3)
+
         assert len(filtered) == 3
         assert filtered == results[:3]
-        mock_impl.assert_not_called()
+        assert all(r.rerank_score is None for r in filtered)
 
-    @patch("code.shukketsu.rag.reranker._rerank_impl")
-    async def test_falls_back_on_llm_error(self, mock_impl: AsyncMock) -> None:
-        from code.shukketsu.resilience.errors import LLMUnavailableError
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_falls_back_on_predict_error(self, mock_get_model: MagicMock) -> None:
+        mock_model = MagicMock()
+        mock_model.predict.side_effect = RuntimeError("CUDA OOM")
+        mock_get_model.return_value = mock_model
 
-        mock_impl.side_effect = LLMUnavailableError("Qwen down")
         results = [_make_result(i) for i in range(10)]
         filtered = await rerank("query", results, top_k=3)
-        # After enough failures, breaker opens — but first call should still fallback
+
         assert len(filtered) == 3
+        assert filtered == results[:3]
+
+    @patch("code.shukketsu.rag.reranker._get_model")
+    async def test_falls_back_on_circuit_open(self, mock_get_model: MagicMock) -> None:
+        from code.shukketsu.resilience.circuit_breaker import reranker_breaker
+
+        # Force breaker open
+        reranker_breaker._state = reranker_breaker._state.__class__("open")
+        reranker_breaker._failure_count = 100
+        import time
+
+        reranker_breaker._last_failure_time = time.monotonic()
+
+        results = [_make_result(i) for i in range(10)]
+        filtered = await rerank("query", results, top_k=3)
+
+        assert len(filtered) == 3
+        assert filtered == results[:3]
+        mock_get_model.assert_not_called()
+
+
+class TestRerankScoreField:
+    """Tests for the rerank_score field on SearchResult."""
+
+    def test_default_is_none(self) -> None:
+        r = _make_result(0)
+        assert r.rerank_score is None
+
+    def test_replace_sets_score(self) -> None:
+        r = _make_result(0)
+        scored = replace(r, rerank_score=0.85)
+        assert scored.rerank_score == 0.85
+        assert scored.chunk_id == 0  # other fields unchanged
+
+    def test_frozen_immutable(self) -> None:
+        r = _make_result(0)
+        with pytest.raises(AttributeError):
+            r.rerank_score = 0.5  # type: ignore[misc]

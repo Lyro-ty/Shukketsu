@@ -43,31 +43,31 @@ class TestNewConfig:
         assert isinstance(config.RERANKER_TOP_K, int)
         assert config.RERANKER_TOP_K == 5
 
-    def test_cb_qwen_reranker_constants_exist(self) -> None:
-        assert config.CB_QWEN_RERANKER_FAILURE_THRESHOLD == 3
-        assert config.CB_QWEN_RERANKER_RECOVERY_TIMEOUT == 30.0
+    def test_cb_reranker_constants_exist(self) -> None:
+        assert config.CB_RERANKER_FAILURE_THRESHOLD == 3
+        assert config.CB_RERANKER_RECOVERY_TIMEOUT == 30.0
 
 
-class TestQwenRerankerBreaker:
-    """Tests for the qwen_reranker circuit breaker instance."""
+class TestRerankerBreaker:
+    """Tests for the reranker circuit breaker instance."""
 
     def test_breaker_exists(self) -> None:
-        from code.shukketsu.resilience.circuit_breaker import qwen_reranker_breaker
+        from code.shukketsu.resilience.circuit_breaker import reranker_breaker
 
-        assert qwen_reranker_breaker.name == "qwen_reranker"
+        assert reranker_breaker.name == "reranker"
 
     def test_breaker_has_correct_threshold(self) -> None:
-        from code.shukketsu.resilience.circuit_breaker import qwen_reranker_breaker
+        from code.shukketsu.resilience.circuit_breaker import reranker_breaker
 
-        assert qwen_reranker_breaker._failure_threshold == 3
+        assert reranker_breaker._failure_threshold == 3
 
     def test_reset_all_breakers_includes_new_breaker(self) -> None:
         from code.shukketsu.resilience.circuit_breaker import (
-            qwen_reranker_breaker,
+            reranker_breaker,
             reset_all_breakers,
         )
 
         # Force breaker into failure state
-        qwen_reranker_breaker._failure_count = 10
+        reranker_breaker._failure_count = 10
         reset_all_breakers()
-        assert qwen_reranker_breaker._failure_count == 0
+        assert reranker_breaker._failure_count == 0

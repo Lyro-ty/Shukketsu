@@ -62,10 +62,7 @@ class Researcher(BaseAgent):
 
         outcome = await self._run_loop(task.query, on_status=on_status)
 
-        trajectory = [
-            ToolCallRecord(tool_name=e["tool_name"], tool_input=e["tool_input"])
-            for e in outcome.scratchpad
-        ]
+        trajectory = [ToolCallRecord(tool_name=e["tool_name"], tool_input=e["tool_input"]) for e in outcome.scratchpad]
 
         # Skip structuring for failed loops — no useful output to parse
         if outcome.status == TaskStatus.FAILED:

@@ -137,10 +137,10 @@ brave_breaker = CircuitBreaker(
     recovery_timeout=config.CB_BRAVE_RECOVERY_TIMEOUT,
 )
 
-qwen_reranker_breaker = CircuitBreaker(
-    "qwen_reranker",
-    failure_threshold=config.CB_QWEN_RERANKER_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_QWEN_RERANKER_RECOVERY_TIMEOUT,
+reranker_breaker = CircuitBreaker(
+    "reranker",
+    failure_threshold=config.CB_RERANKER_FAILURE_THRESHOLD,
+    recovery_timeout=config.CB_RERANKER_RECOVERY_TIMEOUT,
 )
 
 
@@ -151,6 +151,6 @@ def reset_all_breakers() -> None:
         ollama_router_breaker,
         ollama_embed_breaker,
         brave_breaker,
-        qwen_reranker_breaker,
+        reranker_breaker,
     ):
         breaker.reset()

@@ -76,6 +76,7 @@ class SearchResult:
     source_url: str
     trust_score: float
     rrf_score: float
+    rerank_score: float | None = None
 
 
 async def hybrid_search(
