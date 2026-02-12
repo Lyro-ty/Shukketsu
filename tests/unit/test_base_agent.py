@@ -408,3 +408,152 @@ class TestStatusCallbackEvents:
 
         dict_events = [e for e in events if isinstance(e, dict)]
         assert dict_events[0]["agent"] == "researcher"
+
+
+class TestTokenEstimation:
+    """Tests for _estimate_tokens helper."""
+
+    def test_estimate_tokens_basic(self) -> None:
+        """Simple sanity check: known string length maps to approximate token count."""
+        agent = BaseAgent(tool_registry=_registry())
+        messages = [{"role": "user", "content": "a" * 400}]
+        tokens = agent._estimate_tokens(messages)
+        assert tokens == 100  # 400 chars // 4
+
+    def test_estimate_tokens_empty(self) -> None:
+        """Empty messages list returns 0."""
+        agent = BaseAgent(tool_registry=_registry())
+        assert agent._estimate_tokens([]) == 0
+
+    def test_estimate_tokens_multiple(self) -> None:
+        """Multiple messages sum their content lengths."""
+        agent = BaseAgent(tool_registry=_registry())
+        messages = [
+            {"role": "system", "content": "a" * 200},
+            {"role": "user", "content": "b" * 800},
+        ]
+        tokens = agent._estimate_tokens(messages)
+        assert tokens == 250  # (200 + 800) // 4
+
+
+class TestContextCompaction:
+    """Tests for _compact_scratchpad and its integration with _build_messages."""
+
+    def test_compaction_not_triggered_below_threshold(self) -> None:
+        """Small scratchpad -> all observations preserved verbatim."""
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        scratchpad = [
+            {
+                "reasoning": "step 1",
+                "tool_name": "echo",
+                "tool_input": {"text": "hello"},
+                "observation": "Echo: hello",
+            },
+            {
+                "reasoning": "step 2",
+                "tool_name": "echo",
+                "tool_input": {"text": "world"},
+                "observation": "Echo: world",
+            },
+        ]
+        messages = agent._build_messages("query", scratchpad)
+        all_content = " ".join(m["content"] for m in messages)
+        assert "Echo: hello" in all_content
+        assert "Echo: world" in all_content
+        assert "[Summarized]" not in all_content
+
+    @patch("code.shukketsu.config.COMPACTION_THRESHOLD_TOKENS", 10)
+    def test_compaction_triggered_above_threshold(self) -> None:
+        """Large scratchpad -> older entries truncated, 2 most recent preserved verbatim."""
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        scratchpad = [
+            {
+                "reasoning": f"step {i}",
+                "tool_name": "echo",
+                "tool_input": {"text": f"call{i}"},
+                "observation": f"Result {i}: " + "x" * 500,
+            }
+            for i in range(5)
+        ]
+        messages = agent._build_messages("query", scratchpad)
+        all_content = " ".join(m["content"] for m in messages)
+
+        # The last 2 entries should be verbatim
+        assert "Result 3: " + "x" * 500 in all_content
+        assert "Result 4: " + "x" * 500 in all_content
+
+        # Older entries should be summarized
+        assert "[Summarized]" in all_content
+
+    @patch("code.shukketsu.config.COMPACTION_THRESHOLD_TOKENS", 10)
+    def test_compaction_preserves_tool_name(self) -> None:
+        """Truncated entries still mention the tool name."""
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        scratchpad = [
+            {
+                "reasoning": f"step {i}",
+                "tool_name": "rag_search",
+                "tool_input": {"query": f"q{i}"},
+                "observation": "Result: " + "x" * 500,
+            }
+            for i in range(5)
+        ]
+        messages = agent._build_messages("query", scratchpad)
+
+        # Find observation messages for older entries (should mention tool name)
+        observation_msgs = [m for m in messages if m["role"] == "user" and "[Summarized]" in m["content"]]
+        assert len(observation_msgs) >= 1
+        for msg in observation_msgs:
+            assert "rag_search" in msg["content"]
+
+    def test_compaction_idempotent(self) -> None:
+        """Calling _build_messages twice with same scratchpad produces same result."""
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        scratchpad = [
+            {
+                "reasoning": f"step {i}",
+                "tool_name": "echo",
+                "tool_input": {"text": f"call{i}"},
+                "observation": f"Result {i}: " + "x" * 200,
+            }
+            for i in range(5)
+        ]
+        messages1 = agent._build_messages("query", scratchpad)
+        messages2 = agent._build_messages("query", scratchpad)
+        assert messages1 == messages2
+
+    @patch("code.shukketsu.config.COMPACTION_THRESHOLD_TOKENS", 10)
+    def test_compaction_truncation_format(self) -> None:
+        """Truncated observations use the format: [Summarized] [tool_name] first_100...last_100."""
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        long_obs = "START" + "m" * 300 + "END"
+        scratchpad = [
+            {
+                "reasoning": "step",
+                "tool_name": "rag_search",
+                "tool_input": {"query": "q"},
+                "observation": long_obs,
+            },
+            {
+                "reasoning": "step",
+                "tool_name": "echo",
+                "tool_input": {"text": "recent1"},
+                "observation": "recent observation 1" + "x" * 500,
+            },
+            {
+                "reasoning": "step",
+                "tool_name": "echo",
+                "tool_input": {"text": "recent2"},
+                "observation": "recent observation 2" + "y" * 500,
+            },
+        ]
+        messages = agent._build_messages("query", scratchpad)
+        observation_msgs = [m for m in messages if m["role"] == "user" and "[Summarized]" in m["content"]]
+
+        assert len(observation_msgs) >= 1
+        summarized = observation_msgs[0]["content"]
+        assert "[Summarized]" in summarized
+        assert "[rag_search]" in summarized
+        assert "START" in summarized  # from first 100 chars
+        assert "END" in summarized  # from last 100 chars
+        assert "[truncated]" in summarized

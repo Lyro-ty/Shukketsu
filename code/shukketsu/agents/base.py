@@ -197,17 +197,59 @@ class BaseAgent:
             return f"Based on partial results:\n\n{joined}"
         return config.AGENT_GRACEFUL_FAILURE
 
+    def _estimate_tokens(self, messages: list[dict[str, str]]) -> int:
+        """Estimate token count from messages using char/4 heuristic."""
+        return sum(len(m.get("content", "")) for m in messages) // 4
+
+    def _compact_scratchpad(
+        self,
+        scratchpad: list[dict[str, Any]],
+        keep_recent: int = 2,
+    ) -> list[dict[str, Any]]:
+        """Return a compacted copy of the scratchpad.
+
+        Keeps the most recent `keep_recent` entries verbatim. Older entries
+        have their observations truncated to a summarized format.
+        """
+        if len(scratchpad) <= keep_recent:
+            return list(scratchpad)
+
+        compacted: list[dict[str, Any]] = []
+        cutoff = len(scratchpad) - keep_recent
+
+        for i, entry in enumerate(scratchpad):
+            if i < cutoff:
+                obs = str(entry.get("observation", ""))
+                tool = entry.get("tool_name", "unknown")
+                if len(obs) > 200:
+                    head = obs[:100]
+                    tail = obs[-100:]
+                    summarized = f"[Summarized] [{tool}] {head}... [truncated] ...{tail}"
+                else:
+                    summarized = f"[Summarized] [{tool}] {obs}"
+                compacted.append({**entry, "observation": summarized})
+            else:
+                compacted.append(entry)
+
+        return compacted
+
     def _build_messages(self, query: str, scratchpad: list[dict[str, Any]]) -> list[dict[str, str]]:
-        """Build the messages array for the LLM."""
+        """Build the messages array for the LLM.
+
+        If the estimated token count exceeds COMPACTION_THRESHOLD_TOKENS,
+        older scratchpad entries are compacted to reduce context size.
+        """
         tool_descriptions = self.tool_registry.get_tool_descriptions()
         system_content = self._system_prompt + "\n\n" + _REACT_INSTRUCTIONS.format(tool_descriptions=tool_descriptions)
+
+        effective_scratchpad = scratchpad
 
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": query},
         ]
 
-        for entry in scratchpad:
+        for entry in effective_scratchpad:
             messages.append(
                 {
                     "role": "assistant",
@@ -220,5 +262,25 @@ class BaseAgent:
                 }
             )
             messages.append({"role": "user", "content": f"Observation: {entry['observation']}"})
+
+        if self._estimate_tokens(messages) > config.COMPACTION_THRESHOLD_TOKENS:
+            effective_scratchpad = self._compact_scratchpad(scratchpad)
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": query},
+            ]
+            for entry in effective_scratchpad:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Thought: {entry['reasoning']}\n"
+                            f"Action: tool_call\n"
+                            f"Tool: {entry['tool_name']}\n"
+                            f"Input: {entry['tool_input']}"
+                        ),
+                    }
+                )
+                messages.append({"role": "user", "content": f"Observation: {entry['observation']}"})
 
         return messages

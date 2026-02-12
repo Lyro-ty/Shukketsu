@@ -44,6 +44,7 @@ AGENT_MAX_ITERATIONS = 5
 RAG_SEARCH_TOP_K = 5
 RAG_SEARCH_FETCH_K = 20  # Candidates per source before RRF fusion
 AGENT_GRACEFUL_FAILURE = "I wasn't able to find a complete answer. Please try rephrasing your question."
+COMPACTION_THRESHOLD_TOKENS = int(os.getenv("COMPACTION_THRESHOLD_TOKENS", "60000"))
 
 # Chat defaults
 SYSTEM_PROMPT = (
