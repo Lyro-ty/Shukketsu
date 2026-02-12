@@ -68,6 +68,17 @@
         </div>
         {% endif %}
 
+        <!-- Stale Source Warning -->
+        {% if stale_source_count is defined and stale_source_count > 0 %}
+        <div class="sidebar-card border-yellow-700 bg-yellow-900/20">
+            <div class="flex items-center gap-2">
+                <span class="text-yellow-400 text-sm font-medium">
+                    {{ stale_source_count }} source{{ "s" if stale_source_count != 1 else "" }} may be outdated
+                </span>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Entity Refs -->
         {% if meta.entity_refs %}
         <div class="sidebar-card">

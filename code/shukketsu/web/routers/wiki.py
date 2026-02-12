@@ -111,11 +111,19 @@ async def wiki_article(
     db_row = km._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
     if db_row:
         meta = meta.model_copy(update={"status": ArticleStatus(db_row["status"])})
+    # Compute stale source count for warning badge
+    stale_source_count = 0
+    if meta.sources:
+        from code.shukketsu.freshness.checker import count_stale_sources
+
+        source_urls = [s.url for s in meta.sources]
+        stale_source_count = count_stale_sources(km._conn, source_urls)
+
     article_html = render_markdown(content)
     return _templates.TemplateResponse(
         request,
         "wiki/article.html",
-        {"meta": meta, "article_html": article_html},
+        {"meta": meta, "article_html": article_html, "stale_source_count": stale_source_count},
     )
 
 
