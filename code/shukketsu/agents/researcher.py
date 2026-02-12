@@ -11,7 +11,7 @@ from langfuse import observe
 from pydantic import BaseModel, Field
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
-from code.shukketsu.agents.tasks import AgentTask, Finding, ResearchResult, TaskStatus
+from code.shukketsu.agents.tasks import AgentTask, Finding, ResearchResult, TaskStatus, ToolCallRecord
 from code.shukketsu.llm.prompts.researcher import STRUCTURING_PROMPT
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.resilience.errors import StructuredOutputError
@@ -62,6 +62,11 @@ class Researcher(BaseAgent):
 
         outcome = await self._run_loop(task.query, on_status=on_status)
 
+        trajectory = [
+            ToolCallRecord(tool_name=e["tool_name"], tool_input=e["tool_input"])
+            for e in outcome.scratchpad
+        ]
+
         # Skip structuring for failed loops — no useful output to parse
         if outcome.status == TaskStatus.FAILED:
             logger.info("ReAct loop failed; skipping structuring pass")
@@ -71,6 +76,7 @@ class Researcher(BaseAgent):
                 status=outcome.status,
                 output=outcome.output,
                 sufficient=False,
+                trajectory=trajectory,
             )
 
         # Structure the output via Llama 70B
@@ -92,6 +98,7 @@ class Researcher(BaseAgent):
                 output=outcome.output,
                 strategies_used=self._extract_strategies(outcome.scratchpad),
                 sufficient=False,
+                trajectory=trajectory,
             )
 
         # Derive metadata from structuring output + scratchpad
@@ -109,6 +116,7 @@ class Researcher(BaseAgent):
             strategies_used=strategies_used,
             gaps=structured.gaps,
             sufficient=structured.sufficient,
+            trajectory=trajectory,
         )
 
     async def _structure_findings(

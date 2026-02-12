@@ -28,6 +28,7 @@ from code.shukketsu.agents.tasks import (
     ResearchTask,
     SubTask,
     TaskStatus,
+    ToolCallRecord,
     WriteResult,
     WriteTask,
 )
@@ -125,11 +126,24 @@ class Orchestrator(BaseAgent):
 
         results, skipped = await self._dispatch(plan, task, on_status)
 
+        # Build trajectory from dispatched subtasks
+        trajectory: list[ToolCallRecord] = []
+        for i, subtask in enumerate(plan.subtasks):
+            if results[i] is not None:
+                trajectory.append(
+                    ToolCallRecord(
+                        tool_name=f"dispatch:{subtask.agent_role}",
+                        tool_input={"description": subtask.description},
+                    )
+                )
+
         # Phase 3: Synthesize
         if on_status:
             await on_status("synthesizing results...")
 
-        return await self._synthesize(task, plan, results, skipped)
+        orch_result = await self._synthesize(task, plan, results, skipped)
+        orch_result.trajectory = trajectory
+        return orch_result
 
     async def _decompose(self, query: str) -> OrchestratorPlan:
         """Phase 1: Decompose query into an execution plan via Llama 70B."""
@@ -447,9 +461,7 @@ class Orchestrator(BaseAgent):
 
         if subtask.agent_role == AgentRole.WRITER:
             research_results: list[ResearchResult] = [
-                r
-                for d in subtask.depends_on
-                if (r := results[d]) is not None and isinstance(r, ResearchResult)
+                r for d in subtask.depends_on if (r := results[d]) is not None and isinstance(r, ResearchResult)
             ]
             if not research_results:
                 raise ValueError("WRITER subtask has no ResearchResult dependencies")
@@ -475,11 +487,7 @@ class Orchestrator(BaseAgent):
 
         if subtask.agent_role == AgentRole.EDITOR:
             write_result: WriteResult | None = next(
-                (
-                    r
-                    for d in subtask.depends_on
-                    if (r := results[d]) is not None and isinstance(r, WriteResult)
-                ),
+                (r for d in subtask.depends_on if (r := results[d]) is not None and isinstance(r, WriteResult)),
                 None,
             )
             if write_result is None:

@@ -8,7 +8,7 @@ from langfuse import observe
 
 from code.shukketsu import config
 from code.shukketsu.agents.guardrails import LoopDetector
-from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskStatus
+from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskStatus, ToolCallRecord
 from code.shukketsu.llm.schemas import ActionType, AgentStep
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.tools.registry import ToolRegistry
@@ -113,11 +113,17 @@ class BaseAgent:
 
         outcome = await self._run_loop(task.query, on_status=on_status)
 
+        trajectory = [
+            ToolCallRecord(tool_name=entry["tool_name"], tool_input=entry["tool_input"])
+            for entry in outcome.scratchpad
+        ]
+
         return AgentResult(
             task_id=task.task_id,
             agent_role=self.role,
             status=outcome.status,
             output=outcome.output,
+            trajectory=trajectory,
         )
 
     async def _run_loop(self, query: str, *, on_status: StatusCallback | None = None) -> _RunOutcome:
