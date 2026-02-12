@@ -177,6 +177,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-8 are complete (
 | `2026-02-11-phase2-step7-implementation.md` | Step 7 implementation plan (complete) |
 | `2026-02-11-phase2-step8-wiki-ui.md` | Step 8 design doc (Wiki UI, article browser, review/approve flow, HTMX) |
 | `2026-02-11-phase2-step8-implementation.md` | Step 8 implementation plan (complete) |
+| `2026-02-11-phase2-step9-freshness-backups.md` | Step 9 design doc (freshness checker, backup manager, API endpoints) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
@@ -195,7 +196,7 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 6. ~~Editor Agent~~ — COMPLETE (570 tests: Editor subclass, claim verification, confidence scoring, VerificationStatus enum, ClaimJudgment/ClaimVerification/EditResult models, entity matching, frontmatter update)
 7. ~~Orchestrator Agent~~ — COMPLETE (620 tests: Orchestrator subclass, 3-phase execute, plan validation, topological sort, task building, research merge, synthesis, factory registration, chat routing by complexity)
 8. ~~Wiki UI~~ — COMPLETE (652 tests: wiki routes, markdown render, KM extensions, article browser, review/approve, HTMX fragments)
-9. Content Freshness + Automated Backups (staleness detection, SQLite backup)
+9. Content Freshness + Automated Backups (staleness detection, SQLite backup) — DESIGN COMPLETE
 10. Integration + Phase Gate Evaluation (end-to-end wiring, eval harness)
 
 **Phase gate**: Complex multi-part question → Orchestrator decomposes → specialists cooperate → wiki articles produced and verified → traces in Langfuse. RAG faithfulness > 0.8, trajectory precision > 0.7, domain accuracy > 70%.
