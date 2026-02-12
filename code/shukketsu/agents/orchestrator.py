@@ -7,6 +7,7 @@ typed tasks to specialist agents, and synthesizes results.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any
@@ -178,88 +179,112 @@ class Orchestrator(BaseAgent):
 
         return plan
 
+    async def _execute_single(
+        self,
+        idx: int,
+        subtask: SubTask,
+        results: list[AgentResult | None],
+        skipped: list[str],
+        task: AgentTask,
+        on_status: StatusCallback | None = None,
+    ) -> None:
+        """Execute a single subtask and store its result in the results list.
+
+        Handles failed dependencies, missing knowledge_manager, task building
+        errors, and agent execution failures. On any failure, records a FAILED
+        AgentResult or appends to skipped list.
+        """
+        # Check failed dependencies
+        failed_deps = [
+            d
+            for d in subtask.depends_on
+            if results[d] is not None and results[d].status == TaskStatus.FAILED  # type: ignore[union-attr]
+        ]
+        if failed_deps:
+            skipped.append(subtask.description)
+            logger.info(
+                "Skipping subtask %d (%s): failed dependencies",
+                idx,
+                subtask.description,
+            )
+            return
+
+        # Check if Writer/Editor needs knowledge_manager
+        if subtask.agent_role in _KM_ROLES and self._km is None:
+            skipped.append(f"{subtask.description} (no knowledge_manager)")
+            logger.warning(
+                "Skipping %s subtask: no knowledge_manager",
+                subtask.agent_role,
+            )
+            return
+
+        # Build typed task
+        try:
+            typed_task = self._build_task(
+                subtask,
+                results,
+                task.trace_id,
+            )
+        except (ValueError, KeyError) as exc:
+            logger.warning(
+                "Failed to build task for subtask %d: %s",
+                idx,
+                exc,
+            )
+            skipped.append(subtask.description)
+            return
+
+        # Create specialist with role-conditional kwargs
+        extra_kwargs: dict[str, Any] = {}
+        if subtask.agent_role in _KM_ROLES:
+            extra_kwargs["knowledge_manager"] = self._km
+
+        agent = self._factory.create(
+            subtask.agent_role,
+            tool_registry=self.tool_registry,
+            **extra_kwargs,
+        )
+
+        if on_status:
+            await on_status(f"{subtask.agent_role}: {subtask.description[:50]}...")
+
+        try:
+            results[idx] = await agent.execute(
+                typed_task,
+                on_status=on_status,
+            )
+        except Exception as exc:
+            logger.warning("Subtask %d failed: %s", idx, exc)
+            results[idx] = AgentResult(
+                task_id=typed_task.task_id,
+                agent_role=subtask.agent_role,
+                status=TaskStatus.FAILED,
+                output=f"Specialist failed: {exc}",
+            )
+
     async def _dispatch(
         self,
         plan: OrchestratorPlan,
         task: AgentTask,
         on_status: StatusCallback | None = None,
     ) -> tuple[list[AgentResult | None], list[str]]:
-        """Phase 2: Execute subtasks in topological order."""
+        """Phase 2: Execute subtasks in topological order, parallelizing independent tasks."""
         results: list[AgentResult | None] = [None] * len(plan.subtasks)
         skipped: list[str] = []
 
-        order = self._topological_sort(plan.subtasks)
+        levels = self._group_by_level(plan.subtasks)
 
-        for idx in order:
-            subtask = plan.subtasks[idx]
-
-            # Check failed dependencies
-            failed_deps = [
-                d
-                for d in subtask.depends_on
-                if results[d] is not None and results[d].status == TaskStatus.FAILED  # type: ignore[union-attr]
-            ]
-            if failed_deps:
-                skipped.append(subtask.description)
-                logger.info(
-                    "Skipping subtask %d (%s): failed dependencies",
-                    idx,
-                    subtask.description,
-                )
-                continue
-
-            # Check if Writer/Editor needs knowledge_manager
-            if subtask.agent_role in _KM_ROLES and self._km is None:
-                skipped.append(f"{subtask.description} (no knowledge_manager)")
-                logger.warning(
-                    "Skipping %s subtask: no knowledge_manager",
-                    subtask.agent_role,
-                )
-                continue
-
-            # Build typed task
-            try:
-                typed_task = self._build_task(
-                    subtask,
-                    results,
-                    task.trace_id,
-                )
-            except (ValueError, KeyError) as exc:
-                logger.warning(
-                    "Failed to build task for subtask %d: %s",
-                    idx,
-                    exc,
-                )
-                skipped.append(subtask.description)
-                continue
-
-            # Create specialist with role-conditional kwargs
-            extra_kwargs: dict[str, Any] = {}
-            if subtask.agent_role in _KM_ROLES:
-                extra_kwargs["knowledge_manager"] = self._km
-
-            agent = self._factory.create(
-                subtask.agent_role,
-                tool_registry=self.tool_registry,
-                **extra_kwargs,
-            )
-
-            if on_status:
-                await on_status(f"{subtask.agent_role}: {subtask.description[:50]}...")
-
-            try:
-                results[idx] = await agent.execute(
-                    typed_task,
-                    on_status=on_status,
-                )
-            except Exception as exc:
-                logger.warning("Subtask %d failed: %s", idx, exc)
-                results[idx] = AgentResult(
-                    task_id=typed_task.task_id,
-                    agent_role=subtask.agent_role,
-                    status=TaskStatus.FAILED,
-                    output=f"Specialist failed: {exc}",
-                )
+        for level in levels:
+            if len(level) == 1:
+                # Single subtask — run directly (no gather overhead)
+                idx = level[0]
+                await self._execute_single(idx, plan.subtasks[idx], results, skipped, task, on_status)
+            else:
+                # Multiple independent subtasks — run in parallel
+                coros = [
+                    self._execute_single(idx, plan.subtasks[idx], results, skipped, task, on_status) for idx in level
+                ]
+                await asyncio.gather(*coros, return_exceptions=True)
 
         return results, skipped
 
@@ -448,6 +473,51 @@ class Orchestrator(BaseAgent):
             raise ValueError("Dependency cycle detected")
 
         return order
+
+    def _group_by_level(self, subtasks: list[SubTask]) -> list[list[int]]:
+        """Group subtask indices by dependency depth.
+
+        Level 0 = no dependencies, level 1 = depends only on level 0, etc.
+        Used to identify which subtasks can run in parallel within each level.
+
+        Args:
+            subtasks: The list of subtasks to group.
+
+        Returns:
+            A list of levels, where each level is a list of subtask indices.
+        """
+        n = len(subtasks)
+        if n == 0:
+            return []
+
+        # Compute depth for each node via BFS
+        depth = [0] * n
+        adj: dict[int, list[int]] = defaultdict(list)
+        in_degree = [0] * n
+
+        for i, st in enumerate(subtasks):
+            for dep in st.depends_on:
+                if 0 <= dep < n:
+                    adj[dep].append(i)
+                    in_degree[i] += 1
+
+        queue: deque[int] = deque(i for i in range(n) if in_degree[i] == 0)
+
+        while queue:
+            node = queue.popleft()
+            for neighbor in adj[node]:
+                depth[neighbor] = max(depth[neighbor], depth[node] + 1)
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        # Group by depth
+        max_depth = max(depth) if depth else 0
+        levels: list[list[int]] = [[] for _ in range(max_depth + 1)]
+        for i, d in enumerate(depth):
+            levels[d].append(i)
+
+        return levels
 
     def _build_task(
         self,

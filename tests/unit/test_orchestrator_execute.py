@@ -1,5 +1,6 @@
 """Tests for Orchestrator.execute — decompose, dispatch, synthesize."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from code.shukketsu.agents.tasks import (
@@ -425,3 +426,214 @@ class TestErrorHandling:
         assert result.status == TaskStatus.SUCCESS
         # Falls back to concatenated research output
         assert "Research findings" in result.output or "Research done" in result.output
+
+
+class TestGroupByLevel:
+    """Tests for _group_by_level — dependency depth grouping."""
+
+    def test_empty_subtasks(self) -> None:
+        """Empty subtask list returns empty levels."""
+        orch = _orchestrator()
+        levels = orch._group_by_level([])
+        assert levels == []
+
+    def test_all_independent(self) -> None:
+        """3 subtasks with no deps -> single level with all 3."""
+        orch = _orchestrator()
+        subtasks = [
+            SubTask(agent_role=AgentRole.RESEARCHER, description="a"),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="b"),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="c"),
+        ]
+        levels = orch._group_by_level(subtasks)
+        assert len(levels) == 1
+        assert sorted(levels[0]) == [0, 1, 2]
+
+    def test_chain_three_levels(self) -> None:
+        """A->B->C produces 3 levels of 1 each."""
+        orch = _orchestrator()
+        subtasks = [
+            SubTask(agent_role=AgentRole.RESEARCHER, description="a"),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="b", depends_on=[0]),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="c", depends_on=[1]),
+        ]
+        levels = orch._group_by_level(subtasks)
+        assert len(levels) == 3
+        assert levels[0] == [0]
+        assert levels[1] == [1]
+        assert levels[2] == [2]
+
+    def test_diamond_dependency(self) -> None:
+        """Diamond: A -> B, A -> C, B+C -> D produces 3 levels."""
+        orch = _orchestrator()
+        subtasks = [
+            SubTask(agent_role=AgentRole.RESEARCHER, description="a"),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="b", depends_on=[0]),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="c", depends_on=[0]),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="d", depends_on=[1, 2]),
+        ]
+        levels = orch._group_by_level(subtasks)
+        assert len(levels) == 3
+        assert levels[0] == [0]
+        assert sorted(levels[1]) == [1, 2]
+        assert levels[2] == [3]
+
+    def test_two_independent_plus_dependent(self) -> None:
+        """A, B independent; C depends on both -> 2 levels."""
+        orch = _orchestrator()
+        subtasks = [
+            SubTask(agent_role=AgentRole.RESEARCHER, description="a"),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="b"),
+            SubTask(agent_role=AgentRole.RESEARCHER, description="c", depends_on=[0, 1]),
+        ]
+        levels = orch._group_by_level(subtasks)
+        assert len(levels) == 2
+        assert sorted(levels[0]) == [0, 1]
+        assert levels[1] == [2]
+
+
+class TestParallelExecution:
+    """Tests for parallel subtask execution via asyncio.gather."""
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_parallel_independent_subtasks(self, mock_llm: AsyncMock) -> None:
+        """Two independent RESEARCHER tasks run concurrently via asyncio.gather."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="find trinkets"),
+                SubTask(agent_role=AgentRole.RESEARCHER, description="find weapons"),
+            ]
+        )
+
+        call_count = 0
+
+        async def _mock_structured(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is OrchestratorPlan:
+                return plan
+            return response_model(response="Synthesized.")
+
+        mock_llm.side_effect = _mock_structured
+
+        execution_order: list[str] = []
+
+        factory = MagicMock()
+
+        def _create(role, **kwargs):
+            agent = MagicMock()
+
+            async def _execute(task, on_status=None):
+                desc = task.query
+                execution_order.append(f"start:{desc}")
+                await asyncio.sleep(0.05)
+                execution_order.append(f"end:{desc}")
+                return _research_result(output=f"Results for {desc}")
+
+            agent.execute = _execute
+            return agent
+
+        factory.create.side_effect = _create
+
+        orch = _orchestrator(factory=factory)
+        result = await orch.execute(AgentTask(query="Compare trinkets and weapons"))
+
+        # Both should have started before either finished (parallel)
+        assert "start:find trinkets" in execution_order
+        assert "start:find weapons" in execution_order
+        assert len(result.specialist_results) == 2
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_dependent_subtasks_wait(self, mock_llm: AsyncMock) -> None:
+        """C depends on A and B — C runs only after both A and B complete."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="a"),
+                SubTask(agent_role=AgentRole.RESEARCHER, description="b"),
+                SubTask(agent_role=AgentRole.RESEARCHER, description="c", depends_on=[0, 1]),
+            ]
+        )
+
+        call_count = 0
+
+        async def _mock_structured(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is OrchestratorPlan:
+                return plan
+            return response_model(response="Synthesized.")
+
+        mock_llm.side_effect = _mock_structured
+
+        execution_order: list[str] = []
+
+        factory = MagicMock()
+
+        def _create(role, **kwargs):
+            agent = MagicMock()
+
+            async def _execute(task, on_status=None):
+                execution_order.append(f"start:{task.query}")
+                await asyncio.sleep(0.01)
+                execution_order.append(f"end:{task.query}")
+                return _research_result(output=f"Results for {task.query}")
+
+            agent.execute = _execute
+            return agent
+
+        factory.create.side_effect = _create
+
+        orch = _orchestrator(factory=factory)
+        await orch.execute(AgentTask(query="test"))
+
+        # C must start after both A and B end
+        c_start = execution_order.index("start:c")
+        a_end = execution_order.index("end:a")
+        b_end = execution_order.index("end:b")
+        assert c_start > a_end
+        assert c_start > b_end
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_parallel_failure_doesnt_block(self, mock_llm: AsyncMock) -> None:
+        """One of two parallel subtasks fails; the other still completes."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="good"),
+                SubTask(agent_role=AgentRole.RESEARCHER, description="bad"),
+            ]
+        )
+
+        call_count = 0
+
+        async def _mock_structured(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is OrchestratorPlan:
+                return plan
+            return response_model(response="Synthesized.")
+
+        mock_llm.side_effect = _mock_structured
+
+        factory = MagicMock()
+
+        def _create(role, **kwargs):
+            agent = MagicMock()
+
+            async def _execute(task, on_status=None):
+                if task.query == "bad":
+                    raise RuntimeError("Agent failed")
+                return _research_result(output="Good result")
+
+            agent.execute = _execute
+            return agent
+
+        factory.create.side_effect = _create
+
+        orch = _orchestrator(factory=factory)
+        result = await orch.execute(AgentTask(query="test"))
+
+        # One succeeded, one failed
+        assert len(result.specialist_results) == 2
+        statuses = [r.status for r in result.specialist_results]
+        assert TaskStatus.SUCCESS in statuses
+        assert TaskStatus.FAILED in statuses
