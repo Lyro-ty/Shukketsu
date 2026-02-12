@@ -32,7 +32,7 @@ class TestToolExecutionError:
         assert isinstance(err, ShukketsuError)
 
 
-def test_embedding_error():
+def test_embedding_error() -> None:
     from code.shukketsu.resilience.errors import EmbeddingError, FailureMode
 
     err = EmbeddingError("Ollama unreachable")

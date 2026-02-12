@@ -110,4 +110,4 @@ class TestWebFetcher:
             mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
             await fetcher.fetch("https://example.com/page")
-        fetcher._rate_limiter.acquire.assert_called_once()
+        fetcher._rate_limiter.acquire.assert_called_once()  # type: ignore[union-attr]

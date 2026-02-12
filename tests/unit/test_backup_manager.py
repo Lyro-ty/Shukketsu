@@ -2,6 +2,7 @@
 
 import sqlite3
 import time
+from pathlib import Path
 
 import pytest
 
@@ -9,7 +10,7 @@ from code.shukketsu.backup.manager import BackupManager
 
 
 @pytest.fixture
-def backup_mgr(tmp_path) -> BackupManager:
+def backup_mgr(tmp_path: Path) -> BackupManager:
     """BackupManager with a real SQLite DB and temp backup dir."""
     db_path = tmp_path / "test.db"
     # Create a minimal SQLite DB
@@ -50,7 +51,7 @@ class TestVerifyIntegrity:
 
         assert backup_mgr.verify_integrity(Path(result.path))
 
-    def test_bad_file(self, backup_mgr: BackupManager, tmp_path) -> None:
+    def test_bad_file(self, backup_mgr: BackupManager, tmp_path: Path) -> None:
         bad_file = tmp_path / "corrupt.db"
         bad_file.write_text("this is not a database")
         assert not backup_mgr.verify_integrity(bad_file)

@@ -249,12 +249,13 @@ async def extract_entities_from_chunk(chunk_text: str) -> ChunkExtraction:
     """
     messages = build_extraction_messages(chunk_text)
     try:
-        return await get_structured_output(
+        result: ChunkExtraction = await get_structured_output(
             ChunkExtraction,
             messages,
             backend=ModelBackend.REASONING,
             temperature=0.1,
             max_tokens=2048,
         )
+        return result
     except (StructuredOutputError, LLMUnavailableError) as exc:
         raise EntityExtractionError(f"Failed to extract entities: {exc}") from exc

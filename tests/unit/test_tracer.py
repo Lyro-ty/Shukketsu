@@ -2,11 +2,13 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestInitLangfuse:
     """Tests for init_langfuse()."""
 
-    def test_sets_env_vars_from_config(self, monkeypatch):
+    def test_sets_env_vars_from_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """init_langfuse pushes config values into environment."""
         monkeypatch.setattr("code.shukketsu.config.LANGFUSE_PUBLIC_KEY", "pk-test")
         monkeypatch.setattr("code.shukketsu.config.LANGFUSE_SECRET_KEY", "sk-test")
@@ -27,7 +29,7 @@ class TestInitLangfuse:
         assert os.environ["LANGFUSE_SAMPLE_RATE"] == "0.5"
         mock_get.assert_called_once()
 
-    def test_noop_when_tracing_disabled(self, monkeypatch):
+    def test_noop_when_tracing_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """init_langfuse does nothing when LANGFUSE_TRACING_ENABLED is False."""
         monkeypatch.setattr("code.shukketsu.config.LANGFUSE_TRACING_ENABLED", False)
 
@@ -38,7 +40,7 @@ class TestInitLangfuse:
 
         mock_get.assert_not_called()
 
-    def test_sets_tracing_enabled_env_var_false(self, monkeypatch):
+    def test_sets_tracing_enabled_env_var_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When disabled, sets LANGFUSE_TRACING_ENABLED=false in env."""
         monkeypatch.setattr("code.shukketsu.config.LANGFUSE_TRACING_ENABLED", False)
 
@@ -55,13 +57,13 @@ class TestInitLangfuse:
 class TestFlushTraces:
     """Tests for flush_traces()."""
 
-    def test_flush_no_error_when_not_initialized(self):
+    def test_flush_no_error_when_not_initialized(self) -> None:
         """flush_traces doesn't crash when Langfuse was never initialized."""
         from code.shukketsu.observability.tracer import flush_traces
 
         flush_traces()  # Should not raise
 
-    def test_flush_calls_client_flush(self):
+    def test_flush_calls_client_flush(self) -> None:
         """flush_traces calls flush() on the Langfuse client."""
         from code.shukketsu.observability.tracer import flush_traces
 

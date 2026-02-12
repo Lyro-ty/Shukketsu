@@ -1,13 +1,14 @@
 """Tests for database connection and schema initialization."""
 
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
-def db_conn(tmp_path: Path) -> sqlite3.Connection:
+def db_conn(tmp_path: Path) -> Generator[sqlite3.Connection]:
     """Create a configured connection without schema."""
     from code.shukketsu.db.connection import get_connection
 
@@ -17,7 +18,7 @@ def db_conn(tmp_path: Path) -> sqlite3.Connection:
 
 
 @pytest.fixture
-def db(tmp_path: Path) -> sqlite3.Connection:
+def db(tmp_path: Path) -> Generator[sqlite3.Connection]:
     """Create a fully initialized test database."""
     from code.shukketsu.db.connection import get_connection, init_db
 

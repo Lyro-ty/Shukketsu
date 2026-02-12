@@ -85,7 +85,7 @@ class Editor(BaseAgent):
     def _get_db_conn(self) -> sqlite3.Connection | None:
         """Get the database connection from KnowledgeManager (for trust events)."""
         try:
-            return self._km._conn  # type: ignore[attr-defined]
+            return self._km.get_db_connection()
         except AttributeError:
             return None
 

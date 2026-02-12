@@ -163,7 +163,9 @@ class BaseAgent:
                 return _RunOutcome(output=step.answer, status=TaskStatus.SUCCESS, scratchpad=scratchpad)  # type: ignore[arg-type]
 
             tool_call = step.tool_call
-            assert tool_call is not None  # guaranteed by AgentStep validator
+            if tool_call is None:
+                logger.warning("AgentStep has action=tool_call but no tool_call object; treating as final answer")
+                return _RunOutcome(output=step.reasoning, status=TaskStatus.PARTIAL, scratchpad=scratchpad)
             logger.info("Agent calling tool: %s", tool_call.tool_name)
             if on_status:
                 await on_status(f"using {tool_call.tool_name}...")
@@ -270,14 +272,26 @@ class BaseAgent:
         if memory_context:
             system_content += "\n\n## Relevant Context from Previous Sessions\n\n" + memory_context
 
-        effective_scratchpad = scratchpad
+        messages = self._assemble_messages(system_content, query, scratchpad)
 
+        if self._estimate_tokens(messages) > config.COMPACTION_THRESHOLD_TOKENS:
+            compacted = self._compact_scratchpad(scratchpad)
+            messages = self._assemble_messages(system_content, query, compacted)
+
+        return messages
+
+    @staticmethod
+    def _assemble_messages(
+        system_content: str,
+        query: str,
+        scratchpad: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        """Assemble system + user + scratchpad entries into a messages array."""
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": query},
         ]
-
-        for entry in effective_scratchpad:
+        for entry in scratchpad:
             messages.append(
                 {
                     "role": "assistant",
@@ -290,25 +304,4 @@ class BaseAgent:
                 }
             )
             messages.append({"role": "user", "content": f"Observation: {entry['observation']}"})
-
-        if self._estimate_tokens(messages) > config.COMPACTION_THRESHOLD_TOKENS:
-            effective_scratchpad = self._compact_scratchpad(scratchpad)
-            messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": query},
-            ]
-            for entry in effective_scratchpad:
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": (
-                            f"Thought: {entry['reasoning']}\n"
-                            f"Action: tool_call\n"
-                            f"Tool: {entry['tool_name']}\n"
-                            f"Input: {entry['tool_input']}"
-                        ),
-                    }
-                )
-                messages.append({"role": "user", "content": f"Observation: {entry['observation']}"})
-
         return messages

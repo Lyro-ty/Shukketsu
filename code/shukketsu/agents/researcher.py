@@ -16,7 +16,6 @@ from code.shukketsu.agents.tasks import AgentTask, Finding, ResearchResult, Task
 from code.shukketsu.llm.prompts.researcher import REFLECTION_PROMPT, STRUCTURING_PROMPT
 from code.shukketsu.llm.schemas import ReflectionResult
 from code.shukketsu.llm.structured import get_structured_output
-from code.shukketsu.resilience.errors import StructuredOutputError
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +87,7 @@ class Researcher(BaseAgent):
                 output=outcome.output,
                 scratchpad=outcome.scratchpad,
             )
-        except (StructuredOutputError, Exception) as exc:
+        except Exception as exc:
             logger.warning("Structuring pass failed, returning basic result: %s", exc)
             return ResearchResult(
                 task_id=task.task_id,

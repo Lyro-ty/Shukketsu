@@ -29,7 +29,6 @@ from code.shukketsu.knowledge.manager import (
 )
 from code.shukketsu.llm.prompts.writer import EXTRACTION_PROMPT, WRITER_SYSTEM_PROMPT
 from code.shukketsu.llm.structured import get_structured_output
-from code.shukketsu.resilience.errors import LLMUnavailableError, StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -115,7 +114,7 @@ class Writer(BaseAgent):
 
         try:
             generated = await self._generate_article(task)
-        except (StructuredOutputError, LLMUnavailableError, Exception) as exc:
+        except Exception as exc:
             logger.warning("Article generation failed: %s", exc)
             return WriteResult(
                 task_id=task.task_id,
@@ -129,8 +128,7 @@ class Writer(BaseAgent):
         # Step 4: Check for existing article (using LLM-generated title)
         existing_path = self._km.exists(task.spec, task.category, generated.title)
         if existing_path is not None:
-            row = self._km._conn.execute("SELECT status FROM articles WHERE path = ?", (existing_path,)).fetchone()
-            db_status = row["status"] if row else None
+            db_status = self._km.get_article_status(existing_path)
             if db_status is not None and db_status != ArticleStatus.DRAFT:
                 return WriteResult(
                     task_id=task.task_id,
@@ -147,7 +145,7 @@ class Writer(BaseAgent):
 
         try:
             extraction = await self._extract_claims(generated.content)
-        except (StructuredOutputError, LLMUnavailableError, Exception) as exc:
+        except Exception as exc:
             logger.warning("Extraction pass failed, continuing with empty claims: %s", exc)
             extraction = ArticleExtraction()
 

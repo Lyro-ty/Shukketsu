@@ -12,7 +12,6 @@ from code.shukketsu.ingest.chunker import chunk_text
 from code.shukketsu.ingest.embedder import Embedder
 from code.shukketsu.rag.entities import ChunkExtraction
 from code.shukketsu.rag.graph import GraphStore
-from code.shukketsu.resilience.errors import EntityExtractionError
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +125,7 @@ class IngestPipeline:
                     "INSERT INTO chunks (source_id, content, chunk_index, metadata_json) VALUES (?, ?, ?, NULL)",
                     (source_id, chunk.content, chunk.chunk_index),
                 )
-                chunk_id = cursor.lastrowid
+                chunk_id = int(cursor.lastrowid)  # type: ignore[arg-type]
                 chunk_ids.append(chunk_id)
                 embedding_blob = struct.pack(f"{len(embedding)}f", *embedding)
                 self._conn.execute(
@@ -177,7 +176,7 @@ class IngestPipeline:
         for chunk, chunk_id in zip(chunks, chunk_ids):
             try:
                 extraction = await self._extract_fn(chunk.content)  # type: ignore[misc]
-            except (EntityExtractionError, Exception) as exc:
+            except Exception as exc:
                 logger.warning("Entity extraction failed for chunk %d: %s", chunk_id, exc)
                 continue
 

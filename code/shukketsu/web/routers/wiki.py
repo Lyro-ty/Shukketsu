@@ -108,9 +108,9 @@ async def wiki_article(
             status_code=404,
         )
     # Read authoritative status from DB (set_status only updates DB, not frontmatter)
-    db_row = km._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
-    if db_row:
-        meta = meta.model_copy(update={"status": ArticleStatus(db_row["status"])})
+    db_status = km.get_article_status(path)
+    if db_status is not None:
+        meta = meta.model_copy(update={"status": db_status})
     # Compute stale source count for warning badge
     stale_source_count = 0
     if meta.sources:

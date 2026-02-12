@@ -100,7 +100,7 @@ class TestExtractedEntity:
 
     def test_entity_rejects_invalid_type(self) -> None:
         with pytest.raises(ValueError):
-            ExtractedEntity(name="Ghost", entity_type="nonexistent")
+            ExtractedEntity(name="Ghost", entity_type="nonexistent")  # type: ignore[arg-type]
 
 
 class TestExtractedRelationship:
@@ -127,7 +127,7 @@ class TestExtractedRelationship:
 
     def test_relationship_rejects_invalid_type(self) -> None:
         with pytest.raises(ValueError):
-            ExtractedRelationship(source="A", target="B", relation_type="invalid")
+            ExtractedRelationship(source="A", target="B", relation_type="invalid")  # type: ignore[arg-type]
 
 
 class TestChunkExtraction:

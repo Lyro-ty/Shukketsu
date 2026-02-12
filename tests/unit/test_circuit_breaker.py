@@ -120,7 +120,7 @@ class TestCircuitBreakerConcurrency:
         assert cb.state == CircuitState.HALF_OPEN
 
         # A slow function that simulates work
-        async def slow_fn():
+        async def slow_fn() -> str:
             await asyncio.sleep(0.05)
             return "ok"
 

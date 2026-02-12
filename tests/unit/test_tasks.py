@@ -195,7 +195,7 @@ class TestWriteTask:
         with pytest.raises(ValidationError):
             WriteTask(
                 query="Write",
-                research=research,
+                research=research,  # type: ignore[arg-type]
                 article_type=ArticleType.GUIDE,
                 spec="combat",
                 category="gear",

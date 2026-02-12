@@ -46,7 +46,7 @@ class GraphStore:
         row = self._conn.execute("SELECT id FROM entity_types WHERE name = ?", (entity_type.value,)).fetchone()
         if row is None:
             raise ValueError(f"Entity type '{entity_type.value}' not seeded. Call seed_entity_types() first.")
-        return row["id"]
+        return int(row["id"])
 
     def upsert_entity(
         self,
@@ -82,7 +82,7 @@ class GraphStore:
                 "WHERE id = ?",
                 (props_json, confidence, existing["id"]),
             )
-            return existing["id"]
+            return int(existing["id"])
 
         cursor = self._conn.execute(
             "INSERT INTO entities "
@@ -90,7 +90,7 @@ class GraphStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (name, type_id, canonical, props_json, source_chunk_id, confidence),
         )
-        return cursor.lastrowid  # type: ignore[return-value]
+        return int(cursor.lastrowid)  # type: ignore[arg-type]
 
     def upsert_relationship(
         self,
@@ -122,7 +122,7 @@ class GraphStore:
                 "WHERE id = ?",
                 (props_json, confidence, existing["id"]),
             )
-            return existing["id"]
+            return int(existing["id"])
 
         cursor = self._conn.execute(
             "INSERT INTO relationships "
@@ -131,7 +131,7 @@ class GraphStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (source_entity_id, target_entity_id, relation_type.value, props_json, source_chunk_id, confidence),
         )
-        return cursor.lastrowid  # type: ignore[return-value]
+        return int(cursor.lastrowid)  # type: ignore[arg-type]
 
     def get_entity_by_name(
         self,
@@ -147,12 +147,16 @@ class GraphStore:
 
         if entity_type is not None:
             type_id = self.get_entity_type_id(entity_type)
-            return self._conn.execute(
+            row: sqlite3.Row | None = self._conn.execute(
                 "SELECT * FROM entities WHERE canonical_name = ? AND entity_type_id = ?",
                 (canonical, type_id),
             ).fetchone()
+            return row
 
-        return self._conn.execute("SELECT * FROM entities WHERE canonical_name = ?", (canonical,)).fetchone()
+        result: sqlite3.Row | None = self._conn.execute(
+            "SELECT * FROM entities WHERE canonical_name = ?", (canonical,)
+        ).fetchone()
+        return result
 
     def find_entities_by_name(
         self,

@@ -235,6 +235,10 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             else:
                 await websocket.send_json({"type": "status", "content": msg})
 
+        # Track trajectory for memory extraction
+        trajectory: list[dict] = []
+        tools_used: list[str] = []
+
         if (
             decision.complexity == TaskComplexity.TRIVIAL
             and decision.direct_answer is not None
@@ -252,6 +256,8 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 on_status=_send_status,
             )
             answer = result.output
+            trajectory = [{"tool_name": t.tool_name, "tool_input": t.tool_input} for t in result.trajectory]
+            tools_used = list(dict.fromkeys(t.tool_name for t in result.trajectory))
         else:
             await websocket.send_json({"type": "status", "content": "planning..."})
             _, orchestrator = _get_agents()
@@ -286,6 +292,8 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 on_status=_send_status,
             )
             answer = result.output
+            trajectory = [{"tool_name": t.tool_name, "tool_input": t.tool_input} for t in result.trajectory]
+            tools_used = list(dict.fromkeys(t.tool_name for t in result.trajectory))
             if isinstance(result, OrchestratorResult):
                 if result.article_path:
                     answer += f"\n\n---\n*Draft article created: {result.article_path}*"
@@ -302,7 +310,7 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 await mm.extract_session_memory(
                     query=content,
                     answer=answer,
-                    trajectory=[],
+                    trajectory=trajectory,
                     session_id=str(id(session)),
                 )
             except Exception:
@@ -312,7 +320,7 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 mm = _get_memory_manager()
                 await mm.record_strategy(
                     query=content,
-                    tools_used=[],
+                    tools_used=tools_used,
                     quality=0.5,
                 )
             except Exception:

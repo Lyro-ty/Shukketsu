@@ -252,9 +252,11 @@ class KnowledgeManager:
         if valid_transitions.get(current) != new_status:
             raise ValueError(f"Invalid status transition: {current} -> {new_status}")
 
+        from datetime import UTC
+
         self._conn.execute(
             "UPDATE articles SET status = ?, last_updated = ? WHERE path = ?",
-            (new_status, datetime.now().isoformat(), path),
+            (new_status, datetime.now(UTC).isoformat(), path),
         )
         self._conn.commit()
         logger.info("Article %s status: %s -> %s", path, current, new_status)
@@ -263,14 +265,27 @@ class KnowledgeManager:
         """Check if an article exists at the derived path. Returns path or None."""
         path = derive_path(spec, category, title)
         row = self._conn.execute("SELECT path FROM articles WHERE path = ?", (path,)).fetchone()
-        return row["path"] if row else None
+        return str(row["path"]) if row else None
 
     def get_path_by_id(self, article_id: int) -> str:
         """Look up article path by integer ID. Raises ValueError if not found."""
         row = self._conn.execute("SELECT path FROM articles WHERE id = ?", (article_id,)).fetchone()
         if row is None:
             raise ValueError(f"Article not found: id={article_id}")
-        return row["path"]
+        return str(row["path"])
+
+    def get_article_status(self, path: str) -> ArticleStatus | None:
+        """Look up article status from the DB. Returns None if not found."""
+        row = self._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        return ArticleStatus(row["status"]) if row else None
+
+    def get_db_connection(self) -> sqlite3.Connection:
+        """Return the underlying database connection.
+
+        Used by components that need direct DB access for operations
+        outside article CRUD (e.g., trust events, source lookups).
+        """
+        return self._conn
 
     def reject_article(self, path: str, reason: str = "") -> None:
         """Reject an article in review, transitioning back to draft.

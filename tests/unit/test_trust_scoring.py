@@ -30,7 +30,7 @@ def _insert_source(conn: sqlite3.Connection, url: str = "https://example.com") -
     conn.execute("INSERT INTO sources (url, title, trust_score) VALUES (?, 'Test', 0.7)", (url,))
     conn.commit()
     row = conn.execute("SELECT id FROM sources WHERE url = ?", (url,)).fetchone()
-    return row["id"]
+    return int(row["id"])
 
 
 class TestSourceTrust:
