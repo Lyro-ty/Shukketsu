@@ -15,7 +15,7 @@ from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-StatusCallback = Callable[[str], Awaitable[None]]
+StatusCallback = Callable[[str | dict[str, Any]], Awaitable[None]]
 
 _REACT_INSTRUCTIONS = """You have access to the following tools:
 
@@ -155,6 +155,16 @@ class BaseAgent:
                 await on_status(f"using {tool_call.tool_name}...")
 
             observation = await self.tool_registry.execute(tool_call.tool_name, tool_call.tool_input)
+
+            if on_status:
+                await on_status(
+                    {
+                        "type": "step",
+                        "agent": self.role or "agent",
+                        "action": "tool_call",
+                        "tool": tool_call.tool_name,
+                    }
+                )
 
             scratchpad.append(
                 {

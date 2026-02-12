@@ -169,8 +169,11 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         decision = await classify_query(content)
         logger.info("Route: %s → %s", decision.complexity, decision.category)
 
-        async def _send_status(msg: str) -> None:
-            await websocket.send_json({"type": "status", "content": msg})
+        async def _send_status(msg: str | dict) -> None:
+            if isinstance(msg, dict):
+                await websocket.send_json(msg)
+            else:
+                await websocket.send_json({"type": "status", "content": msg})
 
         if (
             decision.complexity == TaskComplexity.TRIVIAL

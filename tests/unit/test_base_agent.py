@@ -348,3 +348,63 @@ class TestBackwardCompat:
         agent = BaseAgent(tool_registry=_registry())
         assert agent.role is None
         assert agent.max_iterations > 0
+
+
+class TestStatusCallbackEvents:
+    """Tests for structured dict events emitted via on_status."""
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_status_callback_receives_dict_for_tool_call(self, mock_llm: AsyncMock) -> None:
+        """After a tool call, the callback receives a dict event with tool metadata."""
+        mock_llm.side_effect = [
+            _tool_call("echo", {"text": "hello"}),
+            _final_answer("Done"),
+        ]
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER)
+        events: list[str | dict] = []
+
+        async def capture(msg: str | dict) -> None:
+            events.append(msg)
+
+        await agent.execute(AgentTask(query="q"), on_status=capture)
+
+        dict_events = [e for e in events if isinstance(e, dict)]
+        assert len(dict_events) >= 1
+        step_event = dict_events[0]
+        assert step_event["type"] == "step"
+        assert step_event["action"] == "tool_call"
+        assert step_event["tool"] == "echo"
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_status_callback_still_receives_strings(self, mock_llm: AsyncMock) -> None:
+        """Existing string status messages (e.g. 'thinking...') still work."""
+        mock_llm.return_value = _final_answer("Done")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER)
+        events: list[str | dict] = []
+
+        async def capture(msg: str | dict) -> None:
+            events.append(msg)
+
+        await agent.execute(AgentTask(query="q"), on_status=capture)
+
+        str_events = [e for e in events if isinstance(e, str)]
+        assert len(str_events) >= 1
+        assert any("thinking" in s for s in str_events)
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_dict_event_includes_agent_role(self, mock_llm: AsyncMock) -> None:
+        """Dict events include the agent's role."""
+        mock_llm.side_effect = [
+            _tool_call("echo", {"text": "hi"}),
+            _final_answer("Done"),
+        ]
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER)
+        events: list[str | dict] = []
+
+        async def capture(msg: str | dict) -> None:
+            events.append(msg)
+
+        await agent.execute(AgentTask(query="q"), on_status=capture)
+
+        dict_events = [e for e in events if isinstance(e, dict)]
+        assert dict_events[0]["agent"] == "researcher"

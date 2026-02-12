@@ -341,6 +341,69 @@ class TestComplexityRouting:
         orchestrator.execute.assert_called_once()
         researcher.execute.assert_not_called()
 
+
+class TestSendStatusFormat:
+    """Tests for _send_status handling of str and dict messages."""
+
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_send_status_wraps_string(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
+        """String messages are wrapped in {'type': 'status', 'content': msg}."""
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("Answer")
+
+        async def _capture_execute(task, on_status=None):  # type: ignore[no-untyped-def]
+            if on_status:
+                await on_status("test string message")
+            return MagicMock(output="Answer")
+
+        researcher.execute = _capture_execute
+        mock_get.return_value = (researcher, orchestrator)
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "test"})
+            messages = []
+            while True:
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg["type"] == "done":
+                    break
+
+            status_msgs = [m for m in messages if m["type"] == "status"]
+            assert any(m["content"] == "test string message" for m in status_msgs)
+
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_send_status_passes_dict_as_is(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
+        """Dict messages are sent as-is via WebSocket."""
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("Answer")
+
+        async def _capture_execute(task, on_status=None):  # type: ignore[no-untyped-def]
+            if on_status:
+                await on_status({"type": "step", "agent": "researcher", "action": "tool_call", "tool": "rag_search"})
+            return MagicMock(output="Answer")
+
+        researcher.execute = _capture_execute
+        mock_get.return_value = (researcher, orchestrator)
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "test"})
+            messages = []
+            while True:
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg["type"] == "done":
+                    break
+
+            step_msgs = [m for m in messages if m.get("type") == "step"]
+            assert len(step_msgs) >= 1
+            assert step_msgs[0]["tool"] == "rag_search"
+
     @patch("code.shukketsu.web.routers.chat._get_agents")
     @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
     def test_article_path_appended_to_response(

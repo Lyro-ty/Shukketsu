@@ -7,7 +7,6 @@ Circuit breaker wraps the scoring call — falls back to unreranked on failure.
 import asyncio
 import logging
 from dataclasses import replace
-
 from typing import Any
 
 from code.shukketsu import config
