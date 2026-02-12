@@ -80,9 +80,9 @@ class TestInitDb:
         assert "chunks_vec" in tables
 
     def test_sets_schema_version(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 3 after initialization."""
+        """Schema version should be 4 after initialization."""
         version = db.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 3
+        assert version == 4
 
     def test_is_idempotent(self, db: sqlite3.Connection) -> None:
         """Calling init_db twice should not raise or duplicate data."""
@@ -146,10 +146,10 @@ class TestInitDb:
         for name in ("entity_types", "entities", "relationships"):
             assert name in tables, f"Missing table: {name}"
 
-    def test_schema_version_is_3(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 3 after fresh initialization."""
+    def test_schema_version_is_4(self, db: sqlite3.Connection) -> None:
+        """Schema version should be 4 after fresh initialization."""
         version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 3
+        assert version == 4
 
     def test_entity_type_unique_name(self, db: sqlite3.Connection) -> None:
         """entity_types.name should enforce uniqueness."""
@@ -248,6 +248,37 @@ class TestInitDb:
         indexes = {row[1] for row in db.execute("PRAGMA index_list(articles)").fetchall()}
         assert "idx_articles_status" in indexes
         assert "idx_articles_spec" in indexes
+
+    def test_creates_memory_tables(self, db: sqlite3.Connection) -> None:
+        """init_db should create session_memories, strategy_memories, trust_events."""
+        tables = _get_tables(db)
+        for name in ("session_memories", "strategy_memories", "trust_events"):
+            assert name in tables, f"Missing table: {name}"
+
+    def test_creates_session_memories_vec(self, db: sqlite3.Connection) -> None:
+        """init_db should create the session_memories_vec virtual table."""
+        tables = _get_tables(db)
+        assert "session_memories_vec" in tables
+
+    def test_trust_events_fk_to_sources(self, db: sqlite3.Connection) -> None:
+        """trust_events.source_id should reference sources(id)."""
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("INSERT INTO trust_events (source_id, event_type, delta) VALUES (999, 'test', 0.1)")
+
+    def test_trust_events_cascade_on_source_delete(self, db: sqlite3.Connection) -> None:
+        """Deleting a source should cascade-delete its trust_events."""
+        db.execute("INSERT INTO sources (url, title) VALUES ('https://example.com', 'Test')")
+        db.commit()
+        source_id = db.execute("SELECT id FROM sources WHERE url = 'https://example.com'").fetchone()["id"]
+        db.execute(
+            "INSERT INTO trust_events (source_id, event_type, delta) VALUES (?, 'contradiction', -0.1)",
+            (source_id,),
+        )
+        db.commit()
+        db.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        db.commit()
+        count = db.execute("SELECT COUNT(*) FROM trust_events").fetchone()[0]
+        assert count == 0
 
 
 # --- Helpers ---

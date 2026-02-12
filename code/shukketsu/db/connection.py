@@ -82,13 +82,15 @@ def init_db(conn: sqlite3.Connection) -> None:
                 _migrate_v1_to_v2(conn)
             if version < 3:
                 _migrate_v2_to_v3(conn)
+            if version < 4:
+                _migrate_v3_to_v4(conn)
             return
     except sqlite3.OperationalError:
         pass  # Table doesn't exist yet — need to initialize
 
     schema_sql = (_DB_DIR / "schema.sql").read_text()
     conn.executescript(schema_sql)
-    logger.info("Database schema initialized (version 3)")
+    logger.info("Database schema initialized (version 4)")
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
@@ -127,6 +129,59 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO schema_version (version) VALUES (3)")
     conn.commit()
     logger.info("Database migrated from v2 to v3 (articles table v3)")
+
+
+_MEMORY_V4_SQL = """
+CREATE TABLE IF NOT EXISTS session_memories (
+    id INTEGER PRIMARY KEY,
+    query TEXT NOT NULL,
+    answer_summary TEXT NOT NULL,
+    key_facts_json TEXT NOT NULL DEFAULT '[]',
+    entities_mentioned TEXT NOT NULL DEFAULT '[]',
+    user_feedback TEXT,
+    retrieval_quality REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    session_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_session_memories_created ON session_memories(created_at);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS session_memories_vec USING vec0(
+    embedding float[768] distance_metric=cosine
+);
+
+CREATE TABLE IF NOT EXISTS strategy_memories (
+    id INTEGER PRIMARY KEY,
+    query_pattern TEXT NOT NULL,
+    strategy_type TEXT NOT NULL DEFAULT 'routing',
+    successful_tools TEXT NOT NULL DEFAULT '[]',
+    failed_tools TEXT NOT NULL DEFAULT '[]',
+    best_sources TEXT NOT NULL DEFAULT '[]',
+    times_reinforced INTEGER NOT NULL DEFAULT 1,
+    avg_quality REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_memories_pattern ON strategy_memories(query_pattern);
+CREATE INDEX IF NOT EXISTS idx_strategy_memories_type ON strategy_memories(strategy_type);
+
+CREATE TABLE IF NOT EXISTS trust_events (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    delta REAL NOT NULL,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_trust_events_source ON trust_events(source_id);
+"""
+
+
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    """Migrate v3 schema to v4: add memory tables and trust events."""
+    conn.executescript(_MEMORY_V4_SQL)
+    conn.execute("INSERT INTO schema_version (version) VALUES (4)")
+    conn.commit()
+    logger.info("Database migrated from v3 to v4 (memory + trust_events tables)")
 
 
 def _configure(conn: sqlite3.Connection) -> None:

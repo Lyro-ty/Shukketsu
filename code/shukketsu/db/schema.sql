@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT INTO schema_version (version) VALUES (3);
+INSERT INTO schema_version (version) VALUES (4);
 
 -- ============================================================
 -- Ingested Content
@@ -140,3 +140,54 @@ CREATE TABLE relationships (
 CREATE INDEX idx_relationships_source ON relationships(source_entity_id);
 CREATE INDEX idx_relationships_target ON relationships(target_entity_id);
 CREATE INDEX idx_relationships_type ON relationships(relation_type);
+
+-- ============================================================
+-- Memory (Phase 3)
+-- ============================================================
+
+-- Facts extracted from conversations
+CREATE TABLE session_memories (
+    id INTEGER PRIMARY KEY,
+    query TEXT NOT NULL,
+    answer_summary TEXT NOT NULL,
+    key_facts_json TEXT NOT NULL DEFAULT '[]',
+    entities_mentioned TEXT NOT NULL DEFAULT '[]',
+    user_feedback TEXT,
+    retrieval_quality REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    session_id TEXT
+);
+CREATE INDEX idx_session_memories_created ON session_memories(created_at);
+
+CREATE VIRTUAL TABLE session_memories_vec USING vec0(
+    embedding float[768] distance_metric=cosine
+);
+
+CREATE TABLE strategy_memories (
+    id INTEGER PRIMARY KEY,
+    query_pattern TEXT NOT NULL,
+    strategy_type TEXT NOT NULL DEFAULT 'routing',
+    successful_tools TEXT NOT NULL DEFAULT '[]',
+    failed_tools TEXT NOT NULL DEFAULT '[]',
+    best_sources TEXT NOT NULL DEFAULT '[]',
+    times_reinforced INTEGER NOT NULL DEFAULT 1,
+    avg_quality REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_strategy_memories_pattern ON strategy_memories(query_pattern);
+CREATE INDEX idx_strategy_memories_type ON strategy_memories(strategy_type);
+
+-- ============================================================
+-- Trust Events (Phase 3)
+-- ============================================================
+
+CREATE TABLE trust_events (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    delta REAL NOT NULL,
+    details TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_trust_events_source ON trust_events(source_id);
