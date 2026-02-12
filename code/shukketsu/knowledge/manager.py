@@ -53,12 +53,15 @@ class ClaimRef(BaseModel):
 class ArticleSummary(BaseModel):
     """Lightweight article record from DB queries."""
 
+    id: int
     path: str
     title: str
     spec: str
     category: str
     status: ArticleStatus
     confidence_score: float
+    verified_claims: int = 0
+    unverified_claims: int = 0
     last_updated: str
 
 
@@ -196,7 +199,7 @@ class KnowledgeManager:
         spec: Spec | None = None,
     ) -> list[ArticleSummary]:
         """Query articles with optional filters. Returns typed ArticleSummary objects."""
-        query = "SELECT path, title, spec, category, status, confidence_score, last_updated FROM articles"
+        query = "SELECT id, path, title, spec, category, status, confidence_score, verified_claims, unverified_claims, last_updated FROM articles"
         conditions: list[str] = []
         params: list[str] = []
 
@@ -214,12 +217,15 @@ class KnowledgeManager:
         rows = self._conn.execute(query, params).fetchall()
         return [
             ArticleSummary(
+                id=row["id"],
                 path=row["path"],
                 title=row["title"],
                 spec=row["spec"],
                 category=row["category"],
                 status=ArticleStatus(row["status"]),
                 confidence_score=row["confidence_score"],
+                verified_claims=row["verified_claims"],
+                unverified_claims=row["unverified_claims"],
                 last_updated=row["last_updated"],
             )
             for row in rows
