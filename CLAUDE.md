@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phases 1 (Agent Core) and 2 (Multi-Agent + Agentic RAG) are complete and deployed (741 tests). Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `web/routers/wiki.py`, `web/routers/freshness.py`, `web/routers/backup.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `llm/prompts/researcher.py`, `llm/prompts/writer.py`, `llm/prompts/editor.py`, `llm/prompts/orchestrator.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/researcher.py`, `agents/writer.py`, `agents/editor.py`, `agents/orchestrator.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/knowledge/graph_search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/reranker.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `knowledge/manager.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `freshness/checker.py`, `backup/manager.py`, `evals/metrics.py`, `evals/judge.py`, `evals/phase2_gate.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
+Phases 1 (Agent Core) and 2 (Multi-Agent + Agentic RAG) are complete. Phase 3 (Memory, Reflection, Performance) is in progress (778 tests). Directory structure and `__init__.py` files are scaffolded; remaining modules are stubs. Key files with real code: `config.py`, `web/app.py`, `web/routers/chat.py`, `web/routers/wiki.py`, `web/routers/freshness.py`, `web/routers/backup.py`, `llm/clients.py`, `llm/schemas.py`, `llm/structured.py`, `llm/prompts/researcher.py`, `llm/prompts/writer.py`, `llm/prompts/editor.py`, `llm/prompts/orchestrator.py`, `agents/base.py`, `agents/tasks.py`, `agents/factory.py`, `agents/researcher.py`, `agents/writer.py`, `agents/editor.py`, `agents/orchestrator.py`, `agents/guardrails.py`, `tools/schemas.py`, `tools/registry.py`, `tools/knowledge/search.py`, `tools/knowledge/graph_search.py`, `tools/research/web_search.py`, `rag/fusion.py`, `rag/search.py`, `rag/reranker.py`, `rag/entities.py`, `rag/graph.py`, `routing/models.py`, `routing/router.py`, `knowledge/manager.py`, `memory/models.py`, `memory/manager.py`, `resilience/errors.py`, `resilience/circuit_breaker.py`, `resilience/retry.py`, `trust/scoring.py`, `observability/tracer.py`, `ingest/pipeline.py`, `freshness/checker.py`, `backup/manager.py`, `evals/metrics.py`, `evals/judge.py`, `evals/phase2_gate.py`, `db/connection.py`, `db/schema.sql`, `tests/conftest.py`.
 
 ## Development Workflow
 
@@ -181,6 +181,10 @@ Phase 1 is complete (245 unit tests, deployed). **Phase 2 is complete** (741 tes
 | `2026-02-11-phase2-step9-implementation.md` | Step 9 implementation plan (complete) |
 | `2026-02-12-phase2-step10-integration-eval.md` | Step 10 design doc (integration + phase gate evaluation) |
 | `2026-02-12-phase2-step10-implementation.md` | Step 10 implementation plan (complete) |
+| `2026-02-12-phase3-memory-performance.md` | **Active plan** — Phase 3 design doc (9 steps: reranker, parallel, streaming, compaction, reflection, memory, trust) |
+| `2026-02-12-phase3-step1-cross-encoder.md` | Step 1 implementation plan (cross-encoder reranker, complete) |
+| `2026-02-12-phase3-steps2-5-implementation.md` | Steps 2-5 implementation plan (parallel, streaming, compaction, reflection, complete) |
+| `2026-02-12-phase3-steps6-9-implementation.md` | Steps 6-9 implementation plan (memory, integration, strategy, trust, complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
@@ -204,8 +208,24 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 
 **Phase gate**: Complex multi-part question → Orchestrator decomposes → specialists cooperate → wiki articles produced and verified → traces in Langfuse. RAG faithfulness >= 0.8, trajectory precision >= 0.7, domain accuracy >= 0.7.
 
+### Phase 3: Memory, Reflection, and Performance (9 steps) — IN PROGRESS
+
+The active plan (`2026-02-12-phase3-memory-performance.md`) adds cross-session memory, reflection, and performance improvements:
+
+1. ~~Cross-Encoder Reranker~~ — COMPLETE (751 tests: sentence-transformers cross-encoder, SearchResult.rerank_score, lazy model loading)
+2. ~~Parallel Subtask Execution~~ — COMPLETE (755 tests: _group_by_level, _execute_single, asyncio.gather for independent subtasks)
+3. ~~WebSocket Agent Step Streaming~~ — COMPLETE (759 tests: StatusCallback accepts str|dict, structured step events in chat handler)
+4. ~~Context Compaction~~ — COMPLETE (763 tests: _compact_scratchpad, _estimate_tokens, COMPACTION_THRESHOLD_TOKENS config)
+5. ~~Reflection Pass~~ — COMPLETE (771 tests: ReflectionResult model, _reflect method, fires only on complex queries, REFLECTION_ENABLED config)
+6. ~~Memory Foundation~~ — COMPLETE (775 tests: schema v4, session_memories/strategy_memories/trust_events tables, MemoryManager with composite scoring)
+7. ~~Memory Integration~~ — COMPLETE (775 tests: memory_context threaded through BaseAgent, chat handler recall + extraction hooks)
+8. ~~Strategy Memory for Orchestrator~~ — COMPLETE (778 tests: strategy_hints in _decompose, DECOMPOSITION_PROMPT_WITH_HINTS, chat handler strategy recall)
+9. ~~Evidence-Based Trust Scoring~~ — COMPLETE (778 tests: base_trust + sum(deltas) clamped [0.1, 1.0], editor contradiction events, freshness dead_url events)
+
+**Phase gate**: Cross-session memory recall, reflection catches unsupported claims, parallel research faster than sequential, reranker latency >= 50% reduction.
+
 ### Future Phases
 
-- **Phase 3**: DPS simulation engine (TBC combat mechanics, validation vs WoWSims)
-- **Phase 4**: Evaluation + observability polish (Ragas, trajectory eval, feedback)
-- **Phase 5**: UI polish + growth (talent trees, sim builder, charts, PvP)
+- **Phase 4**: DPS simulation engine (TBC combat mechanics, validation vs WoWSims)
+- **Phase 5**: Evaluation + observability polish (Ragas, trajectory eval, feedback)
+- **Phase 6**: UI polish + growth (talent trees, sim builder, charts, PvP)
