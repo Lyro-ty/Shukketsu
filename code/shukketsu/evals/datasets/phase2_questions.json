@@ -1,0 +1,302 @@
+[
+  {
+    "id": "q01",
+    "question": "How much energy does Sinister Strike cost?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Sinister Strike costs 45 energy at max rank. With 2/2 Improved Sinister Strike it costs 40 energy, but most PvE builds skip this talent.",
+    "expected_tools": [],
+    "key_facts": ["45 energy", "40 with Improved Sinister Strike"],
+    "spec": "combat"
+  },
+  {
+    "id": "q02",
+    "question": "How many combo points does Mutilate generate?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Mutilate generates 2 combo points base. With Seal Fate, each crit generates an additional combo point, and since Mutilate hits twice (main hand and off hand), a double crit with Seal Fate can generate up to 4 combo points.",
+    "expected_tools": [],
+    "key_facts": ["2 base", "up to 4 with Seal Fate double crit"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q03",
+    "question": "What weapon type does Mutilate require?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Mutilate requires daggers equipped in both main hand and off hand.",
+    "expected_tools": [],
+    "key_facts": ["Daggers in both main hand and off hand"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q04",
+    "question": "What is the cooldown of Blade Flurry?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Blade Flurry has a 2 minute cooldown, lasts 15 seconds, and costs 25 energy.",
+    "expected_tools": [],
+    "key_facts": ["2 minutes", "15 second duration", "25 energy cost"],
+    "spec": "combat"
+  },
+  {
+    "id": "q05",
+    "question": "What does Slice and Dice do?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Slice and Dice increases attack speed by 30%.",
+    "expected_tools": [],
+    "key_facts": ["Increases attack speed by 30%"],
+    "spec": "general"
+  },
+  {
+    "id": "q06",
+    "question": "What is the base energy regeneration rate for rogues?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Rogues regenerate 20 energy per 2 seconds, or 10 energy per second.",
+    "expected_tools": [],
+    "key_facts": ["20 energy per 2 seconds", "10 per second"],
+    "spec": "general"
+  },
+  {
+    "id": "q07",
+    "question": "How much energy does Hemorrhage cost?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Hemorrhage costs 35 energy.",
+    "expected_tools": [],
+    "key_facts": ["35 energy"],
+    "spec": "subtlety"
+  },
+  {
+    "id": "q08",
+    "question": "What is Cold Blood's cooldown?",
+    "complexity": "trivial",
+    "category": "RETRIEVAL",
+    "ground_truth": "Cold Blood has a 3 minute cooldown and guarantees the next offensive ability critically strikes.",
+    "expected_tools": [],
+    "key_facts": ["3 minutes", "guarantees next offensive ability crits"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q09",
+    "question": "What is the hit cap for a dual-wield combat rogue?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "The special (yellow) hit cap is 9% total (142 hit rating). With 5/5 Precision talent providing 5%, you only need 4% from gear (64 hit rating). The dual-wield miss penalty only affects white (auto-attack) hits, not specials.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["9% total (142 rating)", "4% from gear with Precision (64 rating)", "DW penalty only affects white hits"],
+    "spec": "combat"
+  },
+  {
+    "id": "q10",
+    "question": "What trinkets are best in slot for a combat rogue in Phase 1?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "Dragonspine Trophy from Gruul's Lair and Bloodlust Brooch from Badge of Justice vendor.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Dragonspine Trophy from Gruul", "Bloodlust Brooch from badges"],
+    "spec": "combat"
+  },
+  {
+    "id": "q11",
+    "question": "What is the stat priority for combat swords?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "Expertise (to 26 cap) > Hit (to special cap) > Agility > Haste > Attack Power > Crit.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Expertise (to 26) > hit > agility > haste > AP > crit"],
+    "spec": "combat"
+  },
+  {
+    "id": "q12",
+    "question": "Why is off-hand weapon speed important for combat rogues?",
+    "complexity": "moderate",
+    "category": "ANALYSIS",
+    "ground_truth": "Faster off-hand weapons proc Combat Potency more often. Combat Potency has a 20% chance on each successful off-hand melee hit to restore 15 energy. A 1.4 speed weapon hits more often than a 1.8 speed weapon, generating more energy over time.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Faster OH = more Combat Potency procs", "20% chance per OH hit for 15 energy", "1.4 speed preferred"],
+    "spec": "combat"
+  },
+  {
+    "id": "q13",
+    "question": "How does Expose Armor compare to Sunder Armor?",
+    "complexity": "moderate",
+    "category": "ANALYSIS",
+    "ground_truth": "With 2/2 Improved Expose Armor, EA reduces 3075 armor, while 5 stacks of Sunder Armor reduce 2600 armor. They are mutually exclusive debuffs.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Improved EA (2/2) = 3075 armor reduction", "Sunder 5 stacks = 2600", "mutually exclusive"],
+    "spec": "general"
+  },
+  {
+    "id": "q14",
+    "question": "What does the Mongoose enchant proc?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "Mongoose procs +120 agility and +30 haste rating for 15 seconds, approximately 1 PPM. Dual Mongoose enchants can stack.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["+120 agility and +30 haste rating for 15 seconds", "~1 PPM", "dual mongoose stacks"],
+    "spec": "general"
+  },
+  {
+    "id": "q15",
+    "question": "What poisons should a Mutilate rogue use in PvE?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "Instant Poison on main hand, Deadly Poison on off hand. If the group has Windfury Totem, use Deadly Poison on the off hand and leave main hand for Windfury.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Instant Poison MH, Deadly Poison OH", "or DP OH with Windfury Totem on MH"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q16",
+    "question": "When does Mutilate become competitive with Combat in TBC?",
+    "complexity": "moderate",
+    "category": "ANALYSIS",
+    "ground_truth": "Mutilate becomes competitive in Phase 3 and beyond with T6 gear, but consistently trails Combat in raw DPS. The gap narrows as gear improves.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Phase 3+ with T6 gear", "consistently trails combat but gap narrows"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q17",
+    "question": "What is the expertise soft cap for rogues?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "The expertise soft cap is 26 expertise skill, approximately 103 hit rating. This removes the 6.5% boss dodge chance. The Weapon Expertise talent provides 10 free expertise.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["26 expertise skill (~103 rating)", "removes 6.5% boss dodge", "Weapon Expertise talent gives 10 free"],
+    "spec": "general"
+  },
+  {
+    "id": "q18",
+    "question": "What does Combat Potency do and why is it important?",
+    "complexity": "moderate",
+    "category": "ANALYSIS",
+    "ground_truth": "Combat Potency gives a 20% chance on each successful off-hand melee hit to restore 15 energy. This is why fast off-hand weapons are critical for combat rogues — more hits means more energy generation.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["20% chance on successful OH melee to gain 15 energy", "why fast OH matters"],
+    "spec": "combat"
+  },
+  {
+    "id": "q19",
+    "question": "How does Envenom work in TBC?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "Envenom consumes Deadly Poison stacks (1 per combo point used), dealing Nature damage that scales with AP and ignores armor.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Consumes Deadly Poison stacks (1 per CP)", "Nature damage ignores armor", "AP scaling"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q20",
+    "question": "What are the most important raid buffs for rogues?",
+    "complexity": "moderate",
+    "category": "RETRIEVAL",
+    "ground_truth": "Windfury Totem (20% chance for extra attack), Blessing of Might (+220 AP), and Leader of the Pack (+5% crit).",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Windfury Totem (20% extra attack)", "Blessing of Might (+220 AP)", "Leader of the Pack (+5% crit)"],
+    "spec": "general"
+  },
+  {
+    "id": "q21",
+    "question": "Compare combat swords vs mutilate for Phase 1 raiding",
+    "complexity": "complex",
+    "category": "ANALYSIS",
+    "ground_truth": "Combat swords is superior in Phase 1 due to weapon availability, Combat Potency energy generation with fast off-hands, and Blade Flurry/Adrenaline Rush cooldowns. Mutilate requires daggers in both hands and lacks the energy economy of Combat Potency. Stat priorities differ: Combat values expertise and hit more heavily, while Mutilate gains less from hit beyond the cap.",
+    "expected_tools": ["rag_search", "graph_search"],
+    "key_facts": ["Combat superior in P1", "weapon availability", "stat priority differences", "Combat Potency vs Seal Fate"],
+    "spec": "general"
+  },
+  {
+    "id": "q22",
+    "question": "Explain the combat rogue rotation priority system",
+    "complexity": "complex",
+    "category": "RESEARCH",
+    "ground_truth": "Slice and Dice is the #1 priority and must have 100% uptime. Rupture at 5 combo points is second priority. Sinister Strike is the filler. Cooldowns (Blade Flurry + Adrenaline Rush + Haste Potion) should be stacked for maximum burst windows.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["SnD #1 priority (100% uptime)", "Rupture at 5 CP", "SS filler", "cooldown stacking (BF + AR + Haste Pot)"],
+    "spec": "combat"
+  },
+  {
+    "id": "q23",
+    "question": "Explain the dual-wield hit table and how it affects rogue gearing",
+    "complexity": "complex",
+    "category": "RESEARCH",
+    "ground_truth": "Yellow (special) attacks use a single-roll table with a 9% miss cap. White (auto) attacks have a separate table with a 28% DW miss penalty. The Precision talent provides 5% hit for both. Hit rating beyond the 9% special cap still reduces white hit misses, making it valuable for combat.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Yellow vs white hit tables", "9% vs 28% miss", "DW penalty on autos only", "Precision talent", "hit valuable beyond cap for combat"],
+    "spec": "general"
+  },
+  {
+    "id": "q24",
+    "question": "Compare all three rogue specs for PvE in TBC",
+    "complexity": "complex",
+    "category": "ANALYSIS",
+    "ground_truth": "Combat is dominant throughout TBC due to Blade Flurry, Adrenaline Rush, and Combat Potency providing superior sustained DPS. Mutilate becomes viable in Phase 3+ with T6 gear but trails Combat in raw throughput. Subtlety is the weakest for PvE but provides the Hemorrhage debuff (+42 physical damage) which has raid utility.",
+    "expected_tools": ["rag_search", "graph_search"],
+    "key_facts": ["Combat dominant", "Mutilate viable P3+", "Subtlety weakest PvE (Hemo debuff utility)", "structural DPS reasons"],
+    "spec": "general"
+  },
+  {
+    "id": "q25",
+    "question": "What is the optimal consumable setup for a combat rogue in a 25-man raid?",
+    "complexity": "complex",
+    "category": "RETRIEVAL",
+    "ground_truth": "Haste Potion for combat (timed with cooldown stacking), Flask of Relentless Assault (+120 AP), Warp Burger (+20 agility), Adamantite Weightstone (+12 damage to weapons), and Mongoose enchant on both weapons.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Haste Potion", "Flask of Relentless Assault", "Warp Burger", "Adamantite Weightstone", "Mongoose enchant"],
+    "spec": "combat"
+  },
+  {
+    "id": "q26",
+    "question": "How should a rogue gear for expertise and hit rating, and what are the caps?",
+    "complexity": "complex",
+    "category": "RESEARCH",
+    "ground_truth": "Expertise cap is 26 skill (103 rating), removing boss dodge. Special hit cap is 64 rating with Precision (9% total). Hit is more valuable beyond cap for combat (reduces white miss) but less so for mutilate.",
+    "expected_tools": ["rag_search", "graph_search"],
+    "key_facts": ["Expertise cap 26 (103 rating)", "special hit cap 64 rating with Precision", "hit valuable beyond cap for combat", "less for mutilate"],
+    "spec": "general"
+  },
+  {
+    "id": "q27",
+    "question": "How does Combat Potency interact with weapon speed and why does it matter for gearing?",
+    "complexity": "complex",
+    "category": "ANALYSIS",
+    "ground_truth": "Combat Potency procs on successful off-hand hits with 20% chance for 15 energy. Faster weapons (1.4s) hit more often than slower ones (1.8s), generating more procs per minute. This makes fast off-hands like Latro's Shifting Sword preferred for the energy economy.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["OH speed affects proc rate", "1.4s > 1.8s for procs", "Latro's Shifting Sword preferred", "energy economy"],
+    "spec": "combat"
+  },
+  {
+    "id": "q28",
+    "question": "What makes Dragonspine Trophy the best trinket and how long does it stay relevant?",
+    "complexity": "complex",
+    "category": "ANALYSIS",
+    "ground_truth": "Dragonspine Trophy procs +325 haste rating (~20.6% haste) at approximately 1 PPM. It drops from Gruul in Gruul's Lair and remains competitive deep into TBC due to the massive haste proc.",
+    "expected_tools": ["rag_search", "graph_search"],
+    "key_facts": ["+325 haste proc (~20.6% haste)", "~1 PPM", "drops from Gruul", "remains competitive deep into TBC"],
+    "spec": "combat"
+  },
+  {
+    "id": "q29",
+    "question": "Explain Mutilate rogue poison mechanics and how they affect DPS",
+    "complexity": "complex",
+    "category": "RESEARCH",
+    "ground_truth": "Deadly Poison stacks up to 5, dealing 180 Nature damage over 12 seconds. Envenom consumes these stacks (1 per CP), dealing Nature damage that scales with AP and bypasses armor. Instant Poison on main hand procs independently. Vile Poisons talent increases poison damage by 20%.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["DP stacking", "Envenom consumption", "Vile Poisons +20%", "IP vs DP setup", "Nature damage bypasses armor"],
+    "spec": "assassination"
+  },
+  {
+    "id": "q30",
+    "question": "How does Hemorrhage compare to Sinister Strike for PvE?",
+    "complexity": "complex",
+    "category": "ANALYSIS",
+    "ground_truth": "Hemorrhage costs 35 energy and deals 110% weapon damage plus a debuff adding 42 physical damage to each attack (10 charges). Sinister Strike costs 45 energy and deals weapon damage + 98 flat. Hemorrhage has better energy efficiency but lower personal DPS contribution.",
+    "expected_tools": ["rag_search"],
+    "key_facts": ["Hemo 35 energy / 110% weapon damage vs SS 45 energy / weapon + 98", "Hemo debuff +42 physical x10 charges", "lower personal DPS"],
+    "spec": "subtlety"
+  }
+]
