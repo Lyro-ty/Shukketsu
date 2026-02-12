@@ -18,6 +18,7 @@ from code.shukketsu.web.routers.freshness import router as freshness_router
 from code.shukketsu.web.routers.wiki import router as wiki_router
 
 _WEB_DIR = Path(__file__).parent
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -29,6 +30,20 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         datefmt="%H:%M:%S",
     )
     init_langfuse()
+
+    # Run freshness sweep on startup (non-blocking — stale sources just get flagged)
+    try:
+        from code.shukketsu.db.connection import get_connection, init_db
+        from code.shukketsu.freshness.checker import run_freshness_sweep
+
+        conn = get_connection()
+        init_db(conn)
+        results = await run_freshness_sweep(conn)
+        stale_count = sum(1 for r in results if r.changed)
+        logger.info("Freshness sweep: %d checked, %d changed", len(results), stale_count)
+    except Exception:
+        logger.exception("Freshness sweep failed on startup")
+
     yield
     flush_traces()
 
