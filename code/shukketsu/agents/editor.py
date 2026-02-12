@@ -6,6 +6,7 @@ then uses a single LLM call to judge verification status.
 """
 
 import logging
+import sqlite3
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
 from code.shukketsu.agents.tasks import (
@@ -23,6 +24,7 @@ from code.shukketsu.knowledge.manager import ArticleMeta, ArticleStatus, Knowled
 from code.shukketsu.llm.prompts.editor import EDITOR_SYSTEM_PROMPT, VERIFICATION_PROMPT
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.tools.registry import ToolRegistry
+from code.shukketsu.trust.scoring import TRUST_DELTAS, record_trust_event
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,13 @@ class Editor(BaseAgent):
             system_prompt=system_prompt or config.SYSTEM_PROMPT,
         )
         self._km = knowledge_manager
+
+    def _get_db_conn(self) -> sqlite3.Connection | None:
+        """Get the database connection from KnowledgeManager (for trust events)."""
+        try:
+            return self._km._conn  # type: ignore[attr-defined]
+        except AttributeError:
+            return None
 
     async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> EditResult | AgentResult:
         """Execute an edit task: verify claims in an article against the KB.
@@ -153,6 +162,27 @@ class Editor(BaseAgent):
                 corrections.append(f"Claim '{cv.claim}' contradicted: {cv.note}")
             elif cv.status == VerificationStatus.UNSUPPORTED:
                 needs_more_research.append(cv.claim)
+
+        # Step 6b: Record trust events for contradicted claims
+        conn = self._get_db_conn()
+        if conn is not None:
+            try:
+                for cv in claim_results:
+                    if cv.status == VerificationStatus.CONTRADICTED:
+                        for evidence_url in cv.contradicting_evidence:
+                            source_row = conn.execute(
+                                "SELECT id FROM sources WHERE url = ?", (evidence_url,)
+                            ).fetchone()
+                            if source_row:
+                                record_trust_event(
+                                    conn,
+                                    source_row["id"],
+                                    "contradiction",
+                                    TRUST_DELTAS["contradiction"],
+                                    details=f"Contradicted claim: {cv.claim[:100]}",
+                                )
+            except Exception:
+                logger.warning("Failed to record trust events", exc_info=True)
 
         # Step 7: Update article frontmatter
         try:

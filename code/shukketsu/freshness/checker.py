@@ -10,6 +10,7 @@ import httpx
 from pydantic import BaseModel
 
 from code.shukketsu import config
+from code.shukketsu.trust.scoring import TRUST_DELTAS, record_trust_event
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,16 @@ async def check_source_freshness(
             head_resp = await client.head(source.url)
 
             if head_resp.status_code >= 400:
+                try:
+                    record_trust_event(
+                        conn,
+                        source.id,
+                        "dead_url",
+                        TRUST_DELTAS["dead_url"],
+                        details=f"HTTP {head_resp.status_code} for {source.url}",
+                    )
+                except Exception:
+                    logger.warning("Failed to record dead_url trust event", exc_info=True)
                 return FreshnessResult(
                     source_id=source.id,
                     url=source.url,
