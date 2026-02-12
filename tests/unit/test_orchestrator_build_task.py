@@ -1,5 +1,7 @@
 """Tests for Orchestrator._build_task and _merge_research."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from code.shukketsu.agents.tasks import (
@@ -8,6 +10,7 @@ from code.shukketsu.agents.tasks import (
     ArticleType,
     EditTask,
     Finding,
+    OrchestratorPlan,
     ResearchResult,
     ResearchTask,
     SubTask,
@@ -174,3 +177,115 @@ class TestBuildEditTask:
         results: list = [_research_result()]
         with pytest.raises(ValueError, match="no WriteResult"):
             _build(subtask, results)
+
+
+class TestStrategyHintsInDecomposition:
+    """Tests for strategy hints being injected into decomposition."""
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_strategy_hints_in_decomposition_prompt(self, mock_llm: AsyncMock) -> None:
+        """Non-empty strategy hints should appear in the LLM messages."""
+        from code.shukketsu.agents.factory import AgentFactory
+        from code.shukketsu.agents.orchestrator import Orchestrator
+
+        mock_llm.return_value = OrchestratorPlan(
+            reasoning="test",
+            subtasks=[],
+            can_answer_directly=True,
+            direct_answer="Direct answer.",
+        )
+
+        orch = object.__new__(Orchestrator)
+        orch._factory = AgentFactory()
+        orch._km = None
+        orch.role = AgentRole.ORCHESTRATOR
+        orch.tool_registry = MagicMock()
+        orch.max_iterations = 5
+        orch._system_prompt = "test"
+        from code.shukketsu.agents.guardrails import LoopDetector
+
+        orch._loop_detector = LoopDetector()
+
+        hints = (
+            "- rag_search works well for trinket questions (quality: 0.9)\n- graph_search finds entity relationships"
+        )
+        await orch._decompose("What trinkets?", strategy_hints=hints)
+
+        call_args = mock_llm.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        user_msg = messages[-1]["content"]
+        assert "rag_search works well" in user_msg
+        assert "graph_search finds entity" in user_msg
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_empty_strategy_hints_no_change(self, mock_llm: AsyncMock) -> None:
+        """Empty strategy hints should not modify the decomposition prompt."""
+        from code.shukketsu.agents.orchestrator import Orchestrator
+
+        mock_llm.return_value = OrchestratorPlan(
+            reasoning="test",
+            subtasks=[],
+            can_answer_directly=True,
+            direct_answer="Direct answer.",
+        )
+
+        orch = object.__new__(Orchestrator)
+        orch._factory = MagicMock()
+        orch._km = None
+        orch.role = AgentRole.ORCHESTRATOR
+        orch.tool_registry = MagicMock()
+        orch.max_iterations = 5
+        orch._system_prompt = "test"
+        from code.shukketsu.agents.guardrails import LoopDetector
+
+        orch._loop_detector = LoopDetector()
+
+        await orch._decompose("What trinkets?", strategy_hints="")
+
+        call_args = mock_llm.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        user_msg = messages[-1]["content"]
+        assert "Decompose this query" in user_msg
+        assert "Strategy hints" not in user_msg
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_max_strategy_hints_capped(self, mock_llm: AsyncMock) -> None:
+        """More than 3 strategy hint lines should be truncated to 3."""
+        from code.shukketsu.agents.orchestrator import Orchestrator
+
+        mock_llm.return_value = OrchestratorPlan(
+            reasoning="test",
+            subtasks=[],
+            can_answer_directly=True,
+            direct_answer="Direct answer.",
+        )
+
+        orch = object.__new__(Orchestrator)
+        orch._factory = MagicMock()
+        orch._km = None
+        orch.role = AgentRole.ORCHESTRATOR
+        orch.tool_registry = MagicMock()
+        orch.max_iterations = 5
+        orch._system_prompt = "test"
+        from code.shukketsu.agents.guardrails import LoopDetector
+
+        orch._loop_detector = LoopDetector()
+
+        hints = "\n".join(
+            [
+                "- hint 1: rag_search",
+                "- hint 2: graph_search",
+                "- hint 3: web_search",
+                "- hint 4: should be dropped",
+                "- hint 5: should be dropped too",
+            ]
+        )
+        await orch._decompose("test", strategy_hints=hints)
+
+        call_args = mock_llm.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        user_msg = messages[-1]["content"]
+        assert "hint 1" in user_msg
+        assert "hint 3" in user_msg
+        assert "hint 4" not in user_msg
+        assert "hint 5" not in user_msg

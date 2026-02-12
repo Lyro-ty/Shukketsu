@@ -66,6 +66,12 @@ Query: "Hello, what can you do?"
 
 DECOMPOSITION_PROMPT = "Decompose this query into a plan:\n\n{query}"
 
+DECOMPOSITION_PROMPT_WITH_HINTS = (
+    "Decompose this query into a plan:\n\n{query}\n\n"
+    "## Strategy Hints from Past Sessions\n\n"
+    "The following retrieval strategies worked well for similar questions:\n\n{hints}"
+)
+
 SYNTHESIS_PROMPT = """\
 You are synthesizing research results into a coherent answer about \
 WoW TBC Rogue content.

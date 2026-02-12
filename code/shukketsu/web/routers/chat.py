@@ -255,10 +255,33 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         else:
             await websocket.send_json({"type": "status", "content": "planning..."})
             _, orchestrator = _get_agents()
+
+            # Recall strategy hints for the Orchestrator
+            strategy_hints = ""
+            if config.MEMORY_ENABLED:
+                try:
+                    mm = _get_memory_manager()
+                    strategies = await mm.recall_strategies(top_k=config.MEMORY_STRATEGY_TOP_K)
+                    if strategies:
+                        hint_parts = [
+                            f"- {s['query_pattern']}: {', '.join(s['successful_tools'])}"
+                            f" (quality: {s['avg_quality']:.1f})"
+                            for s in strategies
+                        ]
+                        strategy_hints = "\n".join(hint_parts)
+                except Exception:
+                    logger.warning("Strategy recall failed", exc_info=True)
+
+            context: dict[str, str] = {}
+            if memory_context:
+                context["memory_context"] = memory_context
+            if strategy_hints:
+                context["strategy_hints"] = strategy_hints
+
             result = await orchestrator.execute(
                 AgentTask(
                     query=content,
-                    context={"memory_context": memory_context} if memory_context else {},
+                    context=context,
                 ),
                 on_status=_send_status,
             )
@@ -284,6 +307,16 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 )
             except Exception:
                 logger.warning("Memory extraction failed", exc_info=True)
+
+            try:
+                mm = _get_memory_manager()
+                await mm.record_strategy(
+                    query=content,
+                    tools_used=[],
+                    quality=0.5,
+                )
+            except Exception:
+                logger.warning("Strategy recording failed", exc_info=True)
     except ShukketsuError as exc:
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()

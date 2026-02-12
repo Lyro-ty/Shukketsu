@@ -36,6 +36,7 @@ from code.shukketsu.agents.tasks import (
 from code.shukketsu.knowledge.manager import KnowledgeManager
 from code.shukketsu.llm.prompts.orchestrator import (
     DECOMPOSITION_PROMPT,
+    DECOMPOSITION_PROMPT_WITH_HINTS,
     ORCHESTRATOR_SYSTEM_PROMPT,
     SYNTHESIS_PROMPT,
 )
@@ -97,7 +98,8 @@ class Orchestrator(BaseAgent):
             await on_status("planning...")
 
         try:
-            plan = await self._decompose(task.query)
+            strategy_hints = task.context.get("strategy_hints", "") if task.context else ""
+            plan = await self._decompose(task.query, strategy_hints=strategy_hints)
         except (LLMUnavailableError, StructuredOutputError, ValueError, Exception) as exc:
             logger.warning("Decomposition failed: %s", exc)
             return OrchestratorResult(
@@ -146,11 +148,24 @@ class Orchestrator(BaseAgent):
         orch_result.trajectory = trajectory
         return orch_result
 
-    async def _decompose(self, query: str) -> OrchestratorPlan:
-        """Phase 1: Decompose query into an execution plan via Llama 70B."""
+    async def _decompose(self, query: str, *, strategy_hints: str = "") -> OrchestratorPlan:
+        """Phase 1: Decompose query into an execution plan via Llama 70B.
+
+        Args:
+            query: The user's question to decompose.
+            strategy_hints: Optional strategy hints from past successful sessions.
+                Lines beyond 3 are truncated.
+        """
+        if strategy_hints.strip():
+            hint_lines = [line for line in strategy_hints.strip().split("\n") if line.strip()]
+            capped = "\n".join(hint_lines[:3])
+            user_content = DECOMPOSITION_PROMPT_WITH_HINTS.format(query=query, hints=capped)
+        else:
+            user_content = DECOMPOSITION_PROMPT.format(query=query)
+
         messages: list[dict[str, str]] = [
             {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": DECOMPOSITION_PROMPT.format(query=query)},
+            {"role": "user", "content": user_content},
         ]
 
         plan: OrchestratorPlan = await get_structured_output(
