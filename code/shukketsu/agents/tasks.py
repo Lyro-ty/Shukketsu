@@ -29,6 +29,13 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
 
 
+class ToolCallRecord(BaseModel):
+    """Record of a single tool call made during agent execution."""
+
+    tool_name: str
+    tool_input: dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentTask(BaseModel):
     """Base task that any agent can execute.
 
@@ -55,6 +62,7 @@ class AgentResult(BaseModel):
     output: str
     evidence: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    trajectory: list[ToolCallRecord] = Field(default_factory=list)
 
 
 class SearchStrategy(StrEnum):
