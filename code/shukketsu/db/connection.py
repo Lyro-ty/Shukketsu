@@ -23,7 +23,7 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
         A connection with WAL mode, foreign keys, and sqlite-vec enabled.
     """
     path = str(db_path or config.DB_PATH)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     _configure(conn)
     _load_extensions(conn)
