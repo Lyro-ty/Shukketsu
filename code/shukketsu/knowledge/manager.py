@@ -154,7 +154,9 @@ class KnowledgeManager:
 
     def read_article(self, path: str) -> tuple[ArticleMeta, str]:
         """Read and parse frontmatter + content from a markdown file."""
-        full_path = self._knowledge_dir / path
+        full_path = (self._knowledge_dir / path).resolve()
+        if not str(full_path).startswith(str(self._knowledge_dir.resolve())):
+            raise FileNotFoundError(f"Article not found: {path}")
         if not full_path.exists():
             raise FileNotFoundError(f"Article not found: {path}")
 

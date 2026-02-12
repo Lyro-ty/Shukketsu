@@ -1,5 +1,6 @@
 """Wiki article browser, reader, and review routes."""
 
+import html
 import logging
 from pathlib import Path
 
@@ -40,8 +41,11 @@ def _filter_articles(
     q: str | None = None,
 ) -> list:
     """Query and filter articles. Shared by full-page and HTMX routes."""
-    status_enum = ArticleStatus(status) if status else None
-    spec_enum = Spec(spec) if spec else None
+    try:
+        status_enum = ArticleStatus(status) if status else None
+        spec_enum = Spec(spec) if spec else None
+    except ValueError:
+        return []
     articles = km.list_articles(status=status_enum, spec=spec_enum)
     if q:
         q_lower = q.lower()
@@ -103,6 +107,10 @@ async def wiki_article(
             ).body,
             status_code=404,
         )
+    # Read authoritative status from DB (set_status only updates DB, not frontmatter)
+    db_row = km._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+    if db_row:
+        meta = meta.model_copy(update={"status": ArticleStatus(db_row["status"])})
     article_html = render_markdown(content)
     return _templates.TemplateResponse(
         request,
@@ -132,7 +140,7 @@ async def wiki_approve(
         km.set_status(path, ArticleStatus.PUBLISHED)
     except ValueError as exc:
         return HTMLResponse(
-            f'<div class="text-red-400 text-sm p-2">{exc}</div>',
+            f'<div class="text-red-400 text-sm p-2">{html.escape(str(exc))}</div>',
             status_code=400,
         )
     return HTMLResponse(
@@ -159,7 +167,7 @@ async def wiki_reject(
         km.reject_article(path, reason=reason)
     except ValueError as exc:
         return HTMLResponse(
-            f'<div class="text-red-400 text-sm p-2">{exc}</div>',
+            f'<div class="text-red-400 text-sm p-2">{html.escape(str(exc))}</div>',
             status_code=400,
         )
     return HTMLResponse(
