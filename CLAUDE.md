@@ -179,6 +179,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-9 are complete (
 | `2026-02-11-phase2-step8-implementation.md` | Step 8 implementation plan (complete) |
 | `2026-02-11-phase2-step9-freshness-backups.md` | Step 9 design doc (freshness checker, backup manager, API endpoints) |
 | `2026-02-11-phase2-step9-implementation.md` | Step 9 implementation plan (complete) |
+| `2026-02-12-phase2-step10-integration-eval.md` | Step 10 design doc (integration + phase gate evaluation) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
