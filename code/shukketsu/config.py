@@ -113,6 +113,35 @@ GRAPH_SEARCH_DEFAULT_TOP_K = int(os.getenv("GRAPH_SEARCH_DEFAULT_TOP_K", "20"))
 RERANKER_FETCH_MULTIPLIER = int(os.getenv("RERANKER_FETCH_MULTIPLIER", "3"))
 RERANKER_TOP_K = int(os.getenv("RERANKER_TOP_K", "5"))
 
+# Freshness checking
+FRESHNESS_CHECK_INTERVAL_HOURS = int(os.getenv("FRESHNESS_CHECK_INTERVAL_HOURS", "6"))
+FRESHNESS_HTTP_TIMEOUT = int(os.getenv("FRESHNESS_HTTP_TIMEOUT", "10"))
+
+# Domain → check_interval_hours mapping for new sources during ingest
+DOMAIN_CHECK_INTERVALS: dict[str, int] = {
+    "wowhead.com": 720,  # 30 days — guides update slowly
+    "icy-veins.com": 720,  # 30 days
+    "shadowpanther.net": 2160,  # 90 days — TBC content is static
+    "silentshadows.net": 2160,  # 90 days
+    "tbcdb.com": 2160,  # 90 days — database, patch-locked
+    "warcraftlogs.com": 24,  # 1 day — rankings change constantly
+}
+DEFAULT_CHECK_INTERVAL_HOURS = int(os.getenv("DEFAULT_CHECK_INTERVAL_HOURS", "168"))
+
+
+def get_check_interval(url: str) -> int:
+    """Extract domain from URL, return check_interval_hours from mapping."""
+    from urllib.parse import urlparse
+
+    domain = urlparse(url).netloc.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return DOMAIN_CHECK_INTERVALS.get(domain, DEFAULT_CHECK_INTERVAL_HOURS)
+
+
+# Backup
+BACKUP_KEEP_COUNT = int(os.getenv("BACKUP_KEEP_COUNT", "7"))
+
 # Role-specific system prompts
 from code.shukketsu.llm.prompts.editor import (  # noqa: E402
     EDITOR_SYSTEM_PROMPT as EDITOR_SYSTEM_PROMPT,
