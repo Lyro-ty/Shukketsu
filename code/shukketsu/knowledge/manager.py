@@ -79,6 +79,7 @@ class ArticleMeta(BaseModel):
     claims: list[ClaimRef] = Field(default_factory=list)
     entity_refs: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    rejection_reason: str | None = None
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -258,3 +259,55 @@ class KnowledgeManager:
         path = derive_path(spec, category, title)
         row = self._conn.execute("SELECT path FROM articles WHERE path = ?", (path,)).fetchone()
         return row["path"] if row else None
+
+    def get_path_by_id(self, article_id: int) -> str:
+        """Look up article path by integer ID. Raises ValueError if not found."""
+        row = self._conn.execute(
+            "SELECT path FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Article not found: id={article_id}")
+        return row["path"]
+
+    def reject_article(self, path: str, reason: str = "") -> None:
+        """Reject an article in review, transitioning back to draft.
+
+        Args:
+            path: Relative article path.
+            reason: Optional rejection reason stored in frontmatter.
+
+        Raises:
+            ValueError: If article is not in REVIEW status.
+        """
+        # Check status from DB (set_status only updates DB, not frontmatter)
+        row = self._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        if row is None:
+            raise ValueError(f"Article not found: {path}")
+        current_status = ArticleStatus(row["status"])
+        if current_status != ArticleStatus.REVIEW:
+            raise ValueError(
+                f"Cannot reject article with status '{current_status}': not in review"
+            )
+
+        meta, content = self.read_article(path)
+
+        updated = meta.model_copy(
+            update={
+                "status": ArticleStatus.DRAFT,
+                "rejection_reason": reason if reason else None,
+                "updated_at": datetime.now(tz=meta.updated_at.tzinfo),
+            }
+        )
+
+        # Write file with updated frontmatter
+        full_path = self._knowledge_dir / path
+        post = frontmatter.Post(content, **updated.model_dump(mode="json", exclude_none=True))
+        full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+        # Update DB
+        self._conn.execute(
+            "UPDATE articles SET status = 'draft', last_updated = ? WHERE path = ?",
+            (updated.updated_at.isoformat(), path),
+        )
+        self._conn.commit()
+        logger.info("Rejected article %s: %s", path, reason or "(no reason)")

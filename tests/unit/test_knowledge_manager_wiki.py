@@ -77,3 +77,54 @@ class TestArticleSummaryFields:
         articles = km.list_articles()
         assert articles[0].verified_claims == 0
         assert articles[0].unverified_claims == 0
+
+
+class TestGetPathById:
+    def test_found(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        row = test_db.execute("SELECT id FROM articles WHERE path = ?", (path,)).fetchone()
+        assert km.get_path_by_id(row["id"]) == path
+
+    def test_not_found(self, km: KnowledgeManager) -> None:
+        with pytest.raises(ValueError, match="not found"):
+            km.get_path_by_id(99999)
+
+
+class TestRejectArticle:
+    def test_review_to_draft(
+        self, km: KnowledgeManager, test_db: sqlite3.Connection
+    ) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        km.reject_article(path, reason="Needs more sources")
+        row = test_db.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
+        assert row["status"] == "draft"
+
+    def test_rejection_reason_in_frontmatter(self, km: KnowledgeManager) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        km.reject_article(path, reason="Inaccurate hit cap value")
+        meta, _ = km.read_article(path)
+        assert meta.rejection_reason == "Inaccurate hit cap value"
+
+    def test_reject_draft_raises(self, km: KnowledgeManager) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        with pytest.raises(ValueError, match="not in review"):
+            km.reject_article(path, reason="bad")
+
+    def test_reject_published_raises(
+        self, km: KnowledgeManager, test_db: sqlite3.Connection
+    ) -> None:
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        km.set_status(path, ArticleStatus.PUBLISHED)
+        with pytest.raises(ValueError, match="not in review"):
+            km.reject_article(path, reason="bad")
+
+    def test_reject_empty_reason(self, km: KnowledgeManager) -> None:
+        """Empty reason should not add rejection_reason to frontmatter."""
+        path = km.create_draft(_sample_meta(), "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        km.reject_article(path)
+        meta, _ = km.read_article(path)
+        assert meta.rejection_reason is None
