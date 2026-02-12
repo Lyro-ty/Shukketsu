@@ -68,12 +68,19 @@ class BaseAgent:
         self._loop_detector = LoopDetector()
 
     @observe(as_type="agent")
-    async def run(self, query: str, *, on_status: StatusCallback | None = None) -> str:
+    async def run(
+        self,
+        query: str,
+        *,
+        on_status: StatusCallback | None = None,
+        memory_context: str | None = None,
+    ) -> str:
         """Run the ReAct loop to answer a query.
 
         Args:
             query: The user's question.
             on_status: Optional async callback for progress updates.
+            memory_context: Optional context from recalled session memories.
 
         Returns:
             The agent's final answer, or a graceful failure message.
@@ -82,7 +89,7 @@ class BaseAgent:
             LLMUnavailableError: If the LLM backend is unreachable.
             StructuredOutputError: If structured output validation fails.
         """
-        outcome = await self._run_loop(query, on_status=on_status)
+        outcome = await self._run_loop(query, on_status=on_status, memory_context=memory_context)
         return outcome.output
 
     @observe(as_type="agent")
@@ -93,8 +100,8 @@ class BaseAgent:
         Calls the same ReAct loop as run() but wraps the result in a
         typed AgentResult with status tracking.
 
-        Note: task.context is intentionally ignored in the base implementation.
-        Specialist agents override execute() to incorporate context.
+        Reads memory_context from task.context if present, and passes it
+        through to the ReAct loop for injection into the system prompt.
 
         Args:
             task: The task to execute.
@@ -111,7 +118,8 @@ class BaseAgent:
         if self.role is None:
             raise ValueError("Cannot execute() without a role. Use AgentFactory or set role in constructor.")
 
-        outcome = await self._run_loop(task.query, on_status=on_status)
+        memory_ctx = task.context.get("memory_context") if task.context else None
+        outcome = await self._run_loop(task.query, on_status=on_status, memory_context=memory_ctx)
 
         trajectory = [
             ToolCallRecord(tool_name=entry["tool_name"], tool_input=entry["tool_input"]) for entry in outcome.scratchpad
@@ -125,7 +133,13 @@ class BaseAgent:
             trajectory=trajectory,
         )
 
-    async def _run_loop(self, query: str, *, on_status: StatusCallback | None = None) -> _RunOutcome:
+    async def _run_loop(
+        self,
+        query: str,
+        *,
+        on_status: StatusCallback | None = None,
+        memory_context: str | None = None,
+    ) -> _RunOutcome:
         """The core ReAct loop. Shared by run() and execute().
 
         Returns a _RunOutcome with the output string and status, so callers
@@ -134,7 +148,7 @@ class BaseAgent:
         scratchpad: list[dict[str, Any]] = []
 
         for iteration in range(self.max_iterations):
-            messages = self._build_messages(query, scratchpad)
+            messages = self._build_messages(query, scratchpad, memory_context=memory_context)
 
             logger.info("Agent iteration %d/%d", iteration + 1, self.max_iterations)
             if on_status:
@@ -233,14 +247,28 @@ class BaseAgent:
 
         return compacted
 
-    def _build_messages(self, query: str, scratchpad: list[dict[str, Any]]) -> list[dict[str, str]]:
+    def _build_messages(
+        self,
+        query: str,
+        scratchpad: list[dict[str, Any]],
+        *,
+        memory_context: str | None = None,
+    ) -> list[dict[str, str]]:
         """Build the messages array for the LLM.
 
         If the estimated token count exceeds COMPACTION_THRESHOLD_TOKENS,
         older scratchpad entries are compacted to reduce context size.
+
+        Args:
+            query: The user's question.
+            scratchpad: ReAct loop scratchpad entries.
+            memory_context: Optional context from recalled session memories.
         """
         tool_descriptions = self.tool_registry.get_tool_descriptions()
         system_content = self._system_prompt + "\n\n" + _REACT_INSTRUCTIONS.format(tool_descriptions=tool_descriptions)
+
+        if memory_context:
+            system_content += "\n\n## Relevant Context from Previous Sessions\n\n" + memory_context
 
         effective_scratchpad = scratchpad
 

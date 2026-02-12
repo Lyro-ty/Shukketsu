@@ -462,3 +462,144 @@ class TestSendStatusFormat:
             assert done["content"] == "Fallback answer"
 
         orchestrator.execute.assert_called_once()
+
+
+class TestMemoryIntegration:
+    """Tests for session memory recall and extraction hooks in the chat handler."""
+
+    @patch("code.shukketsu.web.routers.chat.config.MEMORY_ENABLED", True)
+    @patch("code.shukketsu.web.routers.chat._get_memory_manager")
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_memory_recall_injects_context(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+        mock_get_mm: MagicMock,
+    ) -> None:
+        """Recalled memories should cause memory_context to be set on the task."""
+        from code.shukketsu.memory.models import SessionMemory
+
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("Researcher answer")
+        mock_agents.return_value = (researcher, orchestrator)
+
+        memory = SessionMemory(
+            id=1,
+            query="hit cap for rogues",
+            answer_summary="9% hit cap in TBC",
+            key_facts=["9% hit cap"],
+            entities_mentioned=["Rogue"],
+            retrieval_quality=0.8,
+            created_at="2026-02-12T00:00:00+00:00",
+            score=0.9,
+        )
+        mm = MagicMock()
+        mm.recall_relevant = AsyncMock(return_value=[memory])
+        mm.extract_session_memory = AsyncMock()
+        mock_get_mm.return_value = mm
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "What trinkets for combat?"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+
+        # Verify researcher.execute was called with memory_context in context dict
+        researcher.execute.assert_called_once()
+        call_args = researcher.execute.call_args
+        task = call_args[0][0] if call_args[0] else call_args.kwargs.get("task")
+        assert task.context.get("memory_context") is not None
+        assert "9% hit cap" in task.context["memory_context"]
+
+    @patch("code.shukketsu.web.routers.chat.config.MEMORY_ENABLED", True)
+    @patch("code.shukketsu.web.routers.chat._get_memory_manager")
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_memory_extraction_fires_after_response(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+        mock_get_mm: MagicMock,
+    ) -> None:
+        """extract_session_memory should be called after a successful response."""
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("The answer is 42")
+        mock_agents.return_value = (researcher, orchestrator)
+
+        mm = MagicMock()
+        mm.recall_relevant = AsyncMock(return_value=[])
+        mm.extract_session_memory = AsyncMock()
+        mock_get_mm.return_value = mm
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "What is the hit cap?"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+
+        mm.extract_session_memory.assert_called_once()
+        call_kwargs = mm.extract_session_memory.call_args
+        # First positional arg is query, second is answer
+        assert call_kwargs[1]["query"] == "What is the hit cap?"
+        assert call_kwargs[1]["answer"] == "The answer is 42"
+
+    @patch("code.shukketsu.web.routers.chat.config.MEMORY_ENABLED", False)
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_memory_disabled_skips_both(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+    ) -> None:
+        """When MEMORY_ENABLED is False, no recall or extraction should happen."""
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("Answer")
+        mock_agents.return_value = (researcher, orchestrator)
+
+        # We do NOT patch _get_memory_manager — if it were called, the test would
+        # fail with an error because no mock is set up.
+        with patch("code.shukketsu.web.routers.chat._get_memory_manager") as mock_get_mm:
+            client = TestClient(_get_app())
+            with client.websocket_connect("/ws/chat") as ws:
+                ws.receive_json()  # connected
+                ws.send_json({"type": "message", "content": "Test query"})
+                done = _drain_status(ws)
+                assert done["type"] == "done"
+
+            mock_get_mm.assert_not_called()
+
+    @patch("code.shukketsu.web.routers.chat.config.MEMORY_ENABLED", True)
+    @patch("code.shukketsu.web.routers.chat._get_memory_manager")
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_memory_recall_empty_no_injection(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+        mock_get_mm: MagicMock,
+    ) -> None:
+        """Empty recall should not add memory_context to the task."""
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("Answer")
+        mock_agents.return_value = (researcher, orchestrator)
+
+        mm = MagicMock()
+        mm.recall_relevant = AsyncMock(return_value=[])
+        mm.extract_session_memory = AsyncMock()
+        mock_get_mm.return_value = mm
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Test query"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+
+        researcher.execute.assert_called_once()
+        call_args = researcher.execute.call_args
+        task = call_args[0][0] if call_args[0] else call_args.kwargs.get("task")
+        # No memory_context should be set when recall returns empty
+        assert not task.context.get("memory_context")

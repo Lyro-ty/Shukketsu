@@ -16,6 +16,8 @@ from code.shukketsu.routing.router import classify_query
 
 if TYPE_CHECKING:
     from code.shukketsu.agents.base import BaseAgent
+    from code.shukketsu.memory.manager import MemoryManager
+    from code.shukketsu.memory.models import SessionMemory
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,7 @@ router = APIRouter()
 
 _researcher_instance: BaseAgent | None = None
 _orchestrator_instance: BaseAgent | None = None
+_memory_manager_instance: MemoryManager | None = None
 
 
 class ChatSession:
@@ -96,6 +99,52 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent]:
     return _researcher_instance, _orchestrator_instance
 
 
+def _get_memory_manager() -> MemoryManager:
+    """Get or create the MemoryManager singleton.
+
+    Lazy initialization to avoid import-time side effects.
+    Reuses the same DB connection and embedder as the agents.
+    """
+    global _memory_manager_instance  # noqa: PLW0603
+
+    if _memory_manager_instance is None:
+        from code.shukketsu.db.connection import get_connection, init_db
+        from code.shukketsu.ingest.embedder import get_embedder
+        from code.shukketsu.memory.manager import MemoryManager as _MemoryManager
+
+        conn = get_connection()
+        init_db(conn)
+        embedder = get_embedder()
+        _memory_manager_instance = _MemoryManager(conn=conn, embed_fn=embedder.embed_query)
+
+    return _memory_manager_instance
+
+
+def _format_memory_context(memories: list[SessionMemory]) -> str:
+    """Format recalled memories into a context string for the agent.
+
+    Each memory is rendered with its summary and key facts,
+    truncated to MEMORY_MAX_CONTEXT_CHARS.
+    """
+    if not memories:
+        return ""
+
+    parts: list[str] = []
+    total_chars = 0
+
+    for mem in memories:
+        entry = f"- **{mem.query}**: {mem.answer_summary}"
+        if mem.key_facts:
+            entry += " (" + "; ".join(mem.key_facts) + ")"
+
+        if total_chars + len(entry) > config.MEMORY_MAX_CONTEXT_CHARS:
+            break
+        parts.append(entry)
+        total_chars += len(entry)
+
+    return "\n".join(parts)
+
+
 @router.websocket("/ws/chat")
 async def chat_ws(websocket: WebSocket) -> None:
     """Handle a WebSocket chat connection."""
@@ -165,6 +214,17 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             tags=["chat"],
             input=content,
         )
+
+        # Memory recall: fetch relevant context from previous sessions
+        memory_context: str | None = None
+        if config.MEMORY_ENABLED:
+            try:
+                mm = _get_memory_manager()
+                memories = await mm.recall_relevant(content)
+                memory_context = _format_memory_context(memories) or None
+            except Exception:
+                logger.warning("Memory recall failed, continuing without context", exc_info=True)
+
         await websocket.send_json({"type": "status", "content": "routing..."})
         decision = await classify_query(content)
         logger.info("Route: %s → %s", decision.complexity, decision.category)
@@ -185,7 +245,10 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             await websocket.send_json({"type": "status", "content": "researching..."})
             researcher, _ = _get_agents()
             result = await researcher.execute(
-                ResearchTask(query=content),
+                ResearchTask(
+                    query=content,
+                    context={"memory_context": memory_context} if memory_context else {},
+                ),
                 on_status=_send_status,
             )
             answer = result.output
@@ -193,7 +256,10 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             await websocket.send_json({"type": "status", "content": "planning..."})
             _, orchestrator = _get_agents()
             result = await orchestrator.execute(
-                AgentTask(query=content),
+                AgentTask(
+                    query=content,
+                    context={"memory_context": memory_context} if memory_context else {},
+                ),
                 on_status=_send_status,
             )
             answer = result.output
@@ -205,6 +271,19 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
 
         session.add_message("assistant", answer)
         await websocket.send_json({"type": "done", "content": answer})
+
+        # Memory extraction: store key facts from this conversation (fire-and-forget)
+        if config.MEMORY_ENABLED:
+            try:
+                mm = _get_memory_manager()
+                await mm.extract_session_memory(
+                    query=content,
+                    answer=answer,
+                    trajectory=[],
+                    session_id=str(id(session)),
+                )
+            except Exception:
+                logger.warning("Memory extraction failed", exc_info=True)
     except ShukketsuError as exc:
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()
