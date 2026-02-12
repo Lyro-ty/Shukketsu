@@ -66,8 +66,10 @@ docs/explanations/
 *.db-wal
 *.db-shm
 
-# Local environment overrides
+# Secrets — only the .example template is tracked
+variables.env
 *.env.local
+.env
 
 # Tool caches
 .mypy_cache/
