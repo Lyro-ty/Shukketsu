@@ -46,3 +46,11 @@ class AgentStep(BaseModel):
         if self.action == ActionType.FINAL_ANSWER and self.answer is None:
             raise ValueError("answer required when action is final_answer")
         return self
+
+
+class ReflectionResult(BaseModel):
+    """Result of a reflection pass on a research answer."""
+
+    supported: bool
+    issues: list[str] = []
+    revised_answer: str = ""

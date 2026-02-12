@@ -105,6 +105,8 @@ LOOP_MAX_TOTAL_REPEATS = 3
 # Phase 2 agent limits
 RESEARCHER_MAX_ITERATIONS = 10  # Multi-step research needs more room
 RESEARCHER_MAX_TOKENS = 150_000  # Research produces more context
+REFLECTION_ENABLED = os.getenv("REFLECTION_ENABLED", "true").lower() == "true"
+REFLECTION_TEMPERATURE = float(os.getenv("REFLECTION_TEMPERATURE", "0.1"))
 ORCHESTRATOR_MAX_SUBTASKS = 6  # Prevent over-decomposition
 ORCHESTRATOR_MAX_DEPTH = 1  # No recursive orchestration
 ORCHESTRATOR_TIMEOUT_SECONDS = 120  # Total wall-clock budget

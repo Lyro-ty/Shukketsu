@@ -16,7 +16,7 @@ from code.shukketsu.agents.tasks import (
     TaskStatus,
 )
 from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT
-from code.shukketsu.llm.schemas import ActionType, AgentStep, ToolCall
+from code.shukketsu.llm.schemas import ActionType, AgentStep, ReflectionResult, ToolCall
 from code.shukketsu.resilience.errors import StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
 from code.shukketsu.tools.schemas import Tool
@@ -443,3 +443,180 @@ class TestResearcherFactory:
         factory = AgentFactory()
         agent = factory.create(AgentRole.RESEARCHER)
         assert agent.max_iterations == config.RESEARCHER_MAX_ITERATIONS
+
+
+class TestReflection:
+    """Tests for the reflection step in Researcher.execute()."""
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_skipped_non_complex(self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock) -> None:
+        """Moderate query (no complexity metadata) -> reflection not called."""
+        mock_loop_llm.return_value = _final_answer("Answer text.")
+
+        call_count = 0
+
+        async def _side_effect(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is StructuredFindings:
+                return _mock_structured_findings()
+            if response_model is ReflectionResult:
+                pytest.fail("Reflection should not be called for non-complex queries")
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="What is the hit cap?")
+        result = await researcher.execute(task)
+
+        assert result.status == TaskStatus.SUCCESS
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_fires_on_complex(self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock) -> None:
+        """Complex query -> reflection is called."""
+        mock_loop_llm.return_value = _final_answer("Answer text.")
+
+        reflection_called = False
+
+        async def _side_effect(response_model, messages, **kwargs):
+            nonlocal reflection_called
+            if response_model is StructuredFindings:
+                return _mock_structured_findings()
+            if response_model is ReflectionResult:
+                reflection_called = True
+                return ReflectionResult(supported=True)
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="Compare combat vs mutilate")
+        task.context = {"complexity": "complex"}
+        result = await researcher.execute(task)
+
+        assert reflection_called is True
+        assert result.status == TaskStatus.SUCCESS
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_supported_returns_original(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Reflection says supported=True -> answer unchanged."""
+        mock_loop_llm.return_value = _final_answer("Original answer.")
+
+        async def _side_effect(response_model, messages, **kwargs):
+            if response_model is StructuredFindings:
+                return _mock_structured_findings()
+            if response_model is ReflectionResult:
+                return ReflectionResult(supported=True)
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="q")
+        task.context = {"complexity": "complex"}
+        result = await researcher.execute(task)
+
+        assert result.output == "Original answer."
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_unsupported_returns_revised(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Reflection says supported=False -> revised_answer used."""
+        mock_loop_llm.return_value = _final_answer("Original speculative answer.")
+
+        async def _side_effect(response_model, messages, **kwargs):
+            if response_model is StructuredFindings:
+                return _mock_structured_findings()
+            if response_model is ReflectionResult:
+                return ReflectionResult(
+                    supported=False,
+                    issues=["Claim about proc rate is unsupported"],
+                    revised_answer="Revised answer without speculation.",
+                )
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="q")
+        task.context = {"complexity": "complex"}
+        result = await researcher.execute(task)
+
+        assert result.output == "Revised answer without speculation."
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_failure_returns_original(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """Reflection LLM call fails -> original answer returned."""
+        mock_loop_llm.return_value = _final_answer("Original answer.")
+
+        async def _side_effect(response_model, messages, **kwargs):
+            if response_model is StructuredFindings:
+                return _mock_structured_findings()
+            if response_model is ReflectionResult:
+                raise RuntimeError("LLM timeout")
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="q")
+        task.context = {"complexity": "complex"}
+        result = await researcher.execute(task)
+
+        assert result.output == "Original answer."
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_skipped_for_failed_outcome(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """FAILED status -> reflection not called."""
+        mock_loop_llm.return_value = _tool_call("rag_search", {"query": "loop"})
+
+        async def _side_effect(response_model, messages, **kwargs):
+            if response_model is ReflectionResult:
+                pytest.fail("Reflection should not be called for FAILED outcomes")
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER, max_iterations=1)
+        task = AgentTask(query="q")
+        task.context = {"complexity": "complex"}
+        result = await researcher.execute(task)
+
+        assert result.status == TaskStatus.FAILED
+
+    @patch("code.shukketsu.config.REFLECTION_ENABLED", False)
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_reflection_disabled_via_config(self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock) -> None:
+        """REFLECTION_ENABLED=False -> reflection not called even on complex queries."""
+        mock_loop_llm.return_value = _final_answer("Answer text.")
+
+        async def _side_effect(response_model, messages, **kwargs):
+            if response_model is ReflectionResult:
+                pytest.fail("Reflection should not be called when disabled")
+            if response_model is StructuredFindings:
+                return _mock_structured_findings()
+            return _mock_structured_findings()
+
+        mock_struct_llm.side_effect = _side_effect
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        task = AgentTask(query="q")
+        task.context = {"complexity": "complex"}
+        result = await researcher.execute(task)
+
+        assert result.status == TaskStatus.SUCCESS

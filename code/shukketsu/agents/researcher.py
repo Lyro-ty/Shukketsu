@@ -10,9 +10,11 @@ from typing import Any
 from langfuse import observe
 from pydantic import BaseModel, Field
 
+from code.shukketsu import config
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
 from code.shukketsu.agents.tasks import AgentTask, Finding, ResearchResult, TaskStatus, ToolCallRecord
-from code.shukketsu.llm.prompts.researcher import STRUCTURING_PROMPT
+from code.shukketsu.llm.prompts.researcher import REFLECTION_PROMPT, STRUCTURING_PROMPT
+from code.shukketsu.llm.schemas import ReflectionResult
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.resilience.errors import StructuredOutputError
 
@@ -102,11 +104,34 @@ class Researcher(BaseAgent):
         sources_used = list(dict.fromkeys(e for f in structured.findings for e in f.evidence))
         strategies_used = self._extract_strategies(outcome.scratchpad)
 
+        # Reflection pass for complex queries
+        final_output = outcome.output
+        is_complex = task.context.get("complexity") == "complex"
+
+        if is_complex and config.REFLECTION_ENABLED and outcome.status == TaskStatus.SUCCESS:
+            if on_status:
+                await on_status("reflecting on answer...")
+
+            try:
+                reflection = await self._reflect(
+                    query=task.query,
+                    output=outcome.output,
+                    scratchpad=outcome.scratchpad,
+                )
+                if not reflection.supported and reflection.revised_answer:
+                    logger.info(
+                        "Reflection found %d issues; using revised answer",
+                        len(reflection.issues),
+                    )
+                    final_output = reflection.revised_answer
+            except Exception as exc:
+                logger.warning("Reflection failed, keeping original answer: %s", exc)
+
         return ResearchResult(
             task_id=task.task_id,
             agent_role=self.role,
             status=outcome.status,
-            output=outcome.output,
+            output=final_output,
             evidence=sources_used,
             findings=structured.findings,
             sources_used=sources_used,
@@ -164,3 +189,29 @@ class Researcher(BaseAgent):
             truncated = observation[:500] + "..." if len(observation) > 500 else observation
             parts.append(f"[{i}] Tool: {entry['tool_name']}\n    Input: {entry['tool_input']}\n    Result: {truncated}")
         return "\n\n".join(parts)
+
+    async def _reflect(
+        self,
+        query: str,
+        output: str,
+        scratchpad: list[dict[str, Any]],
+    ) -> ReflectionResult:
+        """Run a reflection pass to verify the answer against evidence."""
+        observations_text = self._format_scratchpad(scratchpad)
+
+        messages = [
+            {"role": "system", "content": REFLECTION_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Query: {query}\n\nResearcher's answer:\n{output}\n\nTool observations:\n{observations_text}"
+                ),
+            },
+        ]
+
+        result: ReflectionResult = await get_structured_output(
+            response_model=ReflectionResult,
+            messages=messages,
+            temperature=config.REFLECTION_TEMPERATURE,
+        )
+        return result

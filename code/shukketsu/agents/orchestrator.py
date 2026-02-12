@@ -527,7 +527,11 @@ class Orchestrator(BaseAgent):
     ) -> AgentTask:
         """Build a typed task from a SubTask and completed dependency results."""
         if subtask.agent_role == AgentRole.RESEARCHER:
-            return ResearchTask(query=subtask.description, trace_id=trace_id)
+            return ResearchTask(
+                query=subtask.description,
+                trace_id=trace_id,
+                context={"complexity": "complex"},
+            )
 
         if subtask.agent_role == AgentRole.WRITER:
             research_results: list[ResearchResult] = [
