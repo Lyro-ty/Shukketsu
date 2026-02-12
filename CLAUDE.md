@@ -156,7 +156,7 @@ ruff check . --fix && ruff format . && python3 -m mypy . && python3 -m pytest
 
 ## Development Phases
 
-Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-7 are complete (620 unit tests). Planning docs live in `docs/plans/`:
+Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-8 are complete (652 unit tests). Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -176,6 +176,7 @@ Phase 1 is complete (245 unit tests, deployed). Phase 2 Steps 1-7 are complete (
 | `2026-02-11-phase2-step7-orchestrator-agent.md` | Step 7 design doc (Orchestrator agent, task decomposition, dispatch, synthesis) |
 | `2026-02-11-phase2-step7-implementation.md` | Step 7 implementation plan (complete) |
 | `2026-02-11-phase2-step8-wiki-ui.md` | Step 8 design doc (Wiki UI, article browser, review/approve flow, HTMX) |
+| `2026-02-11-phase2-step8-implementation.md` | Step 8 implementation plan (complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 
 ### Phase 1: Agent Core — COMPLETE
@@ -193,7 +194,7 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 5. ~~Writer Agent + Wiki Backend~~ — COMPLETE (527 tests: Writer agent, KnowledgeManager, schema v3, YAML frontmatter, two-pass generation)
 6. ~~Editor Agent~~ — COMPLETE (570 tests: Editor subclass, claim verification, confidence scoring, VerificationStatus enum, ClaimJudgment/ClaimVerification/EditResult models, entity matching, frontmatter update)
 7. ~~Orchestrator Agent~~ — COMPLETE (620 tests: Orchestrator subclass, 3-phase execute, plan validation, topological sort, task building, research merge, synthesis, factory registration, chat routing by complexity)
-8. Wiki UI (article browser, review/approve flow, HTMX)
+8. ~~Wiki UI~~ — COMPLETE (652 tests: wiki routes, markdown render, KM extensions, article browser, review/approve, HTMX fragments)
 9. Content Freshness + Automated Backups (staleness detection, SQLite backup)
 10. Integration + Phase Gate Evaluation (end-to-end wiring, eval harness)
 
