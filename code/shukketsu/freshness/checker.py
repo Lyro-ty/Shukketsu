@@ -73,7 +73,7 @@ def count_stale_sources(conn: sqlite3.Connection, source_urls: list[str]) -> int
         f"SELECT COUNT(*) FROM sources WHERE url IN ({placeholders}) AND is_stale = 1",  # noqa: S608
         source_urls,
     ).fetchone()
-    return row[0]
+    return int(row[0])
 
 
 async def check_source_freshness(
