@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}{{ meta.title }} — Shukketsu Wiki{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col md:flex-row max-w-6xl w-full mx-auto p-6 gap-6 overflow-y-auto">
+    <!-- Article content -->
+    <div class="flex-1 min-w-0">
+        <a href="/wiki/" class="text-sm text-parchment-dim hover:text-parchment transition-colors mb-4 inline-block">
+            &larr; Back to Wiki
+        </a>
+        <div class="markdown-body mt-2">
+            {{ article_html | safe }}
+        </div>
+    </div>
+
+    <!-- Metadata sidebar -->
+    <div class="w-full md:w-72 shrink-0 flex flex-col gap-3">
+        <!-- Status -->
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Status</div>
+            <span class="status-badge status-{{ meta.status }}">{{ meta.status }}</span>
+        </div>
+
+        <!-- Confidence -->
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Confidence</div>
+            <div class="flex items-center gap-2">
+                <div class="confidence-bar flex-1" style="--confidence: {{ meta.confidence }}"></div>
+                <span class="text-sm">{{ (meta.confidence * 100) | int }}%</span>
+            </div>
+        </div>
+
+        <!-- Last Updated -->
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Updated</div>
+            <span class="text-sm">{{ meta.updated_at.strftime('%b %d, %Y') if meta.updated_at else 'Unknown' }}</span>
+        </div>
+
+        <!-- Claim Summary -->
+        {% set verified = meta.claims | selectattr('verified') | list | length %}
+        {% set unverified = (meta.claims | length) - verified %}
+        {% if meta.claims %}
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Claims</div>
+            <div class="flex gap-3 text-sm">
+                <span class="text-green-400">{{ verified }} verified</span>
+                <span class="text-parchment-dim">{{ unverified }} unverified</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Sources -->
+        {% if meta.sources %}
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Sources</div>
+            <ul class="text-sm space-y-1">
+                {% for source in meta.sources %}
+                <li class="flex justify-between">
+                    <a href="{{ source.url }}" target="_blank" rel="noopener"
+                       class="text-wow-gold hover:text-rogue-energy truncate">
+                        {{ source.url | truncate(40) }}
+                    </a>
+                    <span class="text-parchment-dim ml-2 shrink-0">{{ source.trust }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <!-- Entity Refs -->
+        {% if meta.entity_refs %}
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Entities</div>
+            <div class="flex flex-wrap gap-1.5">
+                {% for entity in meta.entity_refs %}
+                <span class="entity-tag">{{ entity }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Tags -->
+        {% if meta.tags %}
+        <div class="sidebar-card">
+            <div class="text-xs text-parchment-dim uppercase tracking-wide mb-1">Tags</div>
+            <div class="flex flex-wrap gap-1.5">
+                {% for tag in meta.tags %}
+                <span class="text-xs px-2 py-0.5 bg-white/5 border border-white/10 rounded text-parchment-dim">{{ tag }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% for article in articles %}
+<a href="/wiki/view/{{ article.path | replace('.md', '') }}" class="article-card">
+    <div class="flex justify-between items-start">
+        <h3 class="text-parchment font-medium">{{ article.title }}</h3>
+        <span class="status-badge status-{{ article.status }}">{{ article.status }}</span>
+    </div>
+    <div class="flex gap-3 mt-2 text-sm text-parchment-dim">
+        <span>{{ article.spec }}</span>
+        <span>&middot;</span>
+        <span>{{ article.category }}</span>
+    </div>
+    <div class="confidence-bar mt-3" style="--confidence: {{ article.confidence_score }}"></div>
+</a>
+{% else %}
+<div class="text-center text-parchment-dim py-12 col-span-full">
+    No articles found.
+</div>
+{% endfor %}

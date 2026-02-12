@@ -1,0 +1,47 @@
+{% for article in articles %}
+<div class="review-card" id="review-card-{{ article.id }}">
+    <div class="flex justify-between items-start">
+        <a href="/wiki/view/{{ article.path | replace('.md', '') }}" class="text-parchment font-medium hover:text-wow-gold transition-colors">
+            {{ article.title }}
+        </a>
+        <span class="status-badge status-review">review</span>
+    </div>
+    <div class="flex gap-3 mt-2 text-sm text-parchment-dim">
+        <span>{{ article.spec }}</span>
+        <span>&middot;</span>
+        <span>{{ article.category }}</span>
+    </div>
+    <div class="flex gap-4 mt-2 text-sm">
+        <span class="text-green-400">{{ article.verified_claims }} verified</span>
+        <span class="text-parchment-dim">{{ article.unverified_claims }} unverified</span>
+    </div>
+    <div class="confidence-bar mt-3" style="--confidence: {{ article.confidence_score }}"></div>
+
+    <div class="flex gap-3 mt-4 items-center">
+        <button class="btn-approve"
+                hx-post="/wiki/approve/{{ article.id }}"
+                hx-target="#review-card-{{ article.id }}"
+                hx-swap="outerHTML">
+            Approve
+        </button>
+        <button class="btn-reject"
+                onclick="this.nextElementSibling.classList.toggle('hidden')">
+            Reject
+        </button>
+        <form class="hidden flex gap-2 items-center flex-1"
+              hx-post="/wiki/reject/{{ article.id }}"
+              hx-target="#review-card-{{ article.id }}"
+              hx-swap="outerHTML">
+            <input type="text" name="reason" placeholder="Reason (optional)"
+                   class="flex-1 bg-shadow-deep border border-white/10 rounded px-3 py-1.5
+                          text-sm text-parchment placeholder-parchment-dim/50
+                          focus:outline-none focus:border-wow-gold/50">
+            <button type="submit" class="btn-reject text-xs">Confirm</button>
+        </form>
+    </div>
+</div>
+{% else %}
+<div class="text-center text-parchment-dim py-12">
+    No articles pending review.
+</div>
+{% endfor %}

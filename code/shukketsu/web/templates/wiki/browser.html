@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Wiki — Shukketsu{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col max-w-6xl w-full mx-auto p-6 overflow-y-auto">
+    <h1 class="text-wow-gold text-2xl font-bold mb-6">Wiki Articles</h1>
+
+    <!-- Filters -->
+    <div class="flex flex-wrap gap-3 mb-6">
+        <input type="text" name="q" placeholder="Search by title..."
+               value="{{ q or '' }}"
+               class="flex-1 min-w-[200px] bg-shadow border border-white/10 rounded-lg px-4 py-2
+                      text-parchment placeholder-parchment-dim/50 text-sm
+                      focus:outline-none focus:border-wow-gold/50 transition-colors"
+               hx-get="/wiki/htmx/articles"
+               hx-trigger="keyup changed delay:300ms"
+               hx-target="#article-list"
+               hx-include="[name='spec'],[name='status']">
+
+        <select name="spec"
+                class="bg-shadow border border-white/10 rounded-lg px-3 py-2 text-sm text-parchment
+                       focus:outline-none focus:border-wow-gold/50"
+                hx-get="/wiki/htmx/articles"
+                hx-trigger="change"
+                hx-target="#article-list"
+                hx-include="[name='q'],[name='status']">
+            <option value="">All Specs</option>
+            <option value="combat" {% if spec == 'combat' %}selected{% endif %}>Combat</option>
+            <option value="assassination" {% if spec == 'assassination' %}selected{% endif %}>Assassination</option>
+            <option value="subtlety" {% if spec == 'subtlety' %}selected{% endif %}>Subtlety</option>
+            <option value="general" {% if spec == 'general' %}selected{% endif %}>General</option>
+        </select>
+
+        <select name="status"
+                class="bg-shadow border border-white/10 rounded-lg px-3 py-2 text-sm text-parchment
+                       focus:outline-none focus:border-wow-gold/50"
+                hx-get="/wiki/htmx/articles"
+                hx-trigger="change"
+                hx-target="#article-list"
+                hx-include="[name='q'],[name='spec']">
+            <option value="">All Statuses</option>
+            <option value="draft" {% if status == 'draft' %}selected{% endif %}>Draft</option>
+            <option value="review" {% if status == 'review' %}selected{% endif %}>Review</option>
+            <option value="published" {% if status == 'published' %}selected{% endif %}>Published</option>
+        </select>
+
+        <a href="/wiki/review"
+           class="bg-shadow border border-wow-gold/30 rounded-lg px-4 py-2 text-sm text-wow-gold
+                  hover:bg-wow-gold/10 transition-colors">
+            Review Queue
+        </a>
+    </div>
+
+    <!-- Article grid -->
+    <div id="article-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% include "wiki/partials/article_list.html" %}
+    </div>
+</div>
+{% endblock %}

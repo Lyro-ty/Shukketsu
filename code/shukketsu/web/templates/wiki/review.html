@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Review Queue — Shukketsu{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col max-w-4xl w-full mx-auto p-6 overflow-y-auto">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-wow-gold text-2xl font-bold">Articles Pending Review</h1>
+        <a href="/wiki/"
+           class="text-sm text-parchment-dim hover:text-parchment transition-colors">
+            &larr; Back to Wiki
+        </a>
+    </div>
+
+    <div id="review-list" class="flex flex-col gap-4">
+        {% include "wiki/partials/review_list.html" %}
+    </div>
+</div>
+{% endblock %}
