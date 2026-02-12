@@ -100,15 +100,23 @@ class IngestPipeline:
             if existing:
                 source_id = existing["id"]
                 self._delete_chunks_and_vectors(source_id)
+                now_iso = datetime.now(UTC).isoformat()
                 self._conn.execute(
-                    "UPDATE sources SET title = ?, source_type = ?, content_hash = ?, "
-                    "fetched_at = ?, chunk_count = 0 WHERE id = ?",
-                    (title, source_type, content_hash, datetime.now(UTC).isoformat(), source_id),
+                    "UPDATE sources SET title = ?, source_type = ?, "
+                    "content_hash_previous = content_hash, content_hash = ?, "
+                    "change_count = change_count + 1, is_stale = 0, "
+                    "fetched_at = ?, last_checked = ?, chunk_count = 0 WHERE id = ?",
+                    (title, source_type, content_hash, now_iso, now_iso, source_id),
                 )
             else:
+                from code.shukketsu.config import get_check_interval
+
+                now_iso = datetime.now(UTC).isoformat()
+                check_interval = get_check_interval(url)
                 cursor = self._conn.execute(
-                    "INSERT INTO sources (url, title, source_type, content_hash, fetched_at) VALUES (?, ?, ?, ?, ?)",
-                    (url, title, source_type, content_hash, datetime.now(UTC).isoformat()),
+                    "INSERT INTO sources (url, title, source_type, content_hash, fetched_at, "
+                    "check_interval_hours, last_checked) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (url, title, source_type, content_hash, now_iso, check_interval, now_iso),
                 )
                 source_id = cursor.lastrowid
 
