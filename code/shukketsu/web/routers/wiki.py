@@ -63,7 +63,8 @@ async def wiki_browser(
     """Article browser with filters and search."""
     articles = _filter_articles(km, spec, status, q)
     return _templates.TemplateResponse(
-        request, "wiki/browser.html",
+        request,
+        "wiki/browser.html",
         {"articles": articles, "spec": spec, "status": status, "q": q},
     )
 
@@ -76,7 +77,8 @@ async def wiki_review(
     """Review queue -- articles pending human approval."""
     articles = km.list_articles(status=ArticleStatus.REVIEW)
     return _templates.TemplateResponse(
-        request, "wiki/review.html",
+        request,
+        "wiki/review.html",
         {"articles": articles},
     )
 
@@ -95,14 +97,16 @@ async def wiki_article(
     except FileNotFoundError:
         return HTMLResponse(
             _templates.TemplateResponse(
-                request, "wiki/browser.html",
+                request,
+                "wiki/browser.html",
                 {"articles": [], "spec": None, "status": None, "q": None},
             ).body,
             status_code=404,
         )
     article_html = render_markdown(content)
     return _templates.TemplateResponse(
-        request, "wiki/article.html",
+        request,
+        "wiki/article.html",
         {"meta": meta, "article_html": article_html},
     )
 
@@ -132,8 +136,7 @@ async def wiki_approve(
             status_code=400,
         )
     return HTMLResponse(
-        '<div class="flash-message text-green-400 bg-green-500/10 border border-green-500/30">'
-        "Article published.</div>"
+        '<div class="flash-message text-green-400 bg-green-500/10 border border-green-500/30">Article published.</div>'
     )
 
 
@@ -179,7 +182,8 @@ async def wiki_htmx_articles(
     """Return filtered article list fragment (no base template)."""
     articles = _filter_articles(km, spec, status, q)
     return _templates.TemplateResponse(
-        request, "wiki/partials/article_list.html",
+        request,
+        "wiki/partials/article_list.html",
         {"articles": articles},
     )
 
@@ -192,6 +196,7 @@ async def wiki_htmx_review(
     """Return review list fragment (no base template)."""
     articles = km.list_articles(status=ArticleStatus.REVIEW)
     return _templates.TemplateResponse(
-        request, "wiki/partials/review_list.html",
+        request,
+        "wiki/partials/review_list.html",
         {"articles": articles},
     )

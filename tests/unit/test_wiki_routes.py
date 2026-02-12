@@ -30,9 +30,9 @@ def wiki_db(tmp_path) -> sqlite3.Connection:
     check_same_thread=True would raise ProgrammingError. This fixture
     creates a fresh DB with check_same_thread=False for route testing.
     """
-    from code.shukketsu.db.connection import init_db
-
     import sqlite_vec
+
+    from code.shukketsu.db.connection import init_db
 
     db_path = tmp_path / "wiki_test.db"
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -162,9 +162,7 @@ class TestApprove:
 
 
 class TestReject:
-    def test_reject_review_article(
-        self, client: TestClient, km: KnowledgeManager, wiki_db: sqlite3.Connection
-    ) -> None:
+    def test_reject_review_article(self, client: TestClient, km: KnowledgeManager, wiki_db: sqlite3.Connection) -> None:
         path = km.create_draft(_sample_meta(), "Content")
         km.set_status(path, ArticleStatus.REVIEW)
         article_id = wiki_db.execute("SELECT id FROM articles WHERE path = ?", (path,)).fetchone()["id"]
@@ -173,9 +171,7 @@ class TestReject:
         row = wiki_db.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
         assert row["status"] == "draft"
 
-    def test_reject_stores_reason(
-        self, client: TestClient, km: KnowledgeManager, wiki_db: sqlite3.Connection
-    ) -> None:
+    def test_reject_stores_reason(self, client: TestClient, km: KnowledgeManager, wiki_db: sqlite3.Connection) -> None:
         path = km.create_draft(_sample_meta(), "Content")
         km.set_status(path, ArticleStatus.REVIEW)
         article_id = wiki_db.execute("SELECT id FROM articles WHERE path = ?", (path,)).fetchone()["id"]
@@ -192,18 +188,14 @@ class TestHtmxFragments:
         assert "<html" not in resp.text
         assert "No articles found" in resp.text
 
-    def test_articles_filters_by_spec(
-        self, client: TestClient, km: KnowledgeManager
-    ) -> None:
+    def test_articles_filters_by_spec(self, client: TestClient, km: KnowledgeManager) -> None:
         km.create_draft(_sample_meta(title="Combat Guide", spec=Spec.COMBAT), "A")
         km.create_draft(_sample_meta(title="Mut Guide", spec=Spec.ASSASSINATION), "B")
         resp = client.get("/wiki/htmx/articles?spec=combat")
         assert "Combat Guide" in resp.text
         assert "Mut Guide" not in resp.text
 
-    def test_articles_filters_by_title_search(
-        self, client: TestClient, km: KnowledgeManager
-    ) -> None:
+    def test_articles_filters_by_title_search(self, client: TestClient, km: KnowledgeManager) -> None:
         km.create_draft(_sample_meta(title="Phase 1 Trinkets"), "A")
         km.create_draft(_sample_meta(title="Rotation Guide"), "B")
         resp = client.get("/wiki/htmx/articles?q=trinket")

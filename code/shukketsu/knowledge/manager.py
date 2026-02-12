@@ -200,7 +200,10 @@ class KnowledgeManager:
         spec: Spec | None = None,
     ) -> list[ArticleSummary]:
         """Query articles with optional filters. Returns typed ArticleSummary objects."""
-        query = "SELECT id, path, title, spec, category, status, confidence_score, verified_claims, unverified_claims, last_updated FROM articles"
+        query = (
+            "SELECT id, path, title, spec, category, status, confidence_score,"
+            " verified_claims, unverified_claims, last_updated FROM articles"
+        )
         conditions: list[str] = []
         params: list[str] = []
 
@@ -262,9 +265,7 @@ class KnowledgeManager:
 
     def get_path_by_id(self, article_id: int) -> str:
         """Look up article path by integer ID. Raises ValueError if not found."""
-        row = self._conn.execute(
-            "SELECT path FROM articles WHERE id = ?", (article_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT path FROM articles WHERE id = ?", (article_id,)).fetchone()
         if row is None:
             raise ValueError(f"Article not found: id={article_id}")
         return row["path"]
@@ -285,9 +286,7 @@ class KnowledgeManager:
             raise ValueError(f"Article not found: {path}")
         current_status = ArticleStatus(row["status"])
         if current_status != ArticleStatus.REVIEW:
-            raise ValueError(
-                f"Cannot reject article with status '{current_status}': not in review"
-            )
+            raise ValueError(f"Cannot reject article with status '{current_status}': not in review")
 
         meta, content = self.read_article(path)
 

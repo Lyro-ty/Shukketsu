@@ -44,9 +44,7 @@ def _sample_meta(**overrides) -> ArticleMeta:
 
 
 class TestArticleSummaryFields:
-    def test_list_articles_includes_id(
-        self, km: KnowledgeManager, test_db: sqlite3.Connection
-    ) -> None:
+    def test_list_articles_includes_id(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
         """ArticleSummary should include the integer id from the DB."""
         km.create_draft(_sample_meta(), "Content")
         articles = km.list_articles()
@@ -54,9 +52,7 @@ class TestArticleSummaryFields:
         assert isinstance(articles[0].id, int)
         assert articles[0].id > 0
 
-    def test_list_articles_includes_claim_counts(
-        self, km: KnowledgeManager, test_db: sqlite3.Connection
-    ) -> None:
+    def test_list_articles_includes_claim_counts(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
         """ArticleSummary should include verified_claims and unverified_claims."""
         path = km.create_draft(_sample_meta(), "Content")
         # Set claim counts directly in DB (Editor sets these during verification)
@@ -69,9 +65,7 @@ class TestArticleSummaryFields:
         assert articles[0].verified_claims == 3
         assert articles[0].unverified_claims == 1
 
-    def test_list_articles_claim_counts_default_zero(
-        self, km: KnowledgeManager
-    ) -> None:
+    def test_list_articles_claim_counts_default_zero(self, km: KnowledgeManager) -> None:
         """Claim counts should default to 0 for new articles."""
         km.create_draft(_sample_meta(), "Content")
         articles = km.list_articles()
@@ -91,9 +85,7 @@ class TestGetPathById:
 
 
 class TestRejectArticle:
-    def test_review_to_draft(
-        self, km: KnowledgeManager, test_db: sqlite3.Connection
-    ) -> None:
+    def test_review_to_draft(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
         path = km.create_draft(_sample_meta(), "Content")
         km.set_status(path, ArticleStatus.REVIEW)
         km.reject_article(path, reason="Needs more sources")
@@ -112,9 +104,7 @@ class TestRejectArticle:
         with pytest.raises(ValueError, match="not in review"):
             km.reject_article(path, reason="bad")
 
-    def test_reject_published_raises(
-        self, km: KnowledgeManager, test_db: sqlite3.Connection
-    ) -> None:
+    def test_reject_published_raises(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
         path = km.create_draft(_sample_meta(), "Content")
         km.set_status(path, ArticleStatus.REVIEW)
         km.set_status(path, ArticleStatus.PUBLISHED)
