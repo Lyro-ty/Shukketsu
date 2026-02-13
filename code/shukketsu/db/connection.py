@@ -88,6 +88,8 @@ def init_db(conn: sqlite3.Connection) -> None:
                 _migrate_v4_to_v5(conn)
             if version < 6:
                 _migrate_v5_to_v6(conn)
+            if version < 7:
+                _migrate_v6_to_v7(conn)
             return
     except sqlite3.OperationalError:
         pass  # Table doesn't exist yet — need to initialize
@@ -100,7 +102,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         _migrate_v4_to_v5(conn)
     if version < 6:
         _migrate_v5_to_v6(conn)
-    logger.info("Database schema initialized (version 6)")
+    if version < 7:
+        _migrate_v6_to_v7(conn)
+    logger.info("Database schema initialized (version 7)")
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
@@ -215,6 +219,29 @@ def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO schema_version (version) VALUES (6)")
     conn.commit()
     logger.info("Database migrated from v5 to v6 (wcl_combatants.player_name)")
+
+
+_VALIDATION_V7_SQL = """
+CREATE TABLE IF NOT EXISTS validation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    character_name TEXT NOT NULL,
+    run_type TEXT NOT NULL,
+    total_fights INTEGER NOT NULL,
+    included_fights INTEGER NOT NULL,
+    overall_dps_drift_pct REAL NOT NULL,
+    overall_status TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
+def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
+    """Migrate v6 to v7: add validation_runs table."""
+    conn.executescript(_VALIDATION_V7_SQL)
+    conn.execute("INSERT INTO schema_version (version) VALUES (7)")
+    conn.commit()
+    logger.info("Database migrated from v6 to v7 (validation_runs table)")
 
 
 def _configure(conn: sqlite3.Connection) -> None:

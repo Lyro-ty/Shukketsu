@@ -148,10 +148,10 @@ class TestInitDb:
         for name in ("entity_types", "entities", "relationships"):
             assert name in tables, f"Missing table: {name}"
 
-    def test_schema_version_is_6(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 6 after fresh initialization."""
+    def test_schema_version_is_7(self, db: sqlite3.Connection) -> None:
+        """Schema version should be 7 after fresh initialization."""
         version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 6
+        assert version == 7
 
     def test_entity_type_unique_name(self, db: sqlite3.Connection) -> None:
         """entity_types.name should enforce uniqueness."""
@@ -281,6 +281,19 @@ class TestInitDb:
         db.commit()
         count = db.execute("SELECT COUNT(*) FROM trust_events").fetchone()[0]
         assert count == 0
+
+
+def test_schema_v7_validation_runs_table(test_db: sqlite3.Connection) -> None:
+    """Schema v7 adds validation_runs table."""
+    tables = test_db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='validation_runs'").fetchone()
+    assert tables is not None
+
+    cols = test_db.execute("PRAGMA table_info(validation_runs)").fetchall()
+    col_names = [c[1] for c in cols]
+    assert "character_name" in col_names
+    assert "run_type" in col_names
+    assert "overall_dps_drift_pct" in col_names
+    assert "report_json" in col_names
 
 
 # --- Helpers ---
