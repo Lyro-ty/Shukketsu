@@ -166,6 +166,56 @@ class TestExtractSessionMemory:
         assert count == 0, "Strategy commit leaked orphaned session_memories row"
 
 
+class TestRecencyScore:
+    """Tests for the _recency_score helper."""
+
+    def test_recent_timestamp_scores_high(self) -> None:
+        """A timestamp from just now should score close to 1.0."""
+        from code.shukketsu.memory.manager import _recency_score
+
+        now = datetime.now(UTC).isoformat()
+        score = _recency_score(now)
+        assert score > 0.95
+
+    def test_old_timestamp_scores_low(self) -> None:
+        """A timestamp from 30 days ago should score well below 1.0."""
+        from code.shukketsu.memory.manager import _recency_score
+
+        old = datetime(2025, 1, 1, tzinfo=UTC).isoformat()
+        score = _recency_score(old)
+        assert score < 0.1
+
+    def test_invalid_timestamp_returns_default(self) -> None:
+        """Malformed timestamp should return 0.5 default."""
+        from code.shukketsu.memory.manager import _recency_score
+
+        score = _recency_score("not-a-date")
+        assert score == 0.5
+
+    def test_none_timestamp_returns_default(self) -> None:
+        """None timestamp should return 0.5 default."""
+        from code.shukketsu.memory.manager import _recency_score
+
+        score = _recency_score(None)  # type: ignore[arg-type]
+        assert score == 0.5
+
+    def test_future_timestamp_clamped_to_one(self) -> None:
+        """A future timestamp should be clamped (age_days = 0), yielding score = 1.0."""
+        from code.shukketsu.memory.manager import _recency_score
+
+        future = datetime(2099, 1, 1, tzinfo=UTC).isoformat()
+        score = _recency_score(future)
+        assert score == 1.0
+
+    def test_naive_timestamp_treated_as_utc(self) -> None:
+        """Timezone-naive timestamps should be treated as UTC."""
+        from code.shukketsu.memory.manager import _recency_score
+
+        now_naive = datetime.now(UTC).replace(tzinfo=None).isoformat()
+        score = _recency_score(now_naive)
+        assert score > 0.95
+
+
 class TestRecallRelevant:
     """Tests for recall_relevant."""
 
@@ -189,6 +239,19 @@ class TestRecallRelevant:
         assert len(results) == 2
         # All results should have a score attribute
         assert all(hasattr(r, "score") for r in results)
+
+    async def test_recall_embedding_failure_returns_empty(self, mem_db: sqlite3.Connection) -> None:
+        """If embedding function raises, recall should return empty list (not crash)."""
+        from code.shukketsu.memory.manager import MemoryManager
+
+        _insert_memory_row(mem_db, query="some query", summary="some summary")
+
+        async def _failing_embed(text: str) -> list[float]:
+            raise RuntimeError("Embedding service down")
+
+        mm = MemoryManager(conn=mem_db, embed_fn=_failing_embed)
+        results = await mm.recall_relevant("any query", top_k=5)
+        assert results == []
 
     async def test_recall_composite_scoring(self, mem_db: sqlite3.Connection) -> None:
         """Composite score should be 0.6*sim + 0.2*recency + 0.2*quality."""

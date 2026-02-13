@@ -80,6 +80,9 @@ async def classify_query(query: str) -> RoutingDecision:
     except (LLMUnavailableError, StructuredOutputError, CircuitOpenError) as exc:
         logger.warning("Router fallback: %s", exc)
         return _FALLBACK
+    except Exception:
+        logger.warning("Router unexpected error — falling back to agent", exc_info=True)
+        return _FALLBACK
 
     logger.info(
         "Routed query: complexity=%s category=%s needs_tools=%s",

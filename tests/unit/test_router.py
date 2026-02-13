@@ -144,6 +144,22 @@ class TestClassifyQuery:
         assert result.needs_tools is True
 
     @pytest.mark.asyncio
+    async def test_classify_fallback_on_unexpected_exception(self) -> None:
+        """Unexpected exception types (e.g. TypeError, RuntimeError) should also trigger safe fallback."""
+        with patch(
+            "code.shukketsu.routing.router.ollama_router_breaker",
+        ) as mock_breaker:
+            mock_breaker.call = AsyncMock(side_effect=TypeError("unexpected arg mismatch"))
+
+            from code.shukketsu.routing.router import classify_query
+
+            result = await classify_query("What is the hit cap?")
+
+        assert result.complexity == TaskComplexity.COMPLEX
+        assert result.direct_answer is None
+        assert result.needs_tools is True
+
+    @pytest.mark.asyncio
     async def test_classify_prompt_includes_domain_context(self) -> None:
         """The system prompt sent to Qwen should include WoW TBC Rogue domain context."""
         mock_output = AsyncMock(return_value=_make_decision())

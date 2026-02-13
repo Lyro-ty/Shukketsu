@@ -35,9 +35,10 @@ def _recency_score(created_at: str, half_life_days: float = config.MEMORY_RECENC
         created = datetime.fromisoformat(created_at)
         if created.tzinfo is None:
             created = created.replace(tzinfo=UTC)
-        age_days = (datetime.now(UTC) - created).total_seconds() / 86400.0
+        age_days = max(0.0, (datetime.now(UTC) - created).total_seconds() / 86400.0)
         return math.exp(-age_days / half_life_days)
     except (ValueError, TypeError):
+        logger.debug("Invalid created_at timestamp %r, using default recency", created_at)
         return 0.5
 
 

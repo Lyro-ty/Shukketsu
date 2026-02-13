@@ -132,12 +132,15 @@ class TestRerankFallback:
 
         reranker_breaker._last_failure_time = time.monotonic()
 
-        results = [_make_result(i) for i in range(10)]
-        filtered = await rerank("query", results, top_k=3)
+        try:
+            results = [_make_result(i) for i in range(10)]
+            filtered = await rerank("query", results, top_k=3)
 
-        assert len(filtered) == 3
-        assert filtered == results[:3]
-        mock_get_model.assert_not_called()
+            assert len(filtered) == 3
+            assert filtered == results[:3]
+            mock_get_model.assert_not_called()
+        finally:
+            reranker_breaker.reset()
 
 
 class TestRerankScoreField:
