@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Sim - Shukketsu{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="/static/js/sim-charts.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-6 py-8 space-y-8">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-wow-gold">DPS Simulation</h1>
+        <span class="text-parchment-dim text-sm">TBC 2.4.3 Rogue</span>
+    </div>
+
+    <!-- Import Section -->
+    <div class="bg-shadow rounded-lg border border-white/10 p-6">
+        <h2 class="text-lg font-semibold text-parchment mb-4">Character Import</h2>
+        <form hx-post="/sim/import" hx-target="#gear-section" hx-swap="innerHTML">
+            <textarea name="import_text" rows="4"
+                placeholder="Paste your SimC or SeventyUpgrades export here..."
+                class="w-full bg-shadow-deep border border-white/10 rounded p-3 text-parchment text-sm font-mono focus:border-wow-gold focus:outline-none"></textarea>
+            <div class="flex items-center gap-4 mt-3">
+                <button type="submit"
+                    class="px-4 py-2 bg-wow-gold/20 text-wow-gold border border-wow-gold/30 rounded hover:bg-wow-gold/30 text-sm font-medium">
+                    Import Character
+                </button>
+                <select name="preset"
+                    class="bg-shadow-deep border border-white/10 rounded px-3 py-2 text-parchment text-sm">
+                    {% for preset in presets %}
+                    <option value="{{ preset }}">{{ preset | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+    </div>
+
+    <!-- Gear Section -->
+    <div id="gear-section">
+        <div class="text-parchment-dim text-center py-8">Import a character to see gear</div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="results-section">
+    </div>
+</div>
+{% endblock %}

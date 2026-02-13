@@ -198,6 +198,9 @@ from code.shukketsu.llm.prompts.writer import (  # noqa: E402
 # Editor
 EDITOR_CONFIDENCE_THRESHOLD = float(os.getenv("EDITOR_CONFIDENCE_THRESHOLD", "0.6"))
 
+from code.shukketsu.llm.prompts.analyst import (  # noqa: E402
+    ANALYST_SYSTEM_PROMPT as ANALYST_SYSTEM_PROMPT,
+)
 from code.shukketsu.llm.prompts.orchestrator import (  # noqa: E402
     ORCHESTRATOR_SYSTEM_PROMPT as ORCHESTRATOR_SYSTEM_PROMPT,
 )

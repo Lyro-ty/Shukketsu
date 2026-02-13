@@ -1,0 +1,11 @@
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <h2 class="text-lg font-semibold text-parchment mb-4">Ability Breakdown</h2>
+    {% if breakdown %}
+    <canvas id="ability-pie" width="300" height="300"></canvas>
+    <script>
+        if (typeof renderAbilityPie === 'function') {
+            renderAbilityPie('ability-pie', {{ breakdown | tojson }});
+        }
+    </script>
+    {% endif %}
+</div>

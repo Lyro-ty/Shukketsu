@@ -47,6 +47,10 @@
                    class="text-sm transition-colors {% if request.url.path.startswith('/wiki') %}text-wow-gold{% else %}text-parchment-dim hover:text-parchment{% endif %}">
                     Wiki
                 </a>
+                <a href="/sim/"
+                   class="text-sm transition-colors {% if request.url.path.startswith('/sim') %}text-wow-gold{% else %}text-parchment-dim hover:text-parchment{% endif %}">
+                    Sim
+                </a>
             </div>
         </div>
         {% block nav_right %}{% endblock %}

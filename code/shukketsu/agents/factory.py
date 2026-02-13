@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from code.shukketsu import config
+from code.shukketsu.agents.analyst import Analyst
 from code.shukketsu.agents.base import BaseAgent
 from code.shukketsu.agents.editor import Editor
 from code.shukketsu.agents.orchestrator import Orchestrator
@@ -24,10 +25,12 @@ _ROLE_PROMPTS: dict[AgentRole, str] = {
     AgentRole.WRITER: config.WRITER_SYSTEM_PROMPT,
     AgentRole.EDITOR: config.EDITOR_SYSTEM_PROMPT,
     AgentRole.ORCHESTRATOR: config.ORCHESTRATOR_SYSTEM_PROMPT,
+    AgentRole.ANALYST: config.ANALYST_SYSTEM_PROMPT,
 }
 
 _ROLE_MAX_ITERATIONS: dict[AgentRole, int] = {
     AgentRole.RESEARCHER: config.RESEARCHER_MAX_ITERATIONS,
+    AgentRole.ANALYST: config.ANALYST_MAX_ITERATIONS,
 }
 
 _ROLE_CLASSES: dict[AgentRole, type[BaseAgent]] = {
@@ -35,6 +38,7 @@ _ROLE_CLASSES: dict[AgentRole, type[BaseAgent]] = {
     AgentRole.WRITER: Writer,
     AgentRole.EDITOR: Editor,
     AgentRole.ORCHESTRATOR: Orchestrator,
+    AgentRole.ANALYST: Analyst,
 }
 
 

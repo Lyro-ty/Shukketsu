@@ -17,6 +17,7 @@ from code.shukketsu.observability.tracer import flush_traces, init_langfuse
 from code.shukketsu.web.routers.backup import router as backup_router
 from code.shukketsu.web.routers.chat import router as chat_router
 from code.shukketsu.web.routers.freshness import router as freshness_router
+from code.shukketsu.web.routers.sim import router as sim_router
 from code.shukketsu.web.routers.wiki import router as wiki_router
 
 _WEB_DIR = Path(__file__).parent
@@ -97,6 +98,7 @@ app.mount("/static", StaticFiles(directory=_WEB_DIR / "static"), name="static")
 app.include_router(backup_router)
 app.include_router(chat_router)
 app.include_router(freshness_router)
+app.include_router(sim_router)
 app.include_router(wiki_router)
 
 templates = Jinja2Templates(directory=_WEB_DIR / "templates")

@@ -19,6 +19,7 @@ class AgentRole(StrEnum):
     WRITER = "writer"
     EDITOR = "editor"
     ORCHESTRATOR = "orchestrator"
+    ANALYST = "analyst"
 
 
 class TaskStatus(StrEnum):
@@ -222,3 +223,23 @@ class OrchestratorResult(AgentResult):
     article_path: str | None = None
     needs_human_review: bool = False
     skipped_tasks: list[str] = Field(default_factory=list)
+
+
+class AnalysisTask(AgentTask):
+    """Task for the Analyst agent.
+
+    Contains character setup info and what kind of analysis to perform.
+    """
+
+    import_string: str = ""
+    comparison_mode: bool = False
+    optimization_slot: str | None = None
+
+
+class AnalysisResult(AgentResult):
+    """Structured output from the Analyst agent."""
+
+    dps_mean: float | None = None
+    stat_weights: dict[str, float] = Field(default_factory=dict)
+    comparison: dict[str, Any] = Field(default_factory=dict)
+    recommendations: list[str] = Field(default_factory=list)

@@ -1,0 +1,44 @@
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-parchment">Gear</h2>
+        <form hx-post="/sim/run" hx-target="#results-section" hx-swap="innerHTML"
+            hx-include="[name=import_text],[name=preset],[name=iterations]">
+            <input type="hidden" name="import_text" value="{{ import_text | default('', true) }}">
+            <div class="flex items-center gap-3">
+                <label class="text-parchment-dim text-sm">Iterations:</label>
+                <input type="number" name="iterations" value="1000" min="100" max="100000" step="100"
+                    class="w-24 bg-shadow-deep border border-white/10 rounded px-2 py-1 text-parchment text-sm">
+                <button type="submit"
+                    class="px-4 py-2 bg-green-600/20 text-green-400 border border-green-600/30 rounded hover:bg-green-600/30 text-sm font-medium">
+                    Run Sim
+                </button>
+            </div>
+        </form>
+    </div>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-white/10">
+                <th class="text-left py-2 text-parchment-dim">Slot</th>
+                <th class="text-left py-2 text-parchment-dim">Item</th>
+                <th class="text-right py-2 text-parchment-dim">ID</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for slot in gear_slots %}
+            <tr class="border-b border-white/5">
+                <td class="py-2 text-parchment-dim">{{ slot.value | replace('_', ' ') | title }}</td>
+                <td class="py-2 text-parchment">
+                    {% if config.gear.get(slot) %}
+                        Item #{{ config.gear[slot] }}
+                    {% else %}
+                        <span class="text-parchment-dim italic">Empty</span>
+                    {% endif %}
+                </td>
+                <td class="py-2 text-right text-parchment-dim">
+                    {% if config.gear.get(slot) %}{{ config.gear[slot] }}{% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

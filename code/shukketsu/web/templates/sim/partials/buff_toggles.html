@@ -1,0 +1,8 @@
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <h2 class="text-lg font-semibold text-parchment mb-4">Buffs</h2>
+    <select name="preset" class="bg-shadow-deep border border-white/10 rounded px-3 py-2 text-parchment text-sm">
+        {% for preset in presets %}
+        <option value="{{ preset }}">{{ preset | replace('_', ' ') | title }}</option>
+        {% endfor %}
+    </select>
+</div>

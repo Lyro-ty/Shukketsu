@@ -1,0 +1,51 @@
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <h2 class="text-lg font-semibold text-parchment mb-4">Results</h2>
+    <div class="grid grid-cols-3 gap-6 mb-6">
+        <div class="bg-shadow-deep rounded-lg p-4 text-center">
+            <div class="text-3xl font-bold text-wow-gold">{{ "%.1f"|format(result.dps_mean) }}</div>
+            <div class="text-parchment-dim text-sm mt-1">Mean DPS</div>
+        </div>
+        <div class="bg-shadow-deep rounded-lg p-4 text-center">
+            <div class="text-3xl font-bold text-parchment">{{ "%.1f"|format(result.dps_std) }}</div>
+            <div class="text-parchment-dim text-sm mt-1">Std Dev</div>
+        </div>
+        <div class="bg-shadow-deep rounded-lg p-4 text-center">
+            <div class="text-3xl font-bold text-parchment">{{ "%.1f"|format(result.dps_median) }}</div>
+            <div class="text-parchment-dim text-sm mt-1">Median DPS</div>
+        </div>
+    </div>
+
+    {% if result.ability_breakdown %}
+    <h3 class="text-md font-semibold text-parchment mb-3">Ability Breakdown</h3>
+    <div class="grid grid-cols-2 gap-6">
+        <canvas id="ability-chart" width="300" height="300"></canvas>
+        <table class="text-sm">
+            <thead>
+                <tr class="border-b border-white/10">
+                    <th class="text-left py-1 text-parchment-dim">Ability</th>
+                    <th class="text-right py-1 text-parchment-dim">Dmg %</th>
+                    <th class="text-right py-1 text-parchment-dim">Casts</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ab in result.ability_breakdown %}
+                <tr class="border-b border-white/5">
+                    <td class="py-1 text-parchment">{{ ab.name | replace('_', ' ') | title }}</td>
+                    <td class="py-1 text-right text-parchment">{{ "%.1f"|format(ab.damage_pct) }}%</td>
+                    <td class="py-1 text-right text-parchment-dim">{{ "%.0f"|format(ab.casts) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <script>
+        if (typeof renderAbilityPie === 'function') {
+            var breakdown = {};
+            {% for ab in result.ability_breakdown %}
+            breakdown["{{ ab.name }}"] = {{ ab.damage_pct }};
+            {% endfor %}
+            renderAbilityPie('ability-chart', breakdown);
+        }
+    </script>
+    {% endif %}
+</div>

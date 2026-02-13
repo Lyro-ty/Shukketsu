@@ -1,0 +1,23 @@
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <h2 class="text-lg font-semibold text-parchment mb-4">Stat Weights</h2>
+    {% if weights %}
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-white/10">
+                <th class="text-left py-1 text-parchment-dim">Stat</th>
+                <th class="text-right py-1 text-parchment-dim">EP</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in weights %}
+            <tr class="border-b border-white/5">
+                <td class="py-1 text-parchment">{{ w.stat | replace('_', ' ') | title }}</td>
+                <td class="py-1 text-right text-wow-gold">{{ "%.2f"|format(w.ep_value) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="text-parchment-dim text-sm">Run a simulation to compute stat weights.</div>
+    {% endif %}
+</div>
