@@ -173,6 +173,37 @@ class TestUpdateDraft:
             km.update_draft(path, _sample_meta(), "New")
 
 
+    def test_path_traversal_blocked(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
+        """If a path traversal bypasses the DB check, the resolve check blocks it."""
+        # Inject a malicious path directly into the DB to bypass the first check
+        test_db.execute(
+            """INSERT INTO articles (path, title, spec, category, status,
+               confidence_score, created_at, last_updated)
+               VALUES ('../../etc/passwd', 'Evil', 'combat', 'gear', 'draft',
+               0.5, '2025-01-01', '2025-01-01')"""
+        )
+        test_db.commit()
+        with pytest.raises(FileNotFoundError):
+            km.update_draft("../../etc/passwd", _sample_meta(), "malicious")
+
+    def test_db_failure_restores_file(self, km: KnowledgeManager, tmp_path, test_db: sqlite3.Connection) -> None:
+        """If DB UPDATE fails, original file content should be restored."""
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Original content")
+        full_path = tmp_path / "knowledge" / path
+
+        # Close the connection to force a DB error on update
+        test_db.close()
+
+        with pytest.raises(Exception):
+            km.update_draft(path, _sample_meta(confidence=0.9), "New content")
+
+        # File should still have original content
+        content = full_path.read_text(encoding="utf-8")
+        assert "Original content" in content
+        assert "New content" not in content
+
+
 class TestListArticles:
     def test_no_filter(self, km: KnowledgeManager) -> None:
         km.create_draft(_sample_meta(title="Article 1"), "A")

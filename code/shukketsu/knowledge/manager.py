@@ -178,21 +178,33 @@ class KnowledgeManager:
         if status != ArticleStatus.DRAFT:
             raise ValueError(f"Cannot update article with status '{status}'")
 
-        # Write file
-        full_path = self._knowledge_dir / path
+        full_path = (self._knowledge_dir / path).resolve()
+        if not str(full_path).startswith(str(self._knowledge_dir.resolve())):
+            raise FileNotFoundError(f"Article not found: {path}")
+
         now = datetime.now(tz=meta.updated_at.tzinfo)
         meta_updated = meta.model_copy(update={"updated_at": now})
 
+        # Save original content so we can restore on DB failure
+        original_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
+
+        # Write file
         post = frontmatter.Post(content, **meta_updated.model_dump(mode="json"))
         full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
 
-        # Update DB row
-        self._conn.execute(
-            """UPDATE articles SET title = ?, confidence_score = ?, last_updated = ?
-            WHERE path = ?""",
-            (meta_updated.title, meta_updated.confidence, now.isoformat(), path),
-        )
-        self._conn.commit()
+        # Update DB row — restore file on failure
+        try:
+            self._conn.execute(
+                """UPDATE articles SET title = ?, confidence_score = ?, last_updated = ?
+                WHERE path = ?""",
+                (meta_updated.title, meta_updated.confidence, now.isoformat(), path),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            if original_content is not None:
+                full_path.write_text(original_content, encoding="utf-8")
+            raise
         logger.info("Updated draft article: %s", path)
 
     def list_articles(
@@ -315,15 +327,23 @@ class KnowledgeManager:
             }
         )
 
-        # Write file with updated frontmatter
+        # Write file with updated frontmatter — save original for rollback
         full_path = self._knowledge_dir / path
+        original_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
+
         post = frontmatter.Post(content, **updated.model_dump(mode="json", exclude_none=True))
         full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
 
-        # Update DB
-        self._conn.execute(
-            "UPDATE articles SET status = 'draft', last_updated = ? WHERE path = ?",
-            (updated.updated_at.isoformat(), path),
-        )
-        self._conn.commit()
+        # Update DB — restore file on failure
+        try:
+            self._conn.execute(
+                "UPDATE articles SET status = 'draft', last_updated = ? WHERE path = ?",
+                (updated.updated_at.isoformat(), path),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            if original_content is not None:
+                full_path.write_text(original_content, encoding="utf-8")
+            raise
         logger.info("Rejected article %s: %s", path, reason or "(no reason)")

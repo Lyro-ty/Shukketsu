@@ -175,44 +175,49 @@ class IngestPipeline:
         total_entities = 0
         total_relationships = 0
 
-        for chunk, chunk_id in zip(chunks, chunk_ids):
-            try:
-                extraction = await self._extract_fn(chunk.content)  # type: ignore[misc]
-            except Exception as exc:
-                logger.warning("Entity extraction failed for chunk %d: %s", chunk_id, exc)
-                continue
-
-            entity_id_map: dict[str, int] = {}
-            for entity in extraction.entities:
-                eid = self._graph_store.upsert_entity(  # type: ignore[union-attr]
-                    entity.name,
-                    entity.entity_type,
-                    properties=entity.properties or None,
-                    source_chunk_id=chunk_id,
-                )
-                entity_id_map[entity.name] = eid
-                total_entities += 1
-
-            for rel in extraction.relationships:
-                src_id = entity_id_map.get(rel.source)
-                tgt_id = entity_id_map.get(rel.target)
-                if src_id is None or tgt_id is None:
-                    logger.debug(
-                        "Skipping relationship %s->%s: entity not in this chunk's extraction",
-                        rel.source,
-                        rel.target,
-                    )
+        try:
+            for chunk, chunk_id in zip(chunks, chunk_ids):
+                try:
+                    extraction = await self._extract_fn(chunk.content)  # type: ignore[misc]
+                except Exception as exc:
+                    logger.warning("Entity extraction failed for chunk %d: %s", chunk_id, exc)
                     continue
-                self._graph_store.upsert_relationship(  # type: ignore[union-attr]
-                    src_id,
-                    tgt_id,
-                    rel.relation_type,
-                    properties=rel.properties or None,
-                    source_chunk_id=chunk_id,
-                )
-                total_relationships += 1
 
-        self._conn.commit()
+                entity_id_map: dict[str, int] = {}
+                for entity in extraction.entities:
+                    eid = self._graph_store.upsert_entity(  # type: ignore[union-attr]
+                        entity.name,
+                        entity.entity_type,
+                        properties=entity.properties or None,
+                        source_chunk_id=chunk_id,
+                    )
+                    entity_id_map[entity.name] = eid
+                    total_entities += 1
+
+                for rel in extraction.relationships:
+                    src_id = entity_id_map.get(rel.source)
+                    tgt_id = entity_id_map.get(rel.target)
+                    if src_id is None or tgt_id is None:
+                        logger.debug(
+                            "Skipping relationship %s->%s: entity not in this chunk's extraction",
+                            rel.source,
+                            rel.target,
+                        )
+                        continue
+                    self._graph_store.upsert_relationship(  # type: ignore[union-attr]
+                        src_id,
+                        tgt_id,
+                        rel.relation_type,
+                        properties=rel.properties or None,
+                        source_chunk_id=chunk_id,
+                    )
+                    total_relationships += 1
+
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            logger.warning("Entity storage failed — rolling back graph changes", exc_info=True)
+            return 0, 0
         return total_entities, total_relationships
 
     def _delete_chunks_and_vectors(self, source_id: int) -> None:
