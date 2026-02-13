@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
 import httpx
+import trafilatura
 from pydantic import BaseModel
 
 from code.shukketsu import config
@@ -152,9 +153,16 @@ async def check_source_freshness(
                 except (ValueError, TypeError):
                     pass  # Malformed header -- fall through to full fetch
 
-            # Step 3: Full GET fetch
+            # Step 3: Full GET fetch + extract text (matches ingest pipeline hashing)
             get_resp = await client.get(source.url)
-            new_hash = hashlib.sha256(get_resp.text.encode()).hexdigest()
+            extracted = trafilatura.extract(
+                get_resp.text,
+                output_format="markdown",
+                include_links=False,
+                include_comments=False,
+            )
+            hash_input = extracted if extracted and extracted.strip() else get_resp.text
+            new_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
     except (httpx.HTTPError, OSError) as exc:
         return FreshnessResult(

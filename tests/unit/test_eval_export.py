@@ -7,13 +7,20 @@ from unittest.mock import MagicMock
 from code.shukketsu.evals.export import TrainingExporter
 
 
-def _mock_trace(
+def _mock_trace_summary() -> MagicMock:
+    """Create a mock TraceWithDetails (list summary — scores are IDs only)."""
+    summary = MagicMock()
+    summary.id = "trace-abc"
+    return summary
+
+
+def _mock_full_trace(
     input_text: str = "What is hit cap?",
     output_text: str | None = "9%",
     feedback: float = 1.0,
     trajectory: float = 0.8,
 ) -> MagicMock:
-    """Create a mock Langfuse trace with scores."""
+    """Create a mock TraceWithFullDetails (full trace with ScoreV1 objects)."""
     trace = MagicMock()
     trace.input = input_text
     trace.output = output_text
@@ -28,14 +35,28 @@ def _mock_trace(
     return trace
 
 
+def _setup_client(
+    client: MagicMock,
+    traces: list[MagicMock] | None = None,
+) -> None:
+    """Wire up mock client with list + get endpoints.
+
+    Each trace_summary in list maps to a corresponding full trace via get().
+    """
+    if traces is None:
+        traces = [_mock_full_trace()]
+    resp = MagicMock()
+    resp.data = [_mock_trace_summary() for _ in traces]
+    client.api.trace.list.return_value = resp
+    client.api.trace.get.side_effect = traces
+
+
 class TestShareGPTExport:
     """Tests for ShareGPT format export."""
 
     def test_produces_valid_jsonl(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = [_mock_trace()]
-        client.api.trace.list.return_value = resp
+        _setup_client(client, [_mock_full_trace()])
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(output_format="sharegpt", output_path=tmp_path / "out.jsonl")
@@ -48,9 +69,7 @@ class TestShareGPTExport:
 
     def test_skips_empty_output(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = [_mock_trace(output_text=None)]
-        client.api.trace.list.return_value = resp
+        _setup_client(client, [_mock_full_trace(output_text=None)])
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(output_format="sharegpt", output_path=tmp_path / "out.jsonl")
@@ -63,9 +82,7 @@ class TestFunctionCallingExport:
 
     def test_produces_valid_format(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = [_mock_trace()]
-        client.api.trace.list.return_value = resp
+        _setup_client(client, [_mock_full_trace()])
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(output_format="function_calling", output_path=tmp_path / "out.jsonl")
@@ -81,9 +98,8 @@ class TestFiltering:
 
     def test_filters_by_feedback_score(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = [_mock_trace(feedback=0.0), _mock_trace(feedback=1.0)]
-        client.api.trace.list.return_value = resp
+        traces = [_mock_full_trace(feedback=0.0), _mock_full_trace(feedback=1.0)]
+        _setup_client(client, traces)
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(
@@ -97,9 +113,8 @@ class TestFiltering:
 
     def test_filters_by_trajectory(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = [_mock_trace(trajectory=0.3), _mock_trace(trajectory=0.9)]
-        client.api.trace.list.return_value = resp
+        traces = [_mock_full_trace(trajectory=0.3), _mock_full_trace(trajectory=0.9)]
+        _setup_client(client, traces)
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(
@@ -113,9 +128,7 @@ class TestFiltering:
 
     def test_empty_result_set(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = []
-        client.api.trace.list.return_value = resp
+        _setup_client(client, [])
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(output_format="sharegpt", output_path=tmp_path / "out.jsonl")
@@ -124,9 +137,7 @@ class TestFiltering:
 
     def test_output_path_created(self, tmp_path: Path) -> None:
         client = MagicMock()
-        resp = MagicMock()
-        resp.data = [_mock_trace()]
-        client.api.trace.list.return_value = resp
+        _setup_client(client, [_mock_full_trace()])
 
         nested = tmp_path / "subdir" / "out.jsonl"
         exporter = TrainingExporter(langfuse_client=client)

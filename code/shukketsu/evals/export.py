@@ -69,25 +69,32 @@ class TrainingExporter:
         min_feedback: float,
         min_trajectory: float,
     ) -> list[dict[str, Any]]:
-        """Fetch traces with positive feedback from Langfuse."""
+        """Fetch traces with positive feedback from Langfuse.
+
+        The trace list API returns only score IDs, so we fetch full
+        details per trace to access score names and values.
+        """
         try:
             traces_response = self._client.api.trace.list(
                 tags="chat",
                 limit=500,
             )
             scored: list[dict[str, Any]] = []
-            for trace in traces_response.data:
-                scores = {s.name: s.value for s in (trace.scores or [])}
+            for trace_summary in traces_response.data:
+                # trace.list() returns TraceWithDetails (scores are IDs only);
+                # trace.get() returns TraceWithFullDetails with ScoreV1 objects
+                full_trace = self._client.api.trace.get(trace_summary.id)
+                scores = {s.name: s.value for s in full_trace.scores}
                 feedback = scores.get("user_feedback", -1)
                 trajectory = scores.get("trajectory_precision", -1)
 
                 if feedback >= min_feedback and trajectory >= min_trajectory:
                     scored.append(
                         {
-                            "input": trace.input,
-                            "output": trace.output,
+                            "input": full_trace.input,
+                            "output": full_trace.output,
                             "scores": scores,
-                            "observations": trace.observations or [],
+                            "observations": list(full_trace.observations),
                         }
                     )
             return scored

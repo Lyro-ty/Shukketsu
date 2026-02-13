@@ -56,13 +56,16 @@ class BackupManager:
 
     def verify_integrity(self, backup_path: Path) -> bool:
         """Run PRAGMA integrity_check on a backup file."""
+        conn: sqlite3.Connection | None = None
         try:
             conn = sqlite3.connect(str(backup_path))
             result = conn.execute("PRAGMA integrity_check").fetchone()
-            conn.close()
             return result is not None and result[0] == "ok"
         except (sqlite3.DatabaseError, sqlite3.OperationalError):
             return False
+        finally:
+            if conn is not None:
+                conn.close()
 
     def list_backups(self) -> list[BackupResult]:
         """List existing backups sorted newest first."""
