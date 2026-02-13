@@ -1,0 +1,43 @@
+{% if latest_run %}
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-parchment">Latest Run</h2>
+        <span class="text-parchment-dim text-sm">{{ latest_run.get("run_name", "N/A") }}</span>
+    </div>
+    {% set meta = latest_run.get("metadata", {}) %}
+    {% if meta %}
+    <div class="grid grid-cols-4 gap-4">
+        <div class="text-center">
+            <div class="text-2xl font-mono text-wow-gold">{{ "%.2f"|format(meta.get("avg_faithfulness", 0)) }}</div>
+            <div class="text-parchment-dim text-xs mt-1">Faithfulness</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-mono text-wow-gold">{{ "%.2f"|format(meta.get("avg_answer_relevancy", 0)) }}</div>
+            <div class="text-parchment-dim text-xs mt-1">Relevancy</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-mono text-wow-gold">{{ "%.2f"|format(meta.get("avg_trajectory_precision", 0)) }}</div>
+            <div class="text-parchment-dim text-xs mt-1">Trajectory</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-mono text-wow-gold">{{ "%.2f"|format(meta.get("avg_domain_accuracy", 0)) }}</div>
+            <div class="text-parchment-dim text-xs mt-1">Accuracy</div>
+        </div>
+    </div>
+    <div class="mt-4 flex items-center justify-between">
+        {% if meta.get("passed") %}
+        <span class="px-3 py-1 bg-green-900/30 text-green-400 rounded text-sm font-medium">PASSED</span>
+        {% else %}
+        <span class="px-3 py-1 bg-red-900/30 text-red-400 rounded text-sm font-medium">FAILED</span>
+        {% endif %}
+        <a href="{{ langfuse_host }}" target="_blank" class="text-parchment-dim text-sm hover:text-parchment">View in Langfuse</a>
+    </div>
+    {% else %}
+    <p class="text-parchment-dim text-sm">No run metadata available.</p>
+    {% endif %}
+</div>
+{% else %}
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <p class="text-parchment-dim text-sm">No evaluation runs yet. Start one above.</p>
+</div>
+{% endif %}

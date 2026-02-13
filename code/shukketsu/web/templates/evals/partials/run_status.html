@@ -1,0 +1,54 @@
+{% if status == "idle" %}
+<p class="text-parchment-dim text-sm">No evaluation running.</p>
+{% elif status == "starting" %}
+<div class="flex items-center gap-2">
+    <div class="animate-spin h-4 w-4 border-2 border-wow-gold border-t-transparent rounded-full"></div>
+    <span class="text-parchment text-sm">Starting eval run...</span>
+</div>
+{% elif status == "already_running" %}
+<p class="text-rogue-energy text-sm">An evaluation is already in progress.</p>
+{% elif status == "complete" %}
+<div class="space-y-2">
+    <div class="flex items-center gap-2">
+        {% if report and report.passed %}
+        <span class="text-green-400 font-semibold">PASSED</span>
+        {% else %}
+        <span class="text-red-400 font-semibold">FAILED</span>
+        {% endif %}
+        <span class="text-parchment-dim text-sm">
+            ({{ report.question_count if report else 0 }} questions)
+        </span>
+    </div>
+    {% if report %}
+    <div class="grid grid-cols-4 gap-3 text-sm">
+        <div class="bg-shadow-deep rounded p-2 text-center">
+            <div class="text-parchment-dim">Faithfulness</div>
+            <div class="text-wow-gold font-mono">{{ "%.2f"|format(report.avg_faithfulness) }}</div>
+        </div>
+        <div class="bg-shadow-deep rounded p-2 text-center">
+            <div class="text-parchment-dim">Relevancy</div>
+            <div class="text-wow-gold font-mono">{{ "%.2f"|format(report.avg_answer_relevancy) }}</div>
+        </div>
+        <div class="bg-shadow-deep rounded p-2 text-center">
+            <div class="text-parchment-dim">Trajectory</div>
+            <div class="text-wow-gold font-mono">{{ "%.2f"|format(report.avg_trajectory_precision) }}</div>
+        </div>
+        <div class="bg-shadow-deep rounded p-2 text-center">
+            <div class="text-parchment-dim">Accuracy</div>
+            <div class="text-wow-gold font-mono">{{ "%.2f"|format(report.avg_domain_accuracy) }}</div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% elif status == "failed" %}
+<p class="text-red-400 text-sm">Evaluation run failed. Check logs for details.</p>
+{% else %}
+<div class="flex items-center gap-2">
+    <div class="animate-spin h-4 w-4 border-2 border-wow-gold border-t-transparent rounded-full"></div>
+    <span class="text-parchment text-sm">Running... {{ progress }}/{{ total }}</span>
+</div>
+<div class="w-full bg-shadow-deep rounded-full h-2 mt-2">
+    <div class="bg-wow-gold h-2 rounded-full transition-all"
+         style="width: {{ (progress / total * 100) if total > 0 else 0 }}%"></div>
+</div>
+{% endif %}

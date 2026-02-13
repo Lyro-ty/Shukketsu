@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Evals - Shukketsu{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="/static/js/eval-charts.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-6 py-8 space-y-8">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-wow-gold">Evaluation Dashboard</h1>
+        <a href="{{ langfuse_host }}" target="_blank"
+           class="text-parchment-dim text-sm hover:text-parchment">Open Langfuse</a>
+    </div>
+
+    <!-- Run Controls -->
+    <div class="bg-shadow rounded-lg border border-white/10 p-6">
+        <h2 class="text-lg font-semibold text-parchment mb-4">Run Evaluation</h2>
+        <form hx-post="/evals/run" hx-target="#run-status" hx-swap="innerHTML">
+            <div class="flex items-center gap-4">
+                <select name="tier"
+                    class="bg-shadow-deep border border-white/10 rounded px-3 py-2 text-parchment text-sm">
+                    <option value="">All Tiers</option>
+                    <option value="retrieval">Retrieval</option>
+                    <option value="reasoning">Reasoning</option>
+                    <option value="simulation">Simulation</option>
+                </select>
+                <button type="submit"
+                    class="px-4 py-2 bg-wow-gold/20 text-wow-gold border border-wow-gold/30 rounded hover:bg-wow-gold/30 text-sm font-medium"
+                    {% if is_running %}disabled{% endif %}>
+                    {% if is_running %}Running...{% else %}Start Eval Run{% endif %}
+                </button>
+            </div>
+        </form>
+        <div id="run-status" class="mt-4"
+             hx-get="/evals/run/status" hx-trigger="every 3s" hx-swap="innerHTML">
+        </div>
+    </div>
+
+    <!-- Latest Summary -->
+    <div id="latest-summary"
+         hx-get="/evals/latest" hx-trigger="load" hx-swap="innerHTML">
+    </div>
+
+    <!-- History Chart -->
+    <div class="bg-shadow rounded-lg border border-white/10 p-6">
+        <h2 class="text-lg font-semibold text-parchment mb-4">Metric History</h2>
+        <canvas id="eval-history-chart" height="200"></canvas>
+    </div>
+</div>
+{% endblock %}
