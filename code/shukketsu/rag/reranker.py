@@ -30,7 +30,7 @@ def _get_model() -> Any:
         from sentence_transformers import CrossEncoder
 
         logger.info("Loading cross-encoder model: %s", config.RERANKER_MODEL)
-        _model = CrossEncoder(config.RERANKER_MODEL)
+        _model = CrossEncoder(config.RERANKER_MODEL, device="cpu")
         logger.info("Cross-encoder model loaded")
     return _model
 
