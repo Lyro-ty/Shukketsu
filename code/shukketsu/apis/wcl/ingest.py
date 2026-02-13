@@ -4,12 +4,19 @@ Three ingest modes:
 - **RankingsIngestor** — fetches top Rogue rankings per encounter.
 - **ReportDiver** — deep-dives a report (combatants, damage, buffs, casts, rankings).
 - **CharacterSyncer** — syncs tracked characters, detects gear changes.
+
+Also provides a CLI entry point (``python3 -m code.shukketsu.apis.wcl.ingest``).
 """
 
+from __future__ import annotations
+
+import argparse
+import asyncio
 import json
 import logging
 import sqlite3
 
+from code.shukketsu import config
 from code.shukketsu.apis.wcl.client import WCLClient
 from code.shukketsu.apis.wcl.queries import (
     build_buff_table_query,
@@ -20,6 +27,7 @@ from code.shukketsu.apis.wcl.queries import (
     build_rankings_query,
     build_report_fights_query,
     build_report_rankings_query,
+    build_zone_metadata_query,
 )
 from code.shukketsu.resilience.errors import WCLQueryError
 
@@ -422,3 +430,173 @@ class CharacterSyncer:
             prev_report = report_code
 
         return changes
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+# Classic Anniversary TBC zones
+ACTIVE_TBC_ZONES: dict[int, str] = {
+    1047: "Karazhan Anniversary",
+    1048: "Gruul / Magtheridon Anniversary",
+    1052: "SSC / TK Anniversary",
+}
+
+# Classic Fresh vanilla zones (current progression)
+ACTIVE_FRESH_ZONES: dict[int, str] = {
+    1049: "Molten Core",
+    1034: "Blackwing Lair",
+    1035: "Temple of Ahn'Qiraj",
+    1036: "Naxxramas",
+}
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build CLI argument parser for WCL ingest."""
+    parser = argparse.ArgumentParser(
+        description="Ingest data from Warcraft Logs API",
+        prog="python3 -m code.shukketsu.apis.wcl",
+    )
+    parser.add_argument("--sync-characters", action="store_true", help="Sync tracked characters (pull new reports)")
+    parser.add_argument("--rankings", action="store_true", help="Ingest top 100 rankings")
+    parser.add_argument("--zone", type=int, default=None, help="Zone ID for rankings (required with --rankings)")
+    parser.add_argument("--encounter", type=int, default=None, help="Specific encounter ID (optional with --rankings)")
+    parser.add_argument("--report", type=str, default=None, help="Deep-dive a specific report code")
+    parser.add_argument("--full", action="store_true", help="Full ingest: all active TBC zones")
+    parser.add_argument("--rate-limit", action="store_true", help="Check and display rate limit status")
+    parser.add_argument("--stats", action="store_true", help="Show WCL database statistics")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be done without doing it")
+    parser.add_argument(
+        "--endpoint",
+        choices=["fresh", "classic"],
+        default="fresh",
+        help="API endpoint (default: %(default)s)",
+    )
+    return parser
+
+
+def _print_stats(conn: sqlite3.Connection) -> None:
+    """Print WCL database statistics."""
+    tables = [
+        ("wcl_rankings", "Rankings"),
+        ("wcl_reports", "Reports"),
+        ("wcl_fights", "Fights"),
+        ("wcl_combatants", "Combatants"),
+        ("wcl_damage", "Damage entries"),
+        ("wcl_buffs", "Buff entries"),
+        ("wcl_casts", "Cast entries"),
+        ("wcl_fight_rankings", "Fight rankings"),
+        ("wcl_character_log", "Character log"),
+    ]
+    print("\nWCL Database Statistics:")
+    print("-" * 40)
+    for table, label in tables:
+        count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
+        print(f"  {label}: {count}")
+
+
+async def _async_main(args: argparse.Namespace) -> None:
+    """Async entry point for WCL ingest CLI."""
+    from code.shukketsu.apis.wcl.auth import WCLAuth
+    from code.shukketsu.db.connection import get_connection, init_db
+
+    conn = get_connection(config.DB_PATH)
+    init_db(conn)
+
+    auth = WCLAuth()
+    client = WCLClient(auth)
+    endpoint: str = args.endpoint
+
+    if args.rate_limit:
+        rate_data = await client.check_rate_limit(endpoint)
+        print(f"Points spent: {rate_data.get('pointsSpentThisHour', 0)}/{rate_data.get('limitPerHour', 0)}")
+        print(f"Reset in: {rate_data.get('pointsResetIn', 0)}s")
+        conn.close()
+        return
+
+    if args.stats:
+        _print_stats(conn)
+        conn.close()
+        return
+
+    if args.sync_characters:
+        syncer = CharacterSyncer(client, conn)
+        diver = ReportDiver(client, conn)
+        for char_config in config.WCL_TRACKED_CHARACTERS:
+            new_codes = await syncer.sync(char_config)
+            char_endpoint = str(char_config.get("endpoint", endpoint))
+            for code in new_codes:
+                if not args.dry_run:
+                    await diver.dive(code, endpoint=char_endpoint)
+                else:
+                    print(f"  Would deep-dive report: {code}")
+        conn.close()
+        return
+
+    if args.report:
+        if args.dry_run:
+            print(f"Would deep-dive report: {args.report}")
+        else:
+            diver = ReportDiver(client, conn)
+            await diver.dive(args.report, endpoint=endpoint)
+        conn.close()
+        return
+
+    if args.rankings:
+        if not args.zone:
+            print("Error: --zone is required with --rankings")
+            conn.close()
+            return
+        ingestor = RankingsIngestor(client, conn)
+        query, variables = build_zone_metadata_query(args.zone)
+        data = await client.query(query, variables, endpoint=endpoint)
+        zone = data.get("worldData", {}).get("zone", {})
+        encounters = zone.get("encounters", [])
+        if args.encounter:
+            encounters = [e for e in encounters if e.get("id") == args.encounter]
+        for enc in encounters:
+            if args.dry_run:
+                print(f"Would ingest rankings for: {enc.get('name')} ({enc.get('id')})")
+            else:
+                await ingestor.ingest_encounter(enc["id"], enc.get("name", ""), args.zone, endpoint)
+        conn.close()
+        return
+
+    if args.full:
+        ingestor = RankingsIngestor(client, conn)
+        diver = ReportDiver(client, conn)
+        zones = ACTIVE_TBC_ZONES if endpoint == "classic" else ACTIVE_FRESH_ZONES
+        for zone_id, zone_name in zones.items():
+            print(f"\nIngesting zone: {zone_name} ({zone_id})")
+            query, variables = build_zone_metadata_query(zone_id)
+            data = await client.query(query, variables, endpoint=endpoint)
+            zone = data.get("worldData", {}).get("zone", {})
+            encounters = zone.get("encounters", [])
+            all_codes: set[str] = set()
+            for enc in encounters:
+                if args.dry_run:
+                    print(f"  Would ingest: {enc.get('name')}")
+                else:
+                    codes = await ingestor.ingest_encounter(enc["id"], enc.get("name", ""), zone_id, endpoint)
+                    all_codes.update(codes)
+            if not args.dry_run:
+                for code in all_codes:
+                    await diver.dive(code, endpoint=endpoint)
+        conn.close()
+        return
+
+    print("No action specified. Use --help for options.")
+    conn.close()
+
+
+def main() -> None:
+    """CLI entry point for WCL ingest."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    parser = _build_parser()
+    args = parser.parse_args()
+    asyncio.run(_async_main(args))
+
+
+if __name__ == "__main__":
+    main()
