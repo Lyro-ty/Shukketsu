@@ -77,7 +77,7 @@ class WebFetcher:
 
         # 5. Check content type
         content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type and "text/xhtml" not in content_type:
+        if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
             raise ScrapingError(f"Not an HTML page ({content_type}): {url}")
 
         # 6. Check response size
