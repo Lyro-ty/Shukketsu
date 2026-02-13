@@ -172,7 +172,6 @@ class TestUpdateDraft:
         with pytest.raises(ValueError, match="Cannot update"):
             km.update_draft(path, _sample_meta(), "New")
 
-
     def test_path_traversal_blocked(self, km: KnowledgeManager, test_db: sqlite3.Connection) -> None:
         """If a path traversal bypasses the DB check, the resolve check blocks it."""
         # Inject a malicious path directly into the DB to bypass the first check
@@ -183,7 +182,7 @@ class TestUpdateDraft:
                0.5, '2025-01-01', '2025-01-01')"""
         )
         test_db.commit()
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises((FileNotFoundError, ValueError)):
             km.update_draft("../../etc/passwd", _sample_meta(), "malicious")
 
     def test_db_failure_restores_file(self, km: KnowledgeManager, tmp_path, test_db: sqlite3.Connection) -> None:

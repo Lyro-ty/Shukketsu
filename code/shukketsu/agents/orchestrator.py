@@ -451,6 +451,8 @@ class Orchestrator(BaseAgent):
         for i, st in enumerate(plan.subtasks):
             if st.agent_role == AgentRole.ORCHESTRATOR:
                 errors.append(f"Subtask {i}: ORCHESTRATOR role not allowed (no recursion)")
+            if st.agent_role == AgentRole.ANALYST:
+                errors.append(f"Subtask {i}: ANALYST must be dispatched directly, not via Orchestrator")
 
             for dep in st.depends_on:
                 if dep < 0 or dep >= len(plan.subtasks):

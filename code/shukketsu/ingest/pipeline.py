@@ -175,6 +175,9 @@ class IngestPipeline:
         total_entities = 0
         total_relationships = 0
 
+        # Accumulate entity IDs across all chunks so cross-chunk relationships resolve
+        entity_id_map: dict[str, int] = {}
+
         try:
             for chunk, chunk_id in zip(chunks, chunk_ids):
                 try:
@@ -183,7 +186,6 @@ class IngestPipeline:
                     logger.warning("Entity extraction failed for chunk %d: %s", chunk_id, exc)
                     continue
 
-                entity_id_map: dict[str, int] = {}
                 for entity in extraction.entities:
                     eid = self._graph_store.upsert_entity(  # type: ignore[union-attr]
                         entity.name,
@@ -199,7 +201,7 @@ class IngestPipeline:
                     tgt_id = entity_id_map.get(rel.target)
                     if src_id is None or tgt_id is None:
                         logger.debug(
-                            "Skipping relationship %s->%s: entity not in this chunk's extraction",
+                            "Skipping relationship %s->%s: entity not found in any chunk",
                             rel.source,
                             rel.target,
                         )

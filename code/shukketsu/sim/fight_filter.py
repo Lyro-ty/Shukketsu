@@ -99,11 +99,7 @@ class FightFilter:
             )
 
             active_time_ms = row["active_time_ms"] or 0
-            active_dps = (
-                row["total_damage"] / (active_time_ms / 1000)
-                if active_time_ms > 0
-                else 0.0
-            )
+            active_dps = row["total_damage"] / (active_time_ms / 1000) if active_time_ms > 0 else 0.0
 
             results.append(
                 ValidatedFight(

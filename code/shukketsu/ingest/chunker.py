@@ -175,7 +175,7 @@ def chunk_text(
             overlap_text = prev[-overlap_chars:]
             # Find a clean word boundary for the overlap
             space_idx = overlap_text.find(" ")
-            if space_idx > 0:
+            if space_idx >= 0:
                 overlap_text = overlap_text[space_idx + 1 :]
             content = overlap_text + " " + content
         overlapped.append(content)

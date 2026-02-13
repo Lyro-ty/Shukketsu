@@ -107,12 +107,24 @@ class KnowledgeManager:
         self._conn = conn
         self._knowledge_dir = knowledge_dir
 
+    def _safe_path(self, path: str) -> Path:
+        """Resolve a relative path and verify it stays within knowledge_dir.
+
+        Raises:
+            ValueError: If the path escapes the knowledge directory.
+        """
+        full_path = (self._knowledge_dir / path).resolve()
+        if not str(full_path).startswith(str(self._knowledge_dir.resolve())):
+            raise ValueError(f"Invalid article path: {path}")
+        return full_path
+
     def create_draft(self, meta: ArticleMeta, content: str) -> str:
         """Write markdown file + insert DB row. Returns relative path.
 
         Checks DB uniqueness before writing to prevent orphaned files.
         """
         path = derive_path(meta.spec, meta.category, meta.title)
+        self._safe_path(path)  # Validate path before any I/O
 
         # Check DB first to prevent orphaned files
         existing = self._conn.execute("SELECT id FROM articles WHERE path = ?", (path,)).fetchone()
@@ -154,9 +166,7 @@ class KnowledgeManager:
 
     def read_article(self, path: str) -> tuple[ArticleMeta, str]:
         """Read and parse frontmatter + content from a markdown file."""
-        full_path = (self._knowledge_dir / path).resolve()
-        if not str(full_path).startswith(str(self._knowledge_dir.resolve())):
-            raise FileNotFoundError(f"Article not found: {path}")
+        full_path = self._safe_path(path)
         if not full_path.exists():
             raise FileNotFoundError(f"Article not found: {path}")
 
@@ -178,9 +188,7 @@ class KnowledgeManager:
         if status != ArticleStatus.DRAFT:
             raise ValueError(f"Cannot update article with status '{status}'")
 
-        full_path = (self._knowledge_dir / path).resolve()
-        if not str(full_path).startswith(str(self._knowledge_dir.resolve())):
-            raise FileNotFoundError(f"Article not found: {path}")
+        full_path = self._safe_path(path)
 
         now = datetime.now(tz=meta.updated_at.tzinfo)
         meta_updated = meta.model_copy(update={"updated_at": now})
@@ -328,7 +336,7 @@ class KnowledgeManager:
         )
 
         # Write file with updated frontmatter — save original for rollback
-        full_path = self._knowledge_dir / path
+        full_path = self._safe_path(path)
         original_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
 
         post = frontmatter.Post(content, **updated.model_dump(mode="json", exclude_none=True))

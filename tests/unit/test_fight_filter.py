@@ -17,9 +17,9 @@ def fight_db(test_db: sqlite3.Connection) -> sqlite3.Connection:
     test_db.execute("INSERT OR IGNORE INTO wcl_reports (code, endpoint) VALUES ('RPT1', 'fresh')")
     fights = [
         ("RPT1", 1, 725, "Brutallus", 1, 180000),
-        ("RPT1", 2, 725, "Brutallus", 0, 120000),      # wipe
-        ("RPT1", 3, 999, "Unknown Boss", 1, 60000),     # non-patchwerk
-        ("RPT1", 4, 725, "Brutallus", 1, 15000),        # too short (<30s)
+        ("RPT1", 2, 725, "Brutallus", 0, 120000),  # wipe
+        ("RPT1", 3, 999, "Unknown Boss", 1, 60000),  # non-patchwerk
+        ("RPT1", 4, 725, "Brutallus", 1, 15000),  # too short (<30s)
     ]
     for f in fights:
         test_db.execute(

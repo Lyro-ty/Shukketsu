@@ -66,7 +66,6 @@ class TestListBackups:
         assert len(backups) == 2
         assert backups[0].created_at >= backups[1].created_at
 
-
     def test_empty_directory(self, backup_mgr: BackupManager) -> None:
         backups = backup_mgr.list_backups()
         assert backups == []

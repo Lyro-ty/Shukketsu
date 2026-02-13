@@ -124,10 +124,14 @@ class EntityExtractionError(ShukketsuError):
 class CircuitOpenError(ShukketsuError):
     """Raised when a circuit breaker is open and rejecting requests."""
 
-    def __init__(self, breaker_name: str):
+    def __init__(
+        self,
+        breaker_name: str,
+        failure_mode: FailureMode = FailureMode.MODEL_UNAVAILABLE,
+    ):
         super().__init__(
             f"Circuit breaker '{breaker_name}' is open — service unavailable",
-            FailureMode.MODEL_UNAVAILABLE,
+            failure_mode,
         )
         self.breaker_name = breaker_name
 
