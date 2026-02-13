@@ -173,7 +173,8 @@ class BaseAgent:
 
             if step.action == ActionType.FINAL_ANSWER:
                 logger.info("Agent reached final answer after %d iteration(s)", iteration + 1)
-                return _RunOutcome(output=step.answer, status=TaskStatus.SUCCESS, scratchpad=scratchpad)  # type: ignore[arg-type]
+                answer = step.answer or step.reasoning
+                return _RunOutcome(output=answer, status=TaskStatus.SUCCESS, scratchpad=scratchpad)
 
             tool_call = step.tool_call
             if tool_call is None:

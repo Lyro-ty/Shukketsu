@@ -90,7 +90,8 @@ class GraphStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (name, type_id, canonical, props_json, source_chunk_id, confidence),
         )
-        return int(cursor.lastrowid)  # type: ignore[arg-type]
+        assert cursor.lastrowid is not None, "INSERT INTO entities failed to return lastrowid"
+        return cursor.lastrowid
 
     def upsert_relationship(
         self,
@@ -131,7 +132,8 @@ class GraphStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (source_entity_id, target_entity_id, relation_type.value, props_json, source_chunk_id, confidence),
         )
-        return int(cursor.lastrowid)  # type: ignore[arg-type]
+        assert cursor.lastrowid is not None, "INSERT INTO relationships failed to return lastrowid"
+        return cursor.lastrowid
 
     def get_entity_by_name(
         self,
@@ -204,9 +206,11 @@ class GraphStore:
         if direction == "outgoing":
             col = "source_entity_id"
             join_col = "target_entity_id"
-        else:
+        elif direction == "incoming":
             col = "target_entity_id"
             join_col = "source_entity_id"
+        else:
+            raise ValueError(f"Invalid direction '{direction}': must be 'outgoing' or 'incoming'")
 
         query = (
             f"SELECT r.*, e.name AS related_name, e.canonical_name AS related_canonical, "

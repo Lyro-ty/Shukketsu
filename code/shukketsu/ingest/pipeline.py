@@ -117,6 +117,7 @@ class IngestPipeline:
                     "check_interval_hours, last_checked) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (url, title, source_type, content_hash, now_iso, check_interval, now_iso),
                 )
+                assert cursor.lastrowid is not None, "INSERT INTO sources failed to return lastrowid"
                 source_id = cursor.lastrowid
 
             chunk_ids: list[int] = []
@@ -125,7 +126,8 @@ class IngestPipeline:
                     "INSERT INTO chunks (source_id, content, chunk_index, metadata_json) VALUES (?, ?, ?, NULL)",
                     (source_id, chunk.content, chunk.chunk_index),
                 )
-                chunk_id = int(cursor.lastrowid)  # type: ignore[arg-type]
+                assert cursor.lastrowid is not None, "INSERT INTO chunks failed to return lastrowid"
+                chunk_id = cursor.lastrowid
                 chunk_ids.append(chunk_id)
                 embedding_blob = struct.pack(f"{len(embedding)}f", *embedding)
                 self._conn.execute(

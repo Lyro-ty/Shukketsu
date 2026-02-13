@@ -9,11 +9,17 @@ Supports two fetch modes:
   extracts text from `[role="main"]` element. Much richer content but slower.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import logging
 import sqlite3
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page
 
 import trafilatura
 
@@ -82,6 +88,8 @@ class BatchIngest:
         report = BatchReport()
         for source, result in zip(sources, raw_results):
             if isinstance(result, BaseException):
+                if not isinstance(result, Exception):
+                    raise result  # Re-raise KeyboardInterrupt, SystemExit, etc.
                 report.results.append(
                     SourceResult(
                         url=source.url,
@@ -179,14 +187,14 @@ class BrowserBatchIngest:
             await browser.close()
         return report
 
-    async def _fetch_and_ingest(self, page: "object", source: SourceEntry) -> SourceResult:
+    async def _fetch_and_ingest(self, page: Page, source: SourceEntry) -> SourceResult:
         """Navigate to URL, extract rendered text, ingest."""
         logger.info("Browser fetching %s (%s)", source.url, source.title)
 
         try:
-            await page.goto(source.url, wait_until="domcontentloaded", timeout=30000)  # type: ignore[union-attr]
+            await page.goto(source.url, wait_until="domcontentloaded", timeout=30000)
             # Wait for guide content to render (JS hydration)
-            await page.wait_for_selector('[role="main"] h2, main h2, article h2', timeout=10000)  # type: ignore[union-attr]
+            await page.wait_for_selector('[role="main"] h2, main h2, article h2', timeout=10000)
         except Exception as exc:
             return SourceResult(
                 url=source.url,
@@ -197,7 +205,7 @@ class BrowserBatchIngest:
 
         # Extract text from main content area
         try:
-            text = await page.evaluate(  # type: ignore[union-attr]
+            text = await page.evaluate(
                 """() => {
                     const el = document.querySelector('[role="main"]')
                         || document.querySelector('main')
@@ -216,7 +224,7 @@ class BrowserBatchIngest:
 
         if not text or not text.strip():
             # Fall back to trafilatura on page source
-            html = await page.content()  # type: ignore[union-attr]
+            html = await page.content()
             text = trafilatura.extract(
                 html,
                 output_format="markdown",
@@ -232,7 +240,7 @@ class BrowserBatchIngest:
                 error="Empty extraction even with browser rendering",
             )
 
-        final_url = page.url  # type: ignore[union-attr]
+        final_url = page.url
 
         try:
             result: IngestResult = await self._pipeline.ingest(

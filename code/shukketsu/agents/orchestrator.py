@@ -211,11 +211,7 @@ class Orchestrator(BaseAgent):
         AgentResult or appends to skipped list.
         """
         # Check failed dependencies
-        failed_deps = [
-            d
-            for d in subtask.depends_on
-            if results[d] is not None and results[d].status == TaskStatus.FAILED  # type: ignore[union-attr]
-        ]
+        failed_deps = [d for d in subtask.depends_on if (r := results[d]) is not None and r.status == TaskStatus.FAILED]
         if failed_deps:
             skipped.append(subtask.description)
             logger.info(

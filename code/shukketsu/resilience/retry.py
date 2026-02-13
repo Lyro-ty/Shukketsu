@@ -48,7 +48,8 @@ def with_retry(
                         delay,
                     )
                     await asyncio.sleep(delay)
-            raise last_exc  # type: ignore[misc]
+            assert last_exc is not None, "retry loop must execute at least once"
+            raise last_exc
 
         return wrapper
 
