@@ -592,6 +592,7 @@ async def _async_main(args: argparse.Namespace) -> None:
 
         print("No action specified. Use --help for options.")
     finally:
+        await client.close()
         conn.close()
 
 

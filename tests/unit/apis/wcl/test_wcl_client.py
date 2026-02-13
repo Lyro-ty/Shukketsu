@@ -42,6 +42,11 @@ def _reset_wcl_breaker() -> None:
     wcl_breaker.reset()
 
 
+def _patch_http(mock_http: AsyncMock):
+    """Patch _get_http to return a shared mock client."""
+    return patch.object(WCLClient, "_get_http", new_callable=AsyncMock, return_value=mock_http)
+
+
 class TestWCLClient:
     """Tests for WCLClient."""
 
@@ -51,10 +56,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
             await client.query("{ test }")
 
@@ -70,10 +72,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
             result = await client.query("{ worldData { zone { name } } }")
 
@@ -89,10 +88,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
 
             with pytest.raises(WCLQueryError, match="GraphQL errors"):
@@ -108,10 +104,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
 
             with pytest.raises(WCLQueryError, match="archived"):
@@ -125,10 +118,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
 
             await client.query("{ test }", endpoint="fresh")
@@ -147,10 +137,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
 
             with patch.object(client, "_check_and_throttle", new_callable=AsyncMock) as mock_throttle:
@@ -168,10 +155,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_resp
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
 
             # Mock check_rate_limit to return high usage
@@ -197,12 +181,9 @@ class TestWCLClient:
         mock_http.post.side_effect = [mock_429, mock_ok]
 
         with (
-            patch("httpx.AsyncClient") as mock_cls,
+            _patch_http(mock_http),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
             client = WCLClient(auth=mock_auth)
             result = await client.query("{ test }")
 
@@ -217,12 +198,9 @@ class TestWCLClient:
         mock_http.post.return_value = mock_429
 
         with (
-            patch("httpx.AsyncClient") as mock_cls,
+            _patch_http(mock_http),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
             client = WCLClient(auth=mock_auth)
 
             with pytest.raises(WCLRateLimitError):
@@ -236,10 +214,7 @@ class TestWCLClient:
         mock_http = AsyncMock()
         mock_http.post.return_value = mock_500
 
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        with _patch_http(mock_http):
             client = WCLClient(auth=mock_auth)
 
             # Trip the circuit breaker with enough failures
@@ -250,3 +225,22 @@ class TestWCLClient:
             # Next call should be rejected by the open circuit breaker
             with pytest.raises(CircuitOpenError):
                 await client.query("{ test }")
+
+    async def test_close_releases_http_client(self, mock_auth: WCLAuth) -> None:
+        """close() calls aclose() on the underlying httpx client."""
+        mock_http = AsyncMock()
+        mock_http.is_closed = False
+        mock_http.aclose = AsyncMock()
+
+        client = WCLClient(auth=mock_auth)
+        client._http = mock_http
+
+        await client.close()
+
+        mock_http.aclose.assert_called_once()
+        assert client._http is None
+
+    async def test_close_noop_when_no_client(self, mock_auth: WCLAuth) -> None:
+        """close() is safe to call when no HTTP client was created."""
+        client = WCLClient(auth=mock_auth)
+        await client.close()  # Should not raise

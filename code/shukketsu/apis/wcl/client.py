@@ -26,6 +26,19 @@ class WCLClient:
         self._query_count = 0
         self._points_spent = 0.0
         self._points_limit = float(config.WCL_RATE_LIMIT_BUDGET)
+        self._http: httpx.AsyncClient | None = None
+
+    async def _get_http(self) -> httpx.AsyncClient:
+        """Return a shared httpx client, creating it lazily."""
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient()
+        return self._http
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        if self._http is not None and not self._http.is_closed:
+            await self._http.aclose()
+            self._http = None
 
     async def query(
         self,
@@ -57,16 +70,16 @@ class WCLClient:
             if variables:
                 payload["variables"] = variables
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=config.WCL_QUERY_TIMEOUT,
-                )
+            client = await self._get_http()
+            response = await client.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=config.WCL_QUERY_TIMEOUT,
+            )
 
             if response.status_code == 429:
                 retry_after = float(response.headers.get("Retry-After", "60"))

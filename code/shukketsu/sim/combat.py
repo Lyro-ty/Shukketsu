@@ -83,6 +83,15 @@ RUPTURE_BASE_DPT: float = 70.0
 RUPTURE_CP_DPT: float = 18.0
 """Additional damage per tick per combo point for Rupture."""
 
+GARROTE_TICK_INTERVAL_MS: int = 3000
+"""Garrote ticks every 3 seconds."""
+
+GARROTE_BASE_DPT: float = 119.0
+"""Base damage per tick for Garrote rank 8 (18s duration, 6 ticks)."""
+
+EXPOSE_ARMOR_DURATION_MS: int = 30000
+"""Duration of Expose Armor debuff in milliseconds."""
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -239,17 +248,17 @@ class CombatSimulation:
             self._base_stats.get("hit_rating", 0.0),
             is_dual_wield=True,
             is_yellow=False,
-            precision_ranks=int(self._modifiers.bonus_hit_pct * 100),
+            precision_ranks=round(self._modifiers.bonus_hit_pct * 100),
         )
         self._miss_chance_yellow = calc_miss_chance(
             self._base_stats.get("hit_rating", 0.0),
             is_dual_wield=True,
             is_yellow=True,
-            precision_ranks=int(self._modifiers.bonus_hit_pct * 100),
+            precision_ranks=round(self._modifiers.bonus_hit_pct * 100),
         )
         self._dodge_chance = calc_dodge_chance(
             self._base_stats.get("expertise_rating", 0.0),
-            weapon_expertise_ranks=int(self._modifiers.bonus_expertise / 5) if self._modifiers.bonus_expertise else 0,
+            weapon_expertise_ranks=round(self._modifiers.bonus_expertise / 5) if self._modifiers.bonus_expertise else 0,
         )
         self._crit_chance = calc_crit_chance(
             self._base_stats.get("crit_rating", 0.0),
@@ -546,6 +555,13 @@ class CombatSimulation:
     def _handle_ability(self, ability_name: str, state: CombatState, rng: Random) -> None:
         """Execute an ability.
 
+        Known inaccuracy: Energy is only deducted on hit, not on cast. In
+        actual TBC WoW, energy is spent when the ability is attempted and
+        80% is refunded on miss. The current pattern means misses are free
+        and dodged finishers cost nothing. Impact is low (~1-2% miss rate
+        for geared characters) but would need validation profile recalibration
+        to fix.
+
         Args:
             ability_name: Registry key of the ability to use.
             state: Current combat state.
@@ -573,16 +589,19 @@ class CombatSimulation:
 
         if ability_name == "cold_blood":
             state.buff_timers["cold_blood"] = state.current_time_ms + 30000  # Lasts until next finisher
+            state.cooldown_ready["cold_blood"] = state.current_time_ms + ability_def.cooldown_ms
             state.casts_by_ability["cold_blood"] += 1
             return
 
         if ability_name == "thistle_tea":
             state.energy = min(state.max_energy, state.energy + 100)
+            state.cooldown_ready["thistle_tea"] = state.current_time_ms + ability_def.cooldown_ms
             state.casts_by_ability["thistle_tea"] += 1
             return
 
         if ability_name == "premeditation":
             self._grant_combo_points(2, state)
+            state.cooldown_ready["premeditation"] = state.current_time_ms + ability_def.cooldown_ms
             state.casts_by_ability["premeditation"] += 1
             return
 
@@ -710,6 +729,148 @@ class CombatSimulation:
 
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0
+            state.gcd_ready_at_ms = state.current_time_ms + GCD_MS
+            state.gcd_time_ms += GCD_MS
+            state.ability_timestamps.append(state.current_time_ms)
+            return
+
+        # -- Envenom (nature damage finisher, consumes DP stacks) --
+        if ability_name == "envenom":
+            cp = max(1, state.combo_points)
+            # Envenom base damage: per-CP bonus (nature damage, ignores armor)
+            base_dmg = ability_def.bonus_per_combo_point * cp
+
+            # Apply talent bonuses
+            dmg_mult = 1.0
+            dmg_mult *= 1.0 + self._modifiers.vile_poisons_pct
+            dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
+            base_dmg *= dmg_mult
+
+            # Cold Blood check
+            effective_crit = self._crit_chance
+            if state.is_buff_active("cold_blood"):
+                effective_crit = 1.0
+                del state.buff_timers["cold_blood"]
+
+            outcome = resolve_yellow_hit(
+                self._miss_chance_yellow,
+                self._dodge_chance,
+                max(0.0, effective_crit),
+                rng.random(),
+                rng.random(),
+            )
+
+            state.outcome_counts["envenom"][outcome.value] += 1
+            state.casts_by_ability["envenom"] += 1
+
+            if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
+                if outcome == HitOutcome.MISS:
+                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+            else:
+                state.energy = max(0, state.energy - ability_def.energy_cost)
+                # Envenom is nature damage — bypass armor
+                damage = base_dmg
+                if outcome == HitOutcome.CRIT:
+                    damage *= self._crit_mult
+                state.damage_by_ability["envenom"] += damage
+                state.total_damage += damage
+
+            self._check_relentless_strikes(cp, state, rng)
+            state.combo_points = 0
+            state.gcd_ready_at_ms = state.current_time_ms + GCD_MS
+            state.gcd_time_ms += GCD_MS
+            state.ability_timestamps.append(state.current_time_ms)
+            return
+
+        # -- Expose Armor (debuff finisher, no damage) --
+        if ability_name == "expose_armor":
+            cp = max(1, state.combo_points)
+
+            outcome = resolve_yellow_hit(
+                self._miss_chance_yellow,
+                self._dodge_chance,
+                0.0,  # EA cannot crit
+                rng.random(),
+                rng.random(),
+            )
+
+            state.outcome_counts["expose_armor"][outcome.value] += 1
+            state.casts_by_ability["expose_armor"] += 1
+
+            if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
+                if outcome == HitOutcome.MISS:
+                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+            else:
+                state.energy = max(0, state.energy - ability_def.energy_cost)
+                # Apply EA debuff (duration scales with improved EA talent but simplified here)
+                self._activate_buff("expose_armor", EXPOSE_ARMOR_DURATION_MS, state)
+
+            self._check_relentless_strikes(cp, state, rng)
+            state.combo_points = 0
+            state.gcd_ready_at_ms = state.current_time_ms + GCD_MS
+            state.gcd_time_ms += GCD_MS
+            state.ability_timestamps.append(state.current_time_ms)
+            return
+
+        # -- Garrote (DOT from stealth, builder) --
+        if ability_name == "garrote":
+            # Garrote is a DOT opener: 18s duration, ticks every 3s (6 ticks)
+            num_ticks = ability_def.duration_ms // GARROTE_TICK_INTERVAL_MS
+            dpt = GARROTE_BASE_DPT + self._base_stats["attack_power"] * ability_def.ap_coefficient
+            dpt *= 1.0 + self._modifiers.murder_damage_pct
+
+            outcome = resolve_yellow_hit(
+                self._miss_chance_yellow,
+                self._dodge_chance,
+                0.0,  # Garrote cannot crit (DOT application)
+                rng.random(),
+                rng.random(),
+            )
+
+            state.outcome_counts["garrote"][outcome.value] += 1
+            state.casts_by_ability["garrote"] += 1
+
+            if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
+                if outcome == HitOutcome.MISS:
+                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+            else:
+                state.energy = max(0, state.energy - ability_def.energy_cost)
+                self._grant_combo_points(ability_def.combo_points_generated, state)
+
+                dot_state = DotState(
+                    remaining_ticks=num_ticks,
+                    tick_interval_ms=GARROTE_TICK_INTERVAL_MS,
+                    damage_per_tick=dpt,
+                    next_tick_ms=state.current_time_ms + GARROTE_TICK_INTERVAL_MS,
+                    snapshot_ap=self._base_stats["attack_power"],
+                )
+                state.dot_timers["garrote"] = dot_state
+
+                self._schedule(
+                    SimEvent(
+                        timestamp_ms=dot_state.next_tick_ms,
+                        event_type=EventType.DOT_TICK,
+                        priority=2,
+                        data={"dot_name": "garrote"},
+                    )
+                )
+
+            state.gcd_ready_at_ms = state.current_time_ms + GCD_MS
+            state.gcd_time_ms += GCD_MS
+            state.ability_timestamps.append(state.current_time_ms)
+            return
+
+        # -- Shiv (guaranteed hit builder, applies OH poison) --
+        if ability_name == "shiv":
+            # Shiv always hits (cannot miss/dodge), applies OH poison
+            state.energy = max(0, state.energy - ability_def.energy_cost)
+            state.casts_by_ability["shiv"] += 1
+            state.outcome_counts["shiv"]["hit"] += 1
+
+            self._grant_combo_points(ability_def.combo_points_generated, state)
+            # Shiv guarantees OH poison application
+            self._apply_poison("oh", state, rng)
+
             state.gcd_ready_at_ms = state.current_time_ms + GCD_MS
             state.gcd_time_ms += GCD_MS
             state.ability_timestamps.append(state.current_time_ms)
@@ -1092,16 +1253,26 @@ class CombatSimulation:
             max_energy=state.max_energy,
             snd_remaining_ms=snd_remaining,
             rupture_remaining_ms=rupture_remaining,
-            ea_remaining_ms=0,
-            dp_remaining_ms=0,
-            dp_stacks=0,
+            ea_remaining_ms=max(0, state.buff_timers.get("expose_armor", 0) - state.current_time_ms),
+            dp_remaining_ms=max(0, state.buff_timers.get("deadly_poison", 0) - state.current_time_ms),
+            dp_stacks=state.proc_counts.get("deadly_poison", 0) % 6,  # Simplified stack tracking
             ar_active=ar_active,
             bf_active=bf_active,
             bf_ready=bf_ready,
             ar_ready=ar_ready,
-            cb_ready=False,
-            tea_ready=False,
-            premeditation_ready=False,
+            cb_ready=(
+                "cold_blood" in state.cooldown_ready and state.current_time_ms >= state.cooldown_ready["cold_blood"]
+            )
+            or "cold_blood" not in state.cooldown_ready,
+            tea_ready=(
+                "thistle_tea" in state.cooldown_ready and state.current_time_ms >= state.cooldown_ready["thistle_tea"]
+            )
+            or "thistle_tea" not in state.cooldown_ready,
+            premeditation_ready=(
+                "premeditation" in state.cooldown_ready
+                and state.current_time_ms >= state.cooldown_ready["premeditation"]
+            )
+            or "premeditation" not in state.cooldown_ready,
             fight_remaining_ms=fight_remaining,
             target_count=self._config.target_count,
             is_stealthed=False,

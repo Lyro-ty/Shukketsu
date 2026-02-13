@@ -2,6 +2,13 @@
 
 Trust is computed as: base_trust + sum(event_deltas), clamped [0.1, 1.0].
 The legacy time-based decay function is preserved as _effective_trust_legacy.
+
+NOTE: The read path (effective_trust) is not yet wired into the search
+pipeline. Trust events are recorded by the Editor agent (contradictions)
+and freshness checker (dead URLs) as an audit log, but the accumulated
+deltas do not currently influence search result ranking. The RAG search
+reads the static ``sources.trust_score`` column directly. Wiring
+``effective_trust()`` into ``rag/search.py`` is a future improvement.
 """
 
 import sqlite3
