@@ -167,6 +167,15 @@ CB_WCL_RECOVERY_TIMEOUT = float(os.getenv("CB_WCL_RECOVERY_TIMEOUT", "60"))
 # Backup
 BACKUP_KEEP_COUNT = int(os.getenv("BACKUP_KEEP_COUNT", "7"))
 
+# Eval
+EVAL_DATASET_NAME = "shukketsu-eval-v1"
+EVAL_DATASET_PATH = Path(os.getenv("EVAL_DATASET_PATH", "/project/datasets/eval_questions.json"))
+EVAL_CONCURRENCY = int(os.getenv("EVAL_CONCURRENCY", "1"))
+EVAL_SIM_TOLERANCE_PCT = float(os.getenv("EVAL_SIM_TOLERANCE_PCT", "5.0"))
+EXPORT_OUTPUT_DIR = Path(os.getenv("EXPORT_OUTPUT_DIR", "/project/data/scratch/exports/"))
+EXPORT_MIN_FEEDBACK_SCORE = float(os.getenv("EXPORT_MIN_FEEDBACK_SCORE", "1.0"))
+RELEVANCY_THRESHOLD = float(os.getenv("RELEVANCY_THRESHOLD", "0.7"))
+
 # Memory
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "true").lower() == "true"
 MEMORY_RECALL_TOP_K = int(os.getenv("MEMORY_RECALL_TOP_K", "5"))

@@ -5,12 +5,14 @@ import pytest
 from code.shukketsu.evals.metrics import (
     ACCURACY_THRESHOLD,
     FAITHFULNESS_THRESHOLD,
+    RELEVANCY_THRESHOLD,
     TRAJECTORY_THRESHOLD,
     ClaimFaithfulness,
     EvalQuestionResult,
     FaithfulnessJudgment,
     PhaseGateReport,
     TrajectoryScore,
+    compute_answer_relevancy,
     compute_faithfulness,
     compute_phase_gate,
     compute_trajectory_precision,
@@ -96,10 +98,13 @@ class TestComputeTrajectoryPrecision:
 
 
 class TestComputePhaseGate:
-    def _make_result(self, *, faith: float = 0.9, traj: float = 0.8, acc: float = 0.8) -> EvalQuestionResult:
+    def _make_result(
+        self, *, faith: float = 0.9, rel: float = 0.8, traj: float = 0.8, acc: float = 0.8
+    ) -> EvalQuestionResult:
         return EvalQuestionResult(
             question_id="q01",
             faithfulness=faith,
+            answer_relevancy=rel,
             trajectory_precision=traj,
             domain_accuracy=acc,
             claims=[],
@@ -136,10 +141,67 @@ class TestComputePhaseGate:
         results = [
             self._make_result(
                 faith=FAITHFULNESS_THRESHOLD,
+                rel=RELEVANCY_THRESHOLD,
                 traj=TRAJECTORY_THRESHOLD,
                 acc=ACCURACY_THRESHOLD,
             )
         ]
+        report = compute_phase_gate(results)
+        assert report.passed is True
+
+
+class TestAnswerRelevancy:
+    def test_clamp_normal(self) -> None:
+        assert compute_answer_relevancy(0.75) == 0.75
+
+    def test_clamp_above_one(self) -> None:
+        assert compute_answer_relevancy(1.5) == 1.0
+
+    def test_clamp_below_zero(self) -> None:
+        assert compute_answer_relevancy(-0.3) == 0.0
+
+
+class TestTierBreakdown:
+    def _make_result(
+        self,
+        *,
+        qid: str = "q01",
+        tier: str = "retrieval",
+        faith: float = 0.9,
+        rel: float = 0.8,
+        traj: float = 0.8,
+        acc: float = 0.8,
+    ) -> EvalQuestionResult:
+        return EvalQuestionResult(
+            question_id=qid,
+            faithfulness=faith,
+            answer_relevancy=rel,
+            trajectory_precision=traj,
+            domain_accuracy=acc,
+            claims=[],
+            tool_calls=[],
+            tier=tier,
+        )
+
+    def test_tier_breakdown_groups_correctly(self) -> None:
+        results = [
+            self._make_result(qid="q1", tier="retrieval", faith=1.0),
+            self._make_result(qid="q2", tier="retrieval", faith=0.8),
+            self._make_result(qid="q3", tier="simulation", faith=0.9),
+        ]
+        report = compute_phase_gate(results)
+        assert "retrieval" in report.tier_breakdown
+        assert "simulation" in report.tier_breakdown
+        assert report.tier_breakdown["retrieval"]["count"] == 2.0
+        assert report.tier_breakdown["simulation"]["count"] == 1.0
+
+    def test_relevancy_included_in_pass_check(self) -> None:
+        results = [self._make_result(rel=0.3)]
+        report = compute_phase_gate(results)
+        assert report.passed is False
+
+    def test_relevancy_above_threshold_passes(self) -> None:
+        results = [self._make_result()]
         report = compute_phase_gate(results)
         assert report.passed is True
 

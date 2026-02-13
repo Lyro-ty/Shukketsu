@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 FAITHFULNESS_THRESHOLD = 0.8
 TRAJECTORY_THRESHOLD = 0.7
 ACCURACY_THRESHOLD = 0.7
+RELEVANCY_THRESHOLD = 0.7
 
 
 # --- Models ---
@@ -46,21 +47,25 @@ class EvalQuestionResult(BaseModel):
 
     question_id: str
     faithfulness: float
+    answer_relevancy: float = 0.0
     trajectory_precision: float
     domain_accuracy: float
     claims: list[ClaimFaithfulness]
     tool_calls: list[str]
+    tier: str = ""
 
 
 class PhaseGateReport(BaseModel):
     """Aggregate evaluation report for the phase gate."""
 
     avg_faithfulness: float
+    avg_answer_relevancy: float = 0.0
     avg_trajectory_precision: float
     avg_domain_accuracy: float
     passed: bool
     wiki_coverage: dict[str, int] = Field(default_factory=dict)
     question_results: list[EvalQuestionResult] = Field(default_factory=list)
+    tier_breakdown: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 # --- Scoring Functions ---
@@ -109,17 +114,23 @@ def compute_trajectory_precision(
     return useful / total
 
 
+def compute_answer_relevancy(relevancy_score: float) -> float:
+    """Clamp a raw relevancy score to [0.0, 1.0]."""
+    return max(0.0, min(1.0, relevancy_score))
+
+
 def compute_phase_gate(
     results: list[EvalQuestionResult],
 ) -> PhaseGateReport:
     """Aggregate per-question scores into a PhaseGateReport.
 
     Averages each metric across all questions. Sets passed=True only
-    if all three averages meet or exceed their thresholds.
+    if all four averages meet or exceed their thresholds.
     """
     if not results:
         return PhaseGateReport(
             avg_faithfulness=0.0,
+            avg_answer_relevancy=0.0,
             avg_trajectory_precision=0.0,
             avg_domain_accuracy=0.0,
             passed=False,
@@ -128,15 +139,39 @@ def compute_phase_gate(
 
     n = len(results)
     avg_faith = sum(r.faithfulness for r in results) / n
+    avg_rel = sum(r.answer_relevancy for r in results) / n
     avg_traj = sum(r.trajectory_precision for r in results) / n
     avg_acc = sum(r.domain_accuracy for r in results) / n
 
-    passed = avg_faith >= FAITHFULNESS_THRESHOLD and avg_traj >= TRAJECTORY_THRESHOLD and avg_acc >= ACCURACY_THRESHOLD
+    passed = (
+        avg_faith >= FAITHFULNESS_THRESHOLD
+        and avg_rel >= RELEVANCY_THRESHOLD
+        and avg_traj >= TRAJECTORY_THRESHOLD
+        and avg_acc >= ACCURACY_THRESHOLD
+    )
+
+    # Tier breakdown
+    tier_groups: dict[str, list[EvalQuestionResult]] = {}
+    for r in results:
+        tier_groups.setdefault(r.tier or "unknown", []).append(r)
+
+    tier_breakdown: dict[str, dict[str, float]] = {}
+    for tier_name, tier_results in tier_groups.items():
+        tn = len(tier_results)
+        tier_breakdown[tier_name] = {
+            "faithfulness": sum(r.faithfulness for r in tier_results) / tn,
+            "answer_relevancy": sum(r.answer_relevancy for r in tier_results) / tn,
+            "trajectory_precision": sum(r.trajectory_precision for r in tier_results) / tn,
+            "domain_accuracy": sum(r.domain_accuracy for r in tier_results) / tn,
+            "count": float(tn),
+        }
 
     return PhaseGateReport(
         avg_faithfulness=avg_faith,
+        avg_answer_relevancy=avg_rel,
         avg_trajectory_precision=avg_traj,
         avg_domain_accuracy=avg_acc,
         passed=passed,
         question_results=results,
+        tier_breakdown=tier_breakdown,
     )
