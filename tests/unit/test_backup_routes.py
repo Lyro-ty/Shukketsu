@@ -1,6 +1,7 @@
 """Tests for backup API routes."""
 
 import sqlite3
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -65,3 +66,31 @@ class TestBackupRoutes:
         resp = client.post("/api/backup/prune")
         assert resp.status_code == 200
         assert resp.json()["deleted"] == 0
+
+
+class TestBackupErrorHandling:
+    """Tests for backup route error responses."""
+
+    def test_create_backup_failure_returns_500(self, backup_client) -> None:
+        """If backup creation raises, the route should return 500."""
+        client, mgr = backup_client
+        with patch.object(mgr, "create_backup", side_effect=RuntimeError("Disk full")):
+            resp = client.post("/api/backup/create")
+            assert resp.status_code == 500
+            assert "failed" in resp.json()["detail"].lower()
+
+    def test_list_backups_failure_returns_500(self, backup_client) -> None:
+        """If listing backups raises, the route should return 500."""
+        client, mgr = backup_client
+        with patch.object(mgr, "list_backups", side_effect=RuntimeError("Permission denied")):
+            resp = client.get("/api/backup/list")
+            assert resp.status_code == 500
+            assert "failed" in resp.json()["detail"].lower()
+
+    def test_prune_backups_failure_returns_500(self, backup_client) -> None:
+        """If pruning raises, the route should return 500."""
+        client, mgr = backup_client
+        with patch.object(mgr, "prune_old_backups", side_effect=RuntimeError("Unlink failed")):
+            resp = client.post("/api/backup/prune")
+            assert resp.status_code == 500
+            assert "failed" in resp.json()["detail"].lower()

@@ -1,5 +1,7 @@
 """Content freshness checker: detect stale sources and verify content changes."""
 
+import asyncio
+import functools
 import hashlib
 import logging
 import sqlite3
@@ -155,11 +157,17 @@ async def check_source_freshness(
 
             # Step 3: Full GET fetch + extract text (matches ingest pipeline hashing)
             get_resp = await client.get(source.url)
-            extracted = trafilatura.extract(
-                get_resp.text,
-                output_format="markdown",
-                include_links=False,
-                include_comments=False,
+            # trafilatura.extract is CPU-bound — run in executor to avoid blocking the event loop
+            loop = asyncio.get_running_loop()
+            extracted = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    trafilatura.extract,
+                    get_resp.text,
+                    output_format="markdown",
+                    include_links=False,
+                    include_comments=False,
+                ),
             )
             hash_input = extracted if extracted and extracted.strip() else get_resp.text
             new_hash = hashlib.sha256(hash_input.encode()).hexdigest()

@@ -1,5 +1,7 @@
 """Web ingest tool: fetch, extract, and ingest web content."""
 
+import asyncio
+import functools
 import logging
 from typing import Any
 from urllib.parse import urlparse
@@ -61,11 +63,17 @@ class WebIngestTool(Tool):
             return f"Failed to fetch URL: {exc}"
 
         # Extract content as markdown (preserves headers for chunker)
-        extracted = trafilatura.extract(
-            fetch_result.html,
-            output_format="markdown",
-            include_links=False,
-            include_comments=False,
+        # trafilatura.extract is CPU-bound — run in executor to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        extracted = await loop.run_in_executor(
+            None,
+            functools.partial(
+                trafilatura.extract,
+                fetch_result.html,
+                output_format="markdown",
+                include_links=False,
+                include_comments=False,
+            ),
         )
 
         if not extracted or not extracted.strip():
@@ -77,7 +85,7 @@ class WebIngestTool(Tool):
         # Auto-detect title if not provided
         title = title_override
         if not title:
-            metadata = trafilatura.bare_extraction(fetch_result.html)
+            metadata = await loop.run_in_executor(None, trafilatura.bare_extraction, fetch_result.html)
             if metadata is not None:
                 title = metadata.title if hasattr(metadata, "title") else metadata.get("title")  # type: ignore[union-attr,unused-ignore]
         if not title:

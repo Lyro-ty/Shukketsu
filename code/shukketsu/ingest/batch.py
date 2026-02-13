@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import logging
 import sqlite3
 from dataclasses import dataclass, field
@@ -121,11 +122,17 @@ class BatchIngest:
                 error=f"Fetch failed: {exc}",
             )
 
-        extracted = trafilatura.extract(
-            fetch_result.html,
-            output_format="markdown",
-            include_links=False,
-            include_comments=False,
+        # trafilatura.extract is CPU-bound — run in executor to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        extracted = await loop.run_in_executor(
+            None,
+            functools.partial(
+                trafilatura.extract,
+                fetch_result.html,
+                output_format="markdown",
+                include_links=False,
+                include_comments=False,
+            ),
         )
 
         if not extracted or not extracted.strip():
@@ -225,11 +232,16 @@ class BrowserBatchIngest:
         if not text or not text.strip():
             # Fall back to trafilatura on page source
             html = await page.content()
-            text = trafilatura.extract(
-                html,
-                output_format="markdown",
-                include_links=False,
-                include_comments=False,
+            loop = asyncio.get_running_loop()
+            text = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    trafilatura.extract,
+                    html,
+                    output_format="markdown",
+                    include_links=False,
+                    include_comments=False,
+                ),
             )
 
         if not text or not text.strip():

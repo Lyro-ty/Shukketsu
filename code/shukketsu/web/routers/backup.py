@@ -1,5 +1,6 @@
 """Backup management API routes."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +27,9 @@ def _get_backup_manager() -> BackupManager:
 async def create_backup(mgr: BackupManager = Depends(_get_backup_manager)) -> dict:
     """Create a new backup."""
     try:
-        result = mgr.create_backup()
+        # create_backup does sqlite3 backup (I/O-bound) — run in executor to avoid blocking
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, mgr.create_backup)
         return result.model_dump()
     except Exception:
         logger.exception("Backup creation failed")

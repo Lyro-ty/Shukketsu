@@ -37,11 +37,12 @@ def _get_model() -> Any:
 
 async def _rerank_impl(query: str, results: list[SearchResult], top_k: int) -> list[SearchResult]:
     """Score query-document pairs with the cross-encoder and return top_k."""
-    model = _get_model()
+    loop = asyncio.get_running_loop()
+    # _get_model() loads the model on first call (CPU-bound) — run in executor
+    model = await loop.run_in_executor(None, _get_model)
     pairs = [(query, r.content) for r in results]
 
     # predict() is CPU-bound — run in executor to avoid blocking the event loop
-    loop = asyncio.get_running_loop()
     scores = await loop.run_in_executor(None, model.predict, pairs)
 
     # Pair results with scores, sort by score descending

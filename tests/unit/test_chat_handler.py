@@ -61,6 +61,99 @@ def _drain_status(ws) -> dict:
             return msg
 
 
+class TestChatSession:
+    """Tests for ChatSession state management."""
+
+    def test_add_message_appends(self) -> None:
+        """add_message should append the message to history."""
+        from code.shukketsu.web.routers.chat import ChatSession
+
+        session = ChatSession()
+        session.add_message("user", "Hello")
+        assert session.history == [{"role": "user", "content": "Hello"}]
+
+    def test_add_message_trims_to_max_pairs(self) -> None:
+        """History should be trimmed to CHAT_MAX_HISTORY_PAIRS * 2 messages."""
+        from code.shukketsu.web.routers.chat import ChatSession
+
+        session = ChatSession()
+        # config.CHAT_MAX_HISTORY_PAIRS is typically 10, meaning 20 messages max
+        # Add more than the max
+        with patch("code.shukketsu.web.routers.chat.config") as mock_config:
+            mock_config.CHAT_MAX_HISTORY_PAIRS = 3  # 6 messages max
+            mock_config.CHAT_MAX_MESSAGE_LENGTH = 10000
+            for i in range(10):
+                session.add_message("user", f"msg {i}")
+                session.add_message("assistant", f"reply {i}")
+            # Should keep only the last 6 messages
+            assert len(session.history) == 6
+            assert session.history[0]["content"] == "msg 7"
+
+    def test_initial_state(self) -> None:
+        """New session should have empty history and is_streaming=False."""
+        from code.shukketsu.web.routers.chat import ChatSession
+
+        session = ChatSession()
+        assert session.history == []
+        assert session.is_streaming is False
+
+
+class TestFormatMemoryContext:
+    """Tests for _format_memory_context truncation logic."""
+
+    def test_empty_memories_returns_empty(self) -> None:
+        """No memories should return empty string."""
+        from code.shukketsu.web.routers.chat import _format_memory_context
+
+        assert _format_memory_context([]) == ""
+
+    def test_formats_summary_and_facts(self) -> None:
+        """Memories should be formatted with summary and key facts."""
+        from code.shukketsu.memory.models import SessionMemory
+        from code.shukketsu.web.routers.chat import _format_memory_context
+
+        mem = SessionMemory(
+            id=1,
+            query="hit cap",
+            answer_summary="9% hit cap",
+            key_facts=["142 rating", "melee only"],
+            entities_mentioned=[],
+            retrieval_quality=0.8,
+            created_at="2026-02-12T00:00:00+00:00",
+            score=0.9,
+        )
+        result = _format_memory_context([mem])
+        assert "hit cap" in result
+        assert "9% hit cap" in result
+        assert "142 rating" in result
+        assert "melee only" in result
+
+    def test_truncates_at_max_context_chars(self) -> None:
+        """Should stop adding memories when exceeding MEMORY_MAX_CONTEXT_CHARS."""
+        from code.shukketsu.memory.models import SessionMemory
+        from code.shukketsu.web.routers.chat import _format_memory_context
+
+        memories = [
+            SessionMemory(
+                id=i,
+                query=f"query {i}",
+                answer_summary="A" * 500,
+                key_facts=[],
+                entities_mentioned=[],
+                retrieval_quality=0.5,
+                created_at="2026-02-12T00:00:00+00:00",
+                score=0.5,
+            )
+            for i in range(20)
+        ]
+        with patch("code.shukketsu.web.routers.chat.config") as mock_config:
+            mock_config.MEMORY_MAX_CONTEXT_CHARS = 1000
+            result = _format_memory_context(memories)
+            # Should have truncated — not all 20 memories should be present
+            assert len(result) <= 1200  # Some margin for the entry that pushed us over
+            assert result.count("- **query") < 20
+
+
 class TestWebSocketProtocol:
     """Tests for WebSocket connection and message protocol."""
 

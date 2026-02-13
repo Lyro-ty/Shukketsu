@@ -4,6 +4,7 @@ Stores facts extracted from conversations and retrieval strategies.
 All writes are fire-and-forget -- errors are logged, never raised.
 """
 
+import asyncio
 import json
 import logging
 import math
@@ -52,6 +53,7 @@ class MemoryManager:
     def __init__(self, conn: sqlite3.Connection, embed_fn: EmbedFn) -> None:
         self._conn = conn
         self._embed_fn = embed_fn
+        self._write_lock = asyncio.Lock()
 
     async def extract_session_memory(
         self,
@@ -90,33 +92,35 @@ class MemoryManager:
                 max_tokens=512,
             )
 
-            # Store in DB
-            cursor = self._conn.execute(
-                """INSERT INTO session_memories
-                   (query, answer_summary, key_facts_json, entities_mentioned,
-                    retrieval_quality, session_id)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    query,
-                    extraction.summary,
-                    json.dumps(extraction.key_facts),
-                    json.dumps(extraction.entities_mentioned),
-                    0.5,  # Default quality; updated on feedback
-                    session_id,
-                ),
-            )
-            row_id = cursor.lastrowid
-            if row_id is None or row_id == 0:
-                raise RuntimeError("INSERT into session_memories returned no rowid")
-
-            # Store embedding
+            # Embed before acquiring lock (network I/O, not DB-bound)
             embedding = await self._embed_fn(query)
             blob = struct.pack(f"{len(embedding)}f", *embedding)
-            self._conn.execute(
-                "INSERT INTO session_memories_vec (rowid, embedding) VALUES (?, ?)",
-                (row_id, blob),
-            )
-            self._conn.commit()
+
+            # Hold lock for all DB writes to prevent interleaved transactions
+            async with self._write_lock:
+                cursor = self._conn.execute(
+                    """INSERT INTO session_memories
+                       (query, answer_summary, key_facts_json, entities_mentioned,
+                        retrieval_quality, session_id)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        query,
+                        extraction.summary,
+                        json.dumps(extraction.key_facts),
+                        json.dumps(extraction.entities_mentioned),
+                        0.5,  # Default quality; updated on feedback
+                        session_id,
+                    ),
+                )
+                row_id = cursor.lastrowid
+                if row_id is None or row_id == 0:
+                    raise RuntimeError("INSERT into session_memories returned no rowid")
+
+                self._conn.execute(
+                    "INSERT INTO session_memories_vec (rowid, embedding) VALUES (?, ?)",
+                    (row_id, blob),
+                )
+                self._conn.commit()
 
         except Exception:
             self._conn.rollback()
@@ -200,36 +204,37 @@ class MemoryManager:
         Otherwise inserts a new row.
         """
         try:
-            existing = self._conn.execute(
-                "SELECT id, times_reinforced, avg_quality FROM strategy_memories WHERE query_pattern = ?",
-                (query,),
-            ).fetchone()
+            async with self._write_lock:
+                existing = self._conn.execute(
+                    "SELECT id, times_reinforced, avg_quality FROM strategy_memories WHERE query_pattern = ?",
+                    (query,),
+                ).fetchone()
 
-            if existing:
-                new_reinforced = existing["times_reinforced"] + 1
-                new_avg = (existing["avg_quality"] * existing["times_reinforced"] + quality) / new_reinforced
-                self._conn.execute(
-                    """UPDATE strategy_memories
-                       SET times_reinforced = ?,
-                           avg_quality = ?,
-                           last_used = datetime('now'),
-                           successful_tools = ?
-                       WHERE id = ?""",
-                    (
-                        new_reinforced,
-                        new_avg,
-                        json.dumps(tools_used),
-                        existing["id"],
-                    ),
-                )
-            else:
-                self._conn.execute(
-                    """INSERT INTO strategy_memories
-                       (query_pattern, strategy_type, successful_tools, avg_quality)
-                       VALUES (?, ?, ?, ?)""",
-                    (query, strategy_type, json.dumps(tools_used), quality),
-                )
-            self._conn.commit()
+                if existing:
+                    new_reinforced = existing["times_reinforced"] + 1
+                    new_avg = (existing["avg_quality"] * existing["times_reinforced"] + quality) / new_reinforced
+                    self._conn.execute(
+                        """UPDATE strategy_memories
+                           SET times_reinforced = ?,
+                               avg_quality = ?,
+                               last_used = datetime('now'),
+                               successful_tools = ?
+                           WHERE id = ?""",
+                        (
+                            new_reinforced,
+                            new_avg,
+                            json.dumps(tools_used),
+                            existing["id"],
+                        ),
+                    )
+                else:
+                    self._conn.execute(
+                        """INSERT INTO strategy_memories
+                           (query_pattern, strategy_type, successful_tools, avg_quality)
+                           VALUES (?, ?, ?, ?)""",
+                        (query, strategy_type, json.dumps(tools_used), quality),
+                    )
+                self._conn.commit()
 
         except Exception:
             logger.warning("Strategy recording failed", exc_info=True)
