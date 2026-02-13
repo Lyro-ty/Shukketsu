@@ -318,6 +318,8 @@ class RotationEngine:
                 return "backstab"
             case RogueSpec.COMBAT_SWORDS | RogueSpec.COMBAT_FISTS:
                 return "sinister_strike"
+            case _:
+                return "sinister_strike"
 
     def _select_finisher(self, ctx: RotationContext) -> str:
         """Choose the damage finisher based on spec and current debuffs.

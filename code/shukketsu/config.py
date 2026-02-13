@@ -147,7 +147,7 @@ def get_check_interval(url: str) -> int:
 
 
 # Batch ingest
-BATCH_CONCURRENCY = int(os.getenv("BATCH_CONCURRENCY", "3"))
+BATCH_CONCURRENCY = max(1, int(os.getenv("BATCH_CONCURRENCY", "3")))
 MANIFEST_PATH = Path(os.getenv("MANIFEST_PATH", "/project/data/sources/manifest.yaml"))
 
 # WCL API
@@ -192,7 +192,7 @@ RELEVANCY_THRESHOLD = float(os.getenv("RELEVANCY_THRESHOLD", "0.7"))
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "true").lower() == "true"
 MEMORY_RECALL_TOP_K = int(os.getenv("MEMORY_RECALL_TOP_K", "5"))
 MEMORY_STRATEGY_TOP_K = int(os.getenv("MEMORY_STRATEGY_TOP_K", "3"))
-MEMORY_RECENCY_HALF_LIFE_DAYS = float(os.getenv("MEMORY_RECENCY_HALF_LIFE_DAYS", "30.0"))
+MEMORY_RECENCY_HALF_LIFE_DAYS = max(0.001, float(os.getenv("MEMORY_RECENCY_HALF_LIFE_DAYS", "30.0")))
 MEMORY_COMPOSITE_SIM_WEIGHT = 0.6
 MEMORY_COMPOSITE_RECENCY_WEIGHT = 0.2
 MEMORY_COMPOSITE_QUALITY_WEIGHT = 0.2
