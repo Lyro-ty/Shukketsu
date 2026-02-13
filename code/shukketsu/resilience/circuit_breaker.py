@@ -143,6 +143,12 @@ reranker_breaker = CircuitBreaker(
     recovery_timeout=config.CB_RERANKER_RECOVERY_TIMEOUT,
 )
 
+wcl_breaker = CircuitBreaker(
+    "wcl_api",
+    failure_threshold=config.CB_WCL_FAILURE_THRESHOLD,
+    recovery_timeout=config.CB_WCL_RECOVERY_TIMEOUT,
+)
+
 
 def reset_all_breakers() -> None:
     """Reset all named circuit breakers to CLOSED. Used by test fixtures."""
@@ -152,5 +158,6 @@ def reset_all_breakers() -> None:
         ollama_embed_breaker,
         brave_breaker,
         reranker_breaker,
+        wcl_breaker,
     ):
         breaker.reset()
