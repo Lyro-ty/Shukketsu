@@ -1,5 +1,6 @@
 """OAuth2 client credentials token management for WCL API."""
 
+import asyncio
 import logging
 import time
 
@@ -23,12 +24,17 @@ class WCLAuth:
         self._client_secret = client_secret or config.WCL_CLIENT_SECRET
         self._token: str | None = None
         self._expires_at: float = 0.0
+        self._lock = asyncio.Lock()
 
     async def get_token(self) -> str:
         """Return a valid access token, acquiring one if needed."""
         if self._token and time.time() < self._expires_at:
             return self._token
-        return await self._acquire_token()
+        async with self._lock:
+            # Re-check after acquiring lock (another coroutine may have refreshed)
+            if self._token and time.time() < self._expires_at:
+                return self._token
+            return await self._acquire_token()
 
     async def _acquire_token(self) -> str:
         """Acquire a new token via OAuth2 client credentials flow."""
@@ -52,6 +58,8 @@ class WCLAuth:
             raise WCLAuthError(f"WCL token request failed (HTTP {response.status_code}): {response.text}")
 
         data = response.json()
+        if "access_token" not in data:
+            raise WCLAuthError(f"WCL token response missing 'access_token': {list(data.keys())}")
         self._token = data["access_token"]
         # Set expiry with 60-second buffer
         self._expires_at = time.time() + data.get("expires_in", 3600) - 60
