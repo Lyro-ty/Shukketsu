@@ -210,105 +210,37 @@ ruff check . --fix && ruff format . && python3 -m mypy . && python3 -m pytest
 
 ## Development Phases
 
-Phases 1-4 are complete (1,408 unit tests). Post-Phase 3 additions: batch ingest engine, 7B model tier, GB10 timeout tuning, WCL API integration (168 tests), Phase 4 DPS simulation (421 tests). Planning docs live in `docs/plans/`:
+Phases 1-5 are complete (1,461 unit tests). Planning docs live in `docs/plans/`. Key references:
+- `2026-02-09-shukketsu-design.md` — original comprehensive design spec
+- `shukketsu-architecture.md` — architecture reference and design rationale
+- `phase-roadmap.md` — lightweight outline of all phases
 
-| Document | Purpose |
-|----------|---------|
-| `2026-02-09-shukketsu-design.md` | Original comprehensive design spec (full system vision, schema, all phases) |
-| `shukketsu-architecture.md` | Architecture reference (design rationale, not implementation steps) |
-| `phase-1-agent-core.md` | Phase 1 implementation guide (complete) |
-| `phase-2-multi-agent-rag.md` | Phase 2 implementation guide (complete) |
-| `2026-02-10-phase2-step2-knowledge-graph.md` | Step 2 detailed plan (complete) |
-| `2026-02-10-phase2-step3-graph-search-reranker.md` | Step 3 design doc (complete) |
-| `2026-02-10-phase2-step3-implementation.md` | Step 3 implementation plan (complete) |
-| `2026-02-10-deployment-setup.md` | Deployment setup (complete) |
-| `2026-02-11-phase2-step4-researcher-agent.md` | Step 4 design doc (Researcher agent, structuring pass, prompts) |
-| `2026-02-11-phase2-step4-implementation.md` | Step 4 implementation plan (complete) |
-| `2026-02-11-phase2-step5-writer-wiki.md` | Step 5 design doc (Writer agent, KnowledgeManager, schema v3) |
-| `2026-02-11-phase2-step5-implementation.md` | Step 5 implementation plan (complete) |
-| `2026-02-11-phase2-step6-editor-agent.md` | Step 6 design doc (Editor agent, claim verification, confidence scoring) |
-| `2026-02-11-phase2-step7-orchestrator-agent.md` | Step 7 design doc (Orchestrator agent, task decomposition, dispatch, synthesis) |
-| `2026-02-11-phase2-step7-implementation.md` | Step 7 implementation plan (complete) |
-| `2026-02-11-phase2-step8-wiki-ui.md` | Step 8 design doc (Wiki UI, article browser, review/approve flow, HTMX) |
-| `2026-02-11-phase2-step8-implementation.md` | Step 8 implementation plan (complete) |
-| `2026-02-11-phase2-step9-freshness-backups.md` | Step 9 design doc (freshness checker, backup manager, API endpoints) |
-| `2026-02-11-phase2-step9-implementation.md` | Step 9 implementation plan (complete) |
-| `2026-02-12-phase2-step10-integration-eval.md` | Step 10 design doc (integration + phase gate evaluation) |
-| `2026-02-12-phase2-step10-implementation.md` | Step 10 implementation plan (complete) |
-| `2026-02-12-phase3-memory-performance.md` | Phase 3 design doc (complete) |
-| `2026-02-12-phase3-step1-cross-encoder.md` | Step 1 implementation plan (cross-encoder reranker, complete) |
-| `2026-02-12-phase3-steps2-5-implementation.md` | Steps 2-5 implementation plan (parallel, streaming, compaction, reflection, complete) |
-| `2026-02-12-phase3-steps6-9-implementation.md` | Steps 6-9 implementation plan (memory, integration, strategy, trust, complete) |
-| `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
-| `2026-02-13-wcl-api-integration.md` | WCL API design doc (OAuth2, GraphQL, endpoints, schema, ingest modes) |
-| `2026-02-13-wcl-api-implementation.md` | WCL API implementation plan (10 tasks, 168 tests, complete) |
-| `2026-02-13-phase4-implementation.md` | Phase 4 implementation plan (12 steps, 421 sim tests, complete) |
-| `2026-02-13-phase5-eval-observability.md` | **Active plan** — Phase 5 design doc (Langfuse-primary eval, 60-question dataset, feedback, dashboard, export) |
+### Phase 1: Agent Core — COMPLETE (245 tests)
 
-### Phase 1: Agent Core — COMPLETE
+Chat UI, database, structured output, ingest pipeline, hybrid search, multi-model router, web search, resilience, observability.
 
-All 10 steps done. 245 unit tests passing. System deployed and accessible in browser.
+### Phase 2: Multi-Agent + Agentic RAG — COMPLETE (741 tests)
 
-### Phase 2: Multi-Agent + Agentic RAG (10 steps) — COMPLETE
+Structured Task Protocol, knowledge graph + entity extraction, graph search + reranker, Researcher/Writer/Editor/Orchestrator agents, wiki UI, content freshness, automated backups, phase gate evaluation.
 
-The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
+### Phase 3: Memory, Reflection, Performance — COMPLETE (778 tests)
 
-1. ~~Structured Task Protocol + Agent Framework~~ — COMPLETE (302 tests: tasks.py, base.py refactor, factory.py)
-2. ~~Knowledge Graph Schema + Entity Extraction~~ — COMPLETE (381 tests: schema v2, entity types/aliases, GraphStore, extraction pipeline)
-3. ~~Graph Traversal Tool + Qwen 4B Reranking~~ — COMPLETE (438 tests: graph_search tool, reranker, rag_search reranking)
-4. ~~Researcher Agent~~ — COMPLETE (473 tests: Researcher subclass, structuring pass, prompts, factory registry)
-5. ~~Writer Agent + Wiki Backend~~ — COMPLETE (527 tests: Writer agent, KnowledgeManager, schema v3, YAML frontmatter, two-pass generation)
-6. ~~Editor Agent~~ — COMPLETE (570 tests: Editor subclass, claim verification, confidence scoring, VerificationStatus enum, ClaimJudgment/ClaimVerification/EditResult models, entity matching, frontmatter update)
-7. ~~Orchestrator Agent~~ — COMPLETE (620 tests: Orchestrator subclass, 3-phase execute, plan validation, topological sort, task building, research merge, synthesis, factory registration, chat routing by complexity)
-8. ~~Wiki UI~~ — COMPLETE (652 tests: wiki routes, markdown render, KM extensions, article browser, review/approve, HTMX fragments)
-9. ~~Content Freshness + Automated Backups~~ — COMPLETE (690 tests: freshness checker, backup manager, API routes, ingest integration, wiki stale badge)
-10. ~~Integration + Phase Gate Evaluation~~ — COMPLETE (741 tests: ToolCallRecord trajectory, eval metrics/judge/runner, 30-question dataset, seed content, tier 1-3 integration tests)
+Cross-encoder reranker, parallel subtask execution, streaming, context compaction, reflection passes, cross-session memory, strategy hints, trust scoring.
 
-**Phase gate**: Complex multi-part question → Orchestrator decomposes → specialists cooperate → wiki articles produced and verified → traces in Langfuse. RAG faithfulness >= 0.8, trajectory precision >= 0.7, domain accuracy >= 0.7.
+### Post-Phase 3 Additions
 
-### Phase 3: Memory, Reflection, and Performance (9 steps) — COMPLETE
+- Batch ingest engine with YAML manifest, concurrent/browser modes, entity extraction pass
+- Fast 7B model tier, GB10 timeout tuning, WCL API integration (168 tests)
 
-All 9 steps done. 778 tests at completion, grew to 813 with post-phase additions (batch ingest, manifest, 7B routing).
+### Phase 4: DPS Simulation Engine — COMPLETE (421 tests)
 
-**Post-Phase 3 additions** (not part of a numbered phase):
-- Batch ingest engine (`ingest/batch.py`) with YAML manifest, concurrent/browser modes, entity extraction pass
-- Fast 7B model tier (`FAST_MODEL = qwen2.5:7b`) for moderate-complexity queries
-- GB10 timeout tuning (`LLM_TIMEOUT_SECONDS = 300s`, `RESEARCHER_MAX_ITERATIONS = 6`)
-- Source manifest at `data/sources/manifest.yaml` with 20+ TBC Rogue content URLs
-- **WCL API integration** (`apis/wcl/`): OAuth2 auth, rate-limit-aware GraphQL client, 20 Pydantic models, DB schema v5 (10 tables), 3 ingest modes (rankings/deep-dive/character sync), CLI. 168 tests. Tracks Lyroo-Nightslayer (US) on fresh endpoint.
+Full discrete-event TBC 2.4.3 Rogue DPS simulation: combat mechanics, 18 abilities + poisons, 33 talents, 50 items, buff system, rotation engine, combat loop, SimRunner API (sim_run/compare/optimize), Analyst agent + 3 sim tools, web UI (Chart.js, HTMX), 9 validation profiles.
 
-### Phase 4: DPS Simulation Engine (12 steps) — COMPLETE
+### Phase 5: Evaluation + Observability Polish — COMPLETE (53 tests)
 
-Full discrete-event TBC 2.4.3 Rogue DPS simulation engine. 421 sim tests. 12 steps in 6 batches:
-
-1. ~~Foundation Models~~ — COMPLETE (data models, config, errors: RogueSpec, GearSlot, SimConfig, BossConfig, PoisonConfig, SimResult)
-2. ~~Combat Mechanics~~ — COMPLETE (hit/crit/glancing tables, armor mitigation, dual-wield miss penalty, AP→DPS conversion)
-3. ~~Abilities Database~~ — COMPLETE (18 abilities + 3 poisons, energy/CP costs, damage formulas, cooldowns)
-4. ~~Talent System~~ — COMPLETE (33 DPS-relevant talents, TalentModifiers frozen model, talent string parsing)
-5. ~~Item Database~~ — COMPLETE (50 curated TBC items across all phases, stat extraction, slot filtering)
-6. ~~Buffs & Imports~~ — COMPLETE (buff system with 5 presets, SimC/70U/WoWSims import parsing)
-7. ~~Rotation Engine~~ — COMPLETE (priority-based state machine, 4 specs, off-GCD CDs, energy pooling, SND refresh)
-8. ~~Combat Event Loop~~ — COMPLETE (discrete-event scheduler, auto-attack, energy regen, buff tracking, ability breakdown)
-9. ~~Runner + Public API~~ — COMPLETE (SimRunner: sim_run, sim_compare, sim_optimize, stat_weights, swap_item)
-10. ~~Agent Tools + Analyst~~ — COMPLETE (3 sim tools, Analyst agent, factory registration, task protocol)
-11. ~~Sim Web UI~~ — COMPLETE (FastAPI routes, Jinja2 templates, Chart.js, HTMX partials, gear table, stat weights)
-12. ~~Validation Profiles~~ — COMPLETE (9 canonical profiles, verified item IDs, DPS range validation)
-
-### Phase 5: Evaluation + Observability Polish (8 steps) — DESIGN COMPLETE
-
-Langfuse-primary evaluation pipeline with three-tier 60-question dataset, user feedback, lean dashboard, and fine-tuning export. Design doc: `2026-02-13-phase5-eval-observability.md`.
-
-1. Config + Metrics Foundation — PENDING
-2. Judge Extensions — PENDING
-3. Eval Dataset Content + Manager — PENDING
-4. Eval Runner — PENDING
-5. Chat Feedback — PENDING
-6. Dashboard UI — PENDING
-7. Fine-Tuning Export — PENDING
-8. Integration Wiring — PENDING
-
-**Phase gate**: Full 60-question eval runs end-to-end, scores visible in dashboard and Langfuse, user feedback attaches to traces, export CLI produces valid JSONL.
+Langfuse-primary eval pipeline: three-tier 60-question dataset (retrieval/reasoning/simulation), LLM-as-judge scoring (faithfulness, relevancy, trajectory precision, domain accuracy + sim accuracy), EvalRunner with same routing path as chat, user feedback via WebSocket → Langfuse scores, lean HTMX dashboard with Chart.js history, fine-tuning JSONL export (ShareGPT + function-calling formats).
 
 ### Future Phases
 
 - **Phase 6**: UI polish + growth (talent trees, sim builder, charts, PvP)
+- **Phase 7**: Advanced evaluation (A/B testing, regression detection, automated CI eval)
