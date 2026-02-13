@@ -1,6 +1,6 @@
 """Tests for simulation web UI routes."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -154,3 +154,96 @@ class TestApiItems:
             assert "name" in item
             assert "item_level" in item
             assert "phase" in item
+
+
+# ---------------------------------------------------------------------------
+# Validation dashboard
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePage:
+    """Tests for GET /sim/validate/."""
+
+    @pytest.mark.asyncio
+    async def test_returns_200(self, client: AsyncClient) -> None:
+        response = await client.get("/sim/validate/")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_contains_title(self, client: AsyncClient) -> None:
+        response = await client.get("/sim/validate/")
+        assert "Validation" in response.text
+
+    @pytest.mark.asyncio
+    async def test_has_run_form(self, client: AsyncClient) -> None:
+        response = await client.get("/sim/validate/")
+        assert "character_name" in response.text
+
+    @pytest.mark.asyncio
+    async def test_empty_runs_shows_message(self, client: AsyncClient) -> None:
+        """Fresh app should show 'no runs' message."""
+        response = await client.get("/sim/validate/")
+        assert response.status_code == 200
+
+
+class TestValidateReport:
+    """Tests for GET /sim/validate/report/{run_id}."""
+
+    @pytest.mark.asyncio
+    async def test_not_found_returns_404(self, client: AsyncClient) -> None:
+        response = await client.get("/sim/validate/report/99999")
+        assert response.status_code == 404
+
+
+class TestValidateRun:
+    """Tests for POST /sim/validate/run."""
+
+    @pytest.mark.asyncio
+    @patch("code.shukketsu.web.routers.sim.ValidationPipeline")
+    @patch("code.shukketsu.web.routers.sim.get_connection")
+    @patch("code.shukketsu.web.routers.sim.init_db")
+    async def test_run_returns_report(
+        self,
+        mock_init_db: MagicMock,
+        mock_get_conn: MagicMock,
+        mock_pipeline_cls: MagicMock,
+        client: AsyncClient,
+    ) -> None:
+        """POST /sim/validate/run triggers pipeline and returns HTML."""
+        mock_report = MagicMock()
+        mock_report.overall_status = "pass"
+        mock_report.overall_dps_drift_pct = 3.5
+        mock_report.character_name = "TestChar"
+        mock_report.total_fights = 5
+        mock_report.included_fights = 4
+        mock_report.excluded_fights = 1
+        mock_report.per_fight = []
+        mock_report.per_boss = {}
+        mock_report.timestamp = "2026-02-13T00:00:00"
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.run_validation = AsyncMock(return_value=mock_report)
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        response = await client.post("/sim/validate/run", data={"character_name": "TestChar"})
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    @patch("code.shukketsu.web.routers.sim.ValidationPipeline")
+    @patch("code.shukketsu.web.routers.sim.get_connection")
+    @patch("code.shukketsu.web.routers.sim.init_db")
+    async def test_run_error_returns_html(
+        self,
+        mock_init_db: MagicMock,
+        mock_get_conn: MagicMock,
+        mock_pipeline_cls: MagicMock,
+        client: AsyncClient,
+    ) -> None:
+        """POST /sim/validate/run with pipeline error returns error HTML."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.run_validation = AsyncMock(side_effect=RuntimeError("DB error"))
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        response = await client.post("/sim/validate/run", data={"character_name": "Bad"})
+        assert response.status_code == 200
+        assert "Error" in response.text

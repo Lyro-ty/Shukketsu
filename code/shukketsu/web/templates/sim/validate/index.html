@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Validation Dashboard - Shukketsu{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-6 py-8 space-y-8">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-wow-gold">Validation Dashboard</h1>
+        <a href="/sim/" class="text-parchment-dim text-sm hover:text-parchment">Back to Sim</a>
+    </div>
+
+    <!-- Run Validation Form -->
+    <div class="bg-shadow rounded-lg border border-white/10 p-6">
+        <h2 class="text-lg font-semibold text-parchment mb-4">Run Validation</h2>
+        <form hx-post="/sim/validate/run" hx-target="#validation-result" hx-swap="innerHTML">
+            <div class="flex items-center gap-4">
+                <input type="text" name="character_name" placeholder="Character name (e.g. Lyroo)"
+                    class="flex-1 bg-shadow-deep border border-white/10 rounded px-3 py-2 text-parchment text-sm focus:border-wow-gold focus:outline-none"
+                    required>
+                <button type="submit"
+                    class="px-4 py-2 bg-wow-gold/20 text-wow-gold border border-wow-gold/30 rounded hover:bg-wow-gold/30 text-sm font-medium">
+                    Run Validation
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Validation Result (HTMX target) -->
+    <div id="validation-result"></div>
+
+    <!-- Past Runs Table -->
+    <div class="bg-shadow rounded-lg border border-white/10 p-6">
+        <h2 class="text-lg font-semibold text-parchment mb-4">Past Runs</h2>
+        {% if runs %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-parchment-dim border-b border-white/10">
+                        <th class="text-left py-2 px-3">Character</th>
+                        <th class="text-left py-2 px-3">Status</th>
+                        <th class="text-right py-2 px-3">Drift %</th>
+                        <th class="text-right py-2 px-3">Fights</th>
+                        <th class="text-left py-2 px-3">Date</th>
+                        <th class="text-left py-2 px-3"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr class="border-b border-white/5 hover:bg-white/5">
+                        <td class="py-2 px-3 text-parchment">{{ run.character_name }}</td>
+                        <td class="py-2 px-3">
+                            {% if run.overall_status == 'pass' %}
+                            <span class="text-green-400 font-medium">PASS</span>
+                            {% elif run.overall_status == 'warn' %}
+                            <span class="text-yellow-400 font-medium">WARN</span>
+                            {% else %}
+                            <span class="text-red-400 font-medium">FAIL</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(run.overall_dps_drift_pct) }}%
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ run.included_fights }}/{{ run.total_fights }}
+                        </td>
+                        <td class="py-2 px-3 text-parchment-dim">{{ run.created_at }}</td>
+                        <td class="py-2 px-3">
+                            <a href="/sim/validate/report/{{ run.id }}"
+                               class="text-wow-gold hover:text-wow-gold/80 text-xs">View Report</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-parchment-dim text-center py-4">No validation runs yet.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

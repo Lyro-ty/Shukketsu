@@ -5,6 +5,7 @@ and result visualization, plus JSON API endpoints for programmatic access.
 """
 
 import html
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -15,8 +16,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.responses import Response
 
+from code.shukketsu.db.connection import get_connection, init_db
+from code.shukketsu.sim.comparator import ValidationReport
 from code.shukketsu.sim.models import GearSlot, SimConfig
 from code.shukketsu.sim.runner import SimRunner
+from code.shukketsu.sim.validation_pipeline import ValidationPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,71 @@ async def sim_run(request: Request) -> Response:
     except Exception as exc:
         logger.exception("Simulation run failed")
         return HTMLResponse(f'<div class="text-red-400 p-4">Error: {html.escape(str(exc))}</div>')
+
+
+# ---------------------------------------------------------------------------
+# Validation routes
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sim/validate/", response_class=HTMLResponse)
+async def validate_page(request: Request) -> Response:
+    """Render validation dashboard with history of past runs."""
+    runs: list[dict[str, Any]] = []
+    try:
+        conn = get_connection()
+        init_db(conn)
+        cursor = conn.execute(
+            """SELECT id, character_name, run_type, total_fights, included_fights,
+                      overall_dps_drift_pct, overall_status, created_at
+               FROM validation_runs ORDER BY created_at DESC LIMIT 20"""
+        )
+        for row in cursor.fetchall():
+            runs.append(
+                {
+                    "id": row[0],
+                    "character_name": row[1],
+                    "run_type": row[2],
+                    "total_fights": row[3],
+                    "included_fights": row[4],
+                    "overall_dps_drift_pct": row[5],
+                    "overall_status": row[6],
+                    "created_at": row[7],
+                }
+            )
+    except Exception:
+        logger.debug("Could not load validation runs", exc_info=True)
+    return _templates.TemplateResponse(request, "sim/validate/index.html", {"runs": runs})
+
+
+@router.post("/sim/validate/run", response_class=HTMLResponse)
+async def validate_run(request: Request, character_name: str = Form(...)) -> Response:
+    """Trigger a validation run and return the report partial."""
+    try:
+        conn = get_connection()
+        init_db(conn)
+        pipeline = ValidationPipeline(conn)
+        report = await pipeline.run_validation(character_name)
+        return _templates.TemplateResponse(request, "sim/validate/partials/report.html", {"report": report})
+    except Exception as exc:
+        logger.exception("Validation run failed")
+        return HTMLResponse(f'<div class="text-red-400 p-4">Error: {html.escape(str(exc))}</div>')
+
+
+@router.get("/sim/validate/report/{run_id}", response_class=HTMLResponse)
+async def validate_report(request: Request, run_id: int) -> Response:
+    """Render a stored validation report."""
+    try:
+        conn = get_connection()
+        init_db(conn)
+        row = conn.execute("SELECT report_json FROM validation_runs WHERE id = ?", (run_id,)).fetchone()
+    except Exception:
+        logger.debug("Could not load validation report %d", run_id, exc_info=True)
+        raise HTTPException(status_code=404, detail="Report not found")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    report = ValidationReport(**json.loads(row[0]))
+    return _templates.TemplateResponse(request, "sim/validate/partials/report.html", {"report": report})
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,149 @@
+<!-- Validation Report Partial -->
+<div class="bg-shadow rounded-lg border border-white/10 p-6 space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-parchment">
+            Validation Report: {{ report.character_name }}
+        </h2>
+        <div class="flex items-center gap-4">
+            {% if report.overall_status == 'pass' %}
+            <span class="px-3 py-1 rounded bg-green-900/30 border border-green-500/30 text-green-400 text-sm font-medium">
+                PASS
+            </span>
+            {% elif report.overall_status == 'warn' %}
+            <span class="px-3 py-1 rounded bg-yellow-900/30 border border-yellow-500/30 text-yellow-400 text-sm font-medium">
+                WARN
+            </span>
+            {% else %}
+            <span class="px-3 py-1 rounded bg-red-900/30 border border-red-500/30 text-red-400 text-sm font-medium">
+                FAIL
+            </span>
+            {% endif %}
+            <span class="text-parchment-dim text-sm">
+                {{ "%.1f"|format(report.overall_dps_drift_pct) }}% drift
+            </span>
+        </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="grid grid-cols-3 gap-4">
+        <div class="bg-shadow-deep rounded p-4 border border-white/5">
+            <div class="text-parchment-dim text-xs uppercase tracking-wide">Total Fights</div>
+            <div class="text-parchment text-xl font-bold mt-1">{{ report.total_fights }}</div>
+        </div>
+        <div class="bg-shadow-deep rounded p-4 border border-white/5">
+            <div class="text-parchment-dim text-xs uppercase tracking-wide">Included</div>
+            <div class="text-parchment text-xl font-bold mt-1">{{ report.included_fights }}</div>
+        </div>
+        <div class="bg-shadow-deep rounded p-4 border border-white/5">
+            <div class="text-parchment-dim text-xs uppercase tracking-wide">Excluded</div>
+            <div class="text-parchment text-xl font-bold mt-1">{{ report.excluded_fights }}</div>
+        </div>
+    </div>
+
+    <!-- Per-Boss Aggregates -->
+    {% if report.per_boss %}
+    <div>
+        <h3 class="text-md font-semibold text-parchment mb-3">Per-Boss Results</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-parchment-dim border-b border-white/10">
+                        <th class="text-left py-2 px-3">Boss</th>
+                        <th class="text-left py-2 px-3">Status</th>
+                        <th class="text-right py-2 px-3">Sim DPS</th>
+                        <th class="text-right py-2 px-3">WCL DPS</th>
+                        <th class="text-right py-2 px-3">Drift %</th>
+                        <th class="text-right py-2 px-3">Fights</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for boss_name, boss in report.per_boss.items() %}
+                    <tr class="border-b border-white/5 hover:bg-white/5">
+                        <td class="py-2 px-3 text-parchment">{{ boss.encounter_name }}</td>
+                        <td class="py-2 px-3">
+                            {% if boss.status == 'pass' %}
+                            <span class="text-green-400">PASS</span>
+                            {% elif boss.status == 'warn' %}
+                            <span class="text-yellow-400">WARN</span>
+                            {% else %}
+                            <span class="text-red-400">FAIL</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(boss.avg_sim_dps) }}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(boss.avg_wcl_dps) }}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(boss.avg_drift_pct) }}%
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ boss.fight_count }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Per-Fight Details -->
+    {% if report.per_fight %}
+    <div>
+        <h3 class="text-md font-semibold text-parchment mb-3">Per-Fight Details</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-parchment-dim border-b border-white/10">
+                        <th class="text-left py-2 px-3">Report</th>
+                        <th class="text-left py-2 px-3">Boss</th>
+                        <th class="text-left py-2 px-3">Status</th>
+                        <th class="text-right py-2 px-3">Sim DPS</th>
+                        <th class="text-right py-2 px-3">WCL DPS</th>
+                        <th class="text-right py-2 px-3">Drift %</th>
+                        <th class="text-right py-2 px-3">Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fight in report.per_fight %}
+                    <tr class="border-b border-white/5 hover:bg-white/5">
+                        <td class="py-2 px-3 text-parchment font-mono text-xs">
+                            {{ fight.report_code }}#{{ fight.fight_id }}
+                        </td>
+                        <td class="py-2 px-3 text-parchment">{{ fight.encounter_name }}</td>
+                        <td class="py-2 px-3">
+                            {% if fight.overall_status == 'pass' %}
+                            <span class="text-green-400">PASS</span>
+                            {% elif fight.overall_status == 'warn' %}
+                            <span class="text-yellow-400">WARN</span>
+                            {% else %}
+                            <span class="text-red-400">FAIL</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(fight.dps_drift.sim_value) }}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(fight.dps_drift.wcl_value) }}
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(fight.dps_drift.relative_pct) }}%
+                        </td>
+                        <td class="py-2 px-3 text-right text-parchment-dim">
+                            {{ "%.1f"|format(fight.fight_duration_ms / 1000) }}s
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="text-parchment-dim text-xs text-right">
+        Generated: {{ report.timestamp }}
+    </div>
+</div>
