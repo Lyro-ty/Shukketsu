@@ -182,6 +182,11 @@ class BaseAgent:
                     }
                 )
 
+            # Truncate large observations to keep context manageable for GB10
+            if len(observation) > config.OBSERVATION_MAX_CHARS:
+                half = config.OBSERVATION_MAX_CHARS // 2
+                observation = observation[:half] + "\n\n[... truncated ...]\n\n" + observation[-half:]
+
             scratchpad.append(
                 {
                     "reasoning": step.reasoning,

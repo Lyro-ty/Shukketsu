@@ -44,7 +44,8 @@ AGENT_MAX_ITERATIONS = 5
 RAG_SEARCH_TOP_K = 5
 RAG_SEARCH_FETCH_K = 20  # Candidates per source before RRF fusion
 AGENT_GRACEFUL_FAILURE = "I wasn't able to find a complete answer. Please try rephrasing your question."
-COMPACTION_THRESHOLD_TOKENS = int(os.getenv("COMPACTION_THRESHOLD_TOKENS", "60000"))
+COMPACTION_THRESHOLD_TOKENS = int(os.getenv("COMPACTION_THRESHOLD_TOKENS", "16000"))
+OBSERVATION_MAX_CHARS = int(os.getenv("OBSERVATION_MAX_CHARS", "2000"))
 
 # Chat defaults
 SYSTEM_PROMPT = (
@@ -56,7 +57,7 @@ CHAT_MAX_HISTORY_PAIRS = 20
 CHAT_MAX_MESSAGE_LENGTH = 10_000  # Max characters per user message
 CHAT_TEMPERATURE = 0.7
 CHAT_MAX_TOKENS = 2048
-LLM_TIMEOUT_SECONDS = 120.0  # Generous for 70B model cold-start on Ollama
+LLM_TIMEOUT_SECONDS = 300.0  # 70B structured output can take 2+ min on GB10
 
 # Structured output defaults
 STRUCTURED_TEMPERATURE = 0.1

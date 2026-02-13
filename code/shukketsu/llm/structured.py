@@ -44,6 +44,7 @@ def _get_client(backend: ModelBackend) -> instructor.AsyncInstructor:
             base_url=_OLLAMA_OPENAI_URL,
             api_key="not-needed",
             timeout=httpx.Timeout(timeout=config.LLM_TIMEOUT_SECONDS, connect=10.0),
+            max_retries=0,  # Our with_retry decorator handles retries; avoid 15-min waits
         )
         _clients[backend] = instructor.from_openai(
             openai_client,
