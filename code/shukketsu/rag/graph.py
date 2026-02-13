@@ -69,29 +69,19 @@ class GraphStore:
         type_id = self.get_entity_type_id(entity_type)
         props_json = json.dumps(properties) if properties else None
 
-        existing = self._conn.execute(
-            "SELECT id FROM entities WHERE canonical_name = ? AND entity_type_id = ?",
-            (canonical, type_id),
-        ).fetchone()
-
-        if existing:
-            self._conn.execute(
-                "UPDATE entities SET "
-                "properties_json = COALESCE(?, properties_json), "
-                "confidence = MAX(confidence, ?) "
-                "WHERE id = ?",
-                (props_json, confidence, existing["id"]),
-            )
-            return int(existing["id"])
-
         cursor = self._conn.execute(
             "INSERT INTO entities "
             "(name, entity_type_id, canonical_name, properties_json, source_chunk_id, confidence) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(canonical_name, entity_type_id) DO UPDATE SET "
+            "properties_json = COALESCE(excluded.properties_json, entities.properties_json), "
+            "confidence = MAX(entities.confidence, excluded.confidence) "
+            "RETURNING id",
             (name, type_id, canonical, props_json, source_chunk_id, confidence),
         )
-        assert cursor.lastrowid is not None, "INSERT INTO entities failed to return lastrowid"
-        return cursor.lastrowid
+        row = cursor.fetchone()
+        assert row is not None, "INSERT/UPDATE entities failed to return id"
+        return int(row[0])
 
     def upsert_relationship(
         self,
@@ -110,30 +100,20 @@ class GraphStore:
         """
         props_json = json.dumps(properties) if properties else None
 
-        existing = self._conn.execute(
-            "SELECT id FROM relationships WHERE source_entity_id = ? AND target_entity_id = ? AND relation_type = ?",
-            (source_entity_id, target_entity_id, relation_type.value),
-        ).fetchone()
-
-        if existing:
-            self._conn.execute(
-                "UPDATE relationships SET "
-                "properties_json = COALESCE(?, properties_json), "
-                "confidence = MAX(confidence, ?) "
-                "WHERE id = ?",
-                (props_json, confidence, existing["id"]),
-            )
-            return int(existing["id"])
-
         cursor = self._conn.execute(
             "INSERT INTO relationships "
             "(source_entity_id, target_entity_id, relation_type, "
             "properties_json, source_chunk_id, confidence) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(source_entity_id, target_entity_id, relation_type) DO UPDATE SET "
+            "properties_json = COALESCE(excluded.properties_json, relationships.properties_json), "
+            "confidence = MAX(relationships.confidence, excluded.confidence) "
+            "RETURNING id",
             (source_entity_id, target_entity_id, relation_type.value, props_json, source_chunk_id, confidence),
         )
-        assert cursor.lastrowid is not None, "INSERT INTO relationships failed to return lastrowid"
-        return cursor.lastrowid
+        row = cursor.fetchone()
+        assert row is not None, "INSERT/UPDATE relationships failed to return id"
+        return int(row[0])
 
     def get_entity_by_name(
         self,

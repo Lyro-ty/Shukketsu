@@ -72,6 +72,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await _warmup_ollama()
 
     # Run freshness sweep on startup (non-blocking — stale sources just get flagged)
+    conn = None
     try:
         from code.shukketsu.db.connection import get_connection, init_db
         from code.shukketsu.freshness.checker import run_freshness_sweep
@@ -83,6 +84,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         logger.info("Freshness sweep: %d checked, %d changed", len(results), stale_count)
     except Exception:
         logger.exception("Freshness sweep failed on startup")
+    finally:
+        if conn is not None:
+            conn.close()
 
     yield
     flush_traces()

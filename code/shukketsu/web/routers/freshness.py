@@ -60,6 +60,10 @@ async def clear_stale_flag(source_id: int, conn: sqlite3.Connection = Depends(_g
     row = conn.execute("SELECT id FROM sources WHERE id = ?", (source_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
-    conn.execute("UPDATE sources SET is_stale = 0 WHERE id = ?", (source_id,))
-    conn.commit()
+    try:
+        conn.execute("UPDATE sources SET is_stale = 0 WHERE id = ?", (source_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return {"cleared": True, "source_id": source_id}

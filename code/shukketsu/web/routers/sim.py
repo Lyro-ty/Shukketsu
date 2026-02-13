@@ -4,6 +4,7 @@ Provides HTML pages for character import, gear display, simulation execution,
 and result visualization, plus JSON API endpoints for programmatic access.
 """
 
+import html
 import logging
 from pathlib import Path
 from typing import Any
@@ -84,7 +85,7 @@ async def sim_run(request: Request) -> Response:
         return _templates.TemplateResponse(request, "sim/partials/results_panel.html", {"result": result})
     except Exception as exc:
         logger.exception("Simulation run failed")
-        return HTMLResponse(f'<div class="text-red-400 p-4">Error: {exc}</div>')
+        return HTMLResponse(f'<div class="text-red-400 p-4">Error: {html.escape(str(exc))}</div>')
 
 
 # ---------------------------------------------------------------------------
