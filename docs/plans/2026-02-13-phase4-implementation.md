@@ -1,979 +1,1368 @@
-# Phase 4: TBC Rogue DPS Simulation Engine — Implementation Plan
+# Phase 4: Sim Validation & Calibration — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a discrete-event DPS simulation engine for TBC 2.4.3 Rogues with AI Analyst agent integration and web UI.
+**Goal:** Validate the TBC Rogue simulation engine against real WCL combat data, calibrate until DPS drift ≤ 5%, and fill remaining gaps (CLEU parser, WoWSims import, item DB expansion).
 
-**Architecture:** Pure Python sim engine using `heapq` priority queue for event scheduling, millisecond-resolution combat simulation. Static data (abilities, talents, items, buffs) as Pydantic models loaded from JSON. AI Analyst agent wraps sim as tools for natural-language quantitative analysis. HTMX web UI for character setup and results.
+**Architecture:** WCL ingest fixes → spell mapping → fight filtering → item DB expansion → WCL-to-SimConfig bridge (synthetic Items) → comparison engine → validation pipeline (ProcessPoolExecutor) → CLEU parser → WoWSims import → web dashboards → calibration. Design doc: `docs/plans/2026-02-13-phase4-validation-design.md`.
 
-**Tech Stack:** Python 3.12, Pydantic v2, heapq, asyncio, FastAPI, HTMX, Chart.js, Jinja2
-
-**Design reference:** `docs/plans/2026-02-13-phase4-sim-engine-design.md` (full specifications for all models, formulas, abilities, talents, items, buffs, rotation, combat loop, runner API)
+**Tech Stack:** Python 3.12, SQLite (schema v5.1 → v6), Pydantic v2, FastAPI/HTMX, concurrent.futures.ProcessPoolExecutor, existing sim engine + WCL API subsystem.
 
 ---
 
-## Step 1: Foundation — Data Models, Config, Errors
+## Context for Implementers
 
-**Files:**
-- Create: `code/shukketsu/sim/models.py`
-- Modify: `code/shukketsu/resilience/errors.py`
-- Modify: `code/shukketsu/config.py`
-- Modify: `code/shukketsu/sim/__init__.py`
-- Create: `tests/unit/sim/__init__.py`
-- Create: `tests/unit/sim/test_models.py`
+**Test invocation:** Always use `python3 -m pytest` (never bare `pytest`).
 
-**What to build:**
+**Import pattern:** `from code.shukketsu.X import Y` — project root is CWD.
 
-All enums and Pydantic data models from Section 1 of the design doc:
+**Error pattern:** All exceptions inherit `ShukketsuError` with a `FailureMode` enum member.
 
-**Enums** (all `StrEnum`):
-- `WeaponType` (sword, dagger, fist, mace)
-- `RogueSpec` (combat_swords, combat_fists, combat_daggers, assassination_mutilate)
-- `GearSlot` (17 slots: head through ranged)
-- `Race` (human, orc, night_elf, blood_elf, undead, dwarf, gnome, troll)
-- `PoisonType` (instant, deadly, wound, anesthetic, none)
-- `OpenerAbility` (garrote, ambush, cheap_shot, none)
-- `ProcTrigger` (on_hit, ppm, on_crit, on_use)
-- `FightType` (patchwerk, cleave, movement)
-- `GemSlot` (red, yellow, blue, meta)
-- `HitOutcome` (hit, crit, miss, dodge, glancing, block)
-- `AbilityFlag` (builder, finisher, normalized, cannot_be_dodged, applies_lethality, physical, nature, ignores_armor, main_hand, off_hand, snapshot, off_gcd)
-- `BuffCategory` (attack_power, stats_pct, agility_flat, strength_flat, melee_crit, ap_pct, flask, battle_elixir, guardian_elixir, food, uncategorized)
+**Pydantic pattern:** v2 `BaseModel`, `model_config = ConfigDict(frozen=True)` for immutable models.
 
-**Item/Gear models:**
-- `WeaponStats` (min_damage, max_damage, speed, weapon_type, dps)
-- `ProcEffect` (trigger, rate, icd, duration, effect dict, stacks)
-- `SetBonus` (set_name, pieces_required, effect dict)
-- `Item` (id, name, slot, item_level, phase, stats dict, sockets, socket_bonus, set_id, weapon, proc, on_use)
-- `Enchant` (id, name, slot, stats, proc)
-- `Gem` (id, name, color, stats, meta_condition)
-
-**Config models:**
-- `PoisonConfig` (main_hand, off_hand defaults)
-- `BossConfig` (name, level=73, armor=7700, debuffs list)
-- `SimConfig` (spec, race, talents, gear dict, enchants, gems, poisons, opener, expose_armor, use_premeditation, buffs, consumables, boss, fight_type, target_count, fight_length, iterations, raid_preset, latency_ms)
-
-**Result models:**
-- `AbilityBreakdown` (name, damage_total, damage_pct, casts, hit_pct, crit_pct, miss_pct, dodge_pct, glancing_pct)
-- `ProcUptime` (name, source, uptime_pct, avg_procs_per_fight, avg_stacks)
-- `PoisonStats` (poison_type, hand, procs_per_fight, damage_total, damage_pct, avg_deadly_stacks)
-- `CooldownUsage` (name, casts_per_fight, avg_uptime_pct)
-- `ResourceStats` (energy_per_second, avg_energy_waste, combo_points_per_second, combo_point_overcap_pct, gcd_utilization_pct, energy_starved_pct)
-- `StatWeight` (stat, ep_value, dps_per_point, is_capped)
-- `DpsTimeline` (bucket_seconds=5, buckets list)
-- `SimResult` (dps_mean, dps_std, dps_median, dps_min, dps_max, iterations, fight_length, ability_breakdown, stat_weights, proc_uptimes, poison_stats, cooldown_usage, buff_uptimes, resource_stats, dps_timeline, dps_distribution, config)
-
-**Errors** (add to `resilience/errors.py`):
-- Add `SIM_ERROR`, `SIM_VALIDATION`, `SIM_TIMEOUT` to `FailureMode` enum
-- `SimError(ShukketsuError)` with `FailureMode.SIM_ERROR`
-- `InvalidSimConfigError(ShukketsuError)` with `FailureMode.SIM_VALIDATION`
-- `SimTimeoutError(ShukketsuError)` with `FailureMode.SIM_TIMEOUT`
-- `ItemNotFoundError(ShukketsuError)` with `FailureMode.NOT_FOUND`
-
-**Config** (add to `config.py`):
-- `SIM_DEFAULT_ITERATIONS = int(os.getenv("SIM_DEFAULT_ITERATIONS", "10000"))`
-- `SIM_DEFAULT_FIGHT_LENGTH = int(os.getenv("SIM_DEFAULT_FIGHT_LENGTH", "300"))`
-- `SIM_STAT_WEIGHT_DELTA = int(os.getenv("SIM_STAT_WEIGHT_DELTA", "80"))`
-- `SIM_CACHE_ENABLED = os.getenv("SIM_CACHE_ENABLED", "true").lower() == "true"`
-- `ANALYST_SYSTEM_PROMPT` (import placeholder, fill in Step 11)
-- `ANALYST_MAX_ITERATIONS = int(os.getenv("ANALYST_MAX_ITERATIONS", "5"))`
-
-**Tests (~35):**
-- Every enum has correct values and is a StrEnum
-- `SimConfig` validates with full defaults
-- `SimConfig` rejects invalid spec/race/talent combinations
-- `SimResult` can be constructed from sample data
-- `Item` with and without weapon/proc/sockets
-- `ProcEffect` validates trigger types
-- `BossConfig` defaults to level 73 / 7700 armor
-- Error classes have correct FailureMode
-- Config values are correct defaults
-
-**Run:** `python3 -m pytest tests/unit/sim/test_models.py -v`
+**Key existing files you'll reference:**
+- `code/shukketsu/apis/wcl/ingest.py` — `ReportDiver` class, methods at lines 109-313
+- `code/shukketsu/apis/wcl/schema.sql` — WCL table definitions, lines 67-122
+- `code/shukketsu/apis/wcl/queries.py` — GraphQL queries and builder functions
+- `code/shukketsu/resilience/errors.py` — Error taxonomy
+- `code/shukketsu/db/connection.py` — Migration chain pattern, lines 73-202
+- `code/shukketsu/sim/models.py` — `SimConfig` (line 244), `SimResult` (line 341), `Item` (line 188)
+- `code/shukketsu/sim/items.py` — `ItemDatabase` class (line 662), `_CURATED_ITEMS` (line 25)
+- `code/shukketsu/sim/combat.py` — `CombatSimulation`, `_resolve_weapons()` (line 1209), `_compute_base_stats()` (line 1238)
+- `code/shukketsu/sim/buffs.py` — `resolve_buffs()`, `ResolvedBuffs` model
+- `code/shukketsu/sim/imports.py` — `parse_wowsims()` stub (line 243)
+- `code/shukketsu/config.py` — All config constants
 
 ---
 
-## Step 2: Combat Mechanics
+### Task 0: Fix WCL Ingest — Per-Fight Data Storage + Actor Mapping
+
+**PREREQUISITE** — All downstream tasks depend on correct per-fight WCL data.
 
 **Files:**
-- Create: `code/shukketsu/sim/mechanics.py`
-- Create: `tests/unit/sim/test_mechanics.py`
-
-**What to build:**
-
-All TBC 2.4.3 combat formula functions from Section 2 of the design doc. Every function is **pure** (no state, no side effects). All constants defined at module level.
-
-**Constants** (module-level):
-```python
-# Rating conversions (Level 70)
-HIT_RATING_PER_PCT = 15.77
-CRIT_RATING_PER_PCT = 22.08
-HASTE_RATING_PER_PCT = 15.77
-EXPERTISE_RATING_PER_POINT = 3.9423
-AP_PER_DPS = 14.0
-AGI_PER_CRIT_PCT = 40.0
-AGI_PER_AP = 1.0
-STR_PER_AP = 1.0
-
-# Boss (Level 73)
-BASE_MISS_CHANCE = 0.08
-HIT_SUPPRESSION = 0.01
-DW_MISS_PENALTY = 0.19
-BASE_DODGE_CHANCE = 0.065
-BASE_PARRY_CHANCE = 0.14
-BASE_GLANCING_CHANCE = 0.24
-GLANCING_MULTIPLIER = 0.75
-CRIT_SUPPRESSION = 0.048
-
-# Armor
-ARMOR_CONSTANT = 10557.5
-MAX_ARMOR_REDUCTION = 0.75
-
-# Weapon normalization speeds
-NORM_SPEED_DAGGER = 1.7
-NORM_SPEED_ONE_HAND = 2.4
-
-# Energy
-ENERGY_TICK_MS = 2020
-ENERGY_PER_TICK = 20.2
-BASE_MAX_ENERGY = 100
-VIGOR_BONUS_ENERGY = 10
-
-# Crit
-MELEE_CRIT_MULTIPLIER = 2.0
-SPELL_CRIT_MULTIPLIER = 1.5
-ROGUE_BASE_CRIT_ADJUSTMENT = -0.003
-
-# Rogue
-ROGUE_THREAT_MULTIPLIER = 0.71
-BUILDER_MISS_REFUND = 0.80
-
-# Boss armor presets
-BOSS_ARMOR_STANDARD = 7700
-BOSS_ARMOR_CASTER = 6200
-
-# Armor debuffs
-SUNDER_ARMOR_PER_STACK = 520
-EXPOSE_ARMOR_BASE = 2050
-FAERIE_FIRE_ARMOR = 610
-CURSE_OF_RECKLESSNESS_ARMOR = 800
-```
-
-**Functions:**
-1. `resolve_white_hit(miss_chance, dodge_chance, glancing_chance, crit_chance, roll) -> HitOutcome` — Single-roll table: miss → dodge → glance → crit → hit. Crit CAN be pushed off.
-2. `resolve_yellow_hit(miss_chance, dodge_chance, crit_chance, hit_roll, crit_roll, *, can_be_dodged=True) -> HitOutcome` — Two-roll: roll1 for miss/dodge, roll2 for crit. Crit CANNOT be pushed off.
-3. `calc_miss_chance(hit_rating, *, is_dual_wield, is_yellow, precision_ranks=0) -> float` — Base miss + DW penalty (yellow: no DW penalty), minus hit%. Clamped to [0, 1].
-4. `calc_dodge_chance(expertise_rating, *, weapon_expertise_ranks=0) -> float` — 6.5% base minus expertise. Clamped to [0, 1].
-5. `calc_crit_chance(crit_rating, agility, *, base_crit=0.0, talent_crit=0.0, bonus_crit=0.0, crit_suppression=True) -> float` — Sum all sources, apply rogue base adjustment (-0.3%), subtract crit suppression vs boss.
-6. `calc_crit_multiplier(base_mult, *, primary_mod=1.0, secondary_mod=0.0, has_meta_gem=False) -> float` — WoWSims formula: `1.0 + (base * primary - 1.0) * (1.0 + secondary)`. Meta gem: `primary *= 1.03`.
-7. `calc_armor_reduction(armor, *, arpen=0, sunder_stacks=0, expose_armor_ranks=0, faerie_fire=False, curse_of_recklessness=False) -> float` — Debuffs reduce armor first, then ArP, then formula. Clamped to [0.25, 1.0] (max 75% reduction).
-8. `calc_weapon_damage(min_dmg, max_dmg, speed, attack_power, *, normalized=False, norm_speed=2.4, roll=0.5) -> float` — `base + AP/14 * (norm_speed if normalized else speed)`. Roll interpolates min/max.
-9. `calc_haste_multiplier(haste_rating, *multiplicative_buffs) -> float` — `(1 + rating/1577) * prod(buffs)`. All haste stacks multiplicatively.
-10. `calc_effective_speed(base_speed, haste_multiplier) -> float` — `base_speed / haste_multiplier`.
-11. `calc_poison_proc_chance(base_chance, imp_poisons_ranks=0) -> float` — `base + 0.02 * ranks`.
-12. `calc_ppm_proc_chance(ppm, weapon_speed) -> float` — `ppm * weapon_speed / 60`.
-13. `calc_glancing_reduction() -> float` — Returns `GLANCING_MULTIPLIER` (0.75). Simplified from range.
-14. `calc_normalized_speed(weapon_type) -> float` — Dagger: 1.7, all others: 2.4.
-
-**Tests (~25):**
-- `resolve_white_hit`: miss at 0.0, dodge at miss boundary, glancing at dodge boundary, crit at glancing boundary, hit at crit boundary, crit pushed off when miss+dodge+glancing fill table
-- `resolve_yellow_hit`: miss on roll1, dodge on roll1, crit on roll2 (independent), hit when both rolls pass, cannot_be_dodged flag
-- `calc_miss_chance`: zero hit rating DW (27%), zero hit rating 2H (9%), yellow (8% base + 1% suppression), with Precision talent, at hit cap
-- `calc_dodge_chance`: zero expertise (6.5%), with expertise rating, with Weapon Expertise talent, at dodge cap (0%)
-- `calc_crit_chance`: base case, with agility, with crit suppression, rogue adjustment
-- `calc_crit_multiplier`: base (2.0), with Lethality (secondary), with meta gem (primary), combined
-- `calc_armor_reduction`: standard boss (7700), with full debuffs, armor cap (75%), zero armor
-- `calc_weapon_damage`: normal, normalized dagger, normalized sword, with AP scaling
-- `calc_haste_multiplier`: zero rating, with SND, multiplicative stacking
-- `calc_poison_proc_chance`, `calc_ppm_proc_chance`: known values
-
-**Run:** `python3 -m pytest tests/unit/sim/test_mechanics.py -v`
-
----
-
-## Step 3: Abilities Database
-
-**Files:**
-- Create: `code/shukketsu/sim/abilities.py`
-- Create: `tests/unit/sim/test_abilities.py`
-
-**What to build:**
-
-Static ability definitions from Section 3 of the design doc. No simulation logic — just data.
-
-**Models:**
-- `AbilityDef(BaseModel)` — name, spell_id, energy_cost, flat_damage, weapon_multiplier, normalized, norm_speed, combo_points_generated, combo_points_consumed (bool for finishers), cooldown_ms, duration_ms, flags (set of AbilityFlag), miss_refund_pct, ap_coefficient, bonus_per_combo_point, weapon_type_required (optional)
-- `PoisonDef(BaseModel)` — name, spell_id, proc_chance_base, damage_per_proc, damage_per_stack_tick (for Deadly), max_stacks, tick_interval_ms, duration_ms, flags
-
-**Static registries (module-level dicts):**
-- `ABILITIES: dict[str, AbilityDef]` — All builders: sinister_strike, backstab, mutilate, hemorrhage, shiv, ambush, garrote, cheap_shot. All finishers: eviscerate, envenom, rupture, slice_and_dice, expose_armor. All cooldowns: blade_flurry, adrenaline_rush, cold_blood, thistle_tea, premeditation.
-- `POISONS: dict[str, PoisonDef]` — instant_poison, deadly_poison, wound_poison
-
-**Lookup functions:**
-- `get_ability(name: str) -> AbilityDef` — Raises `KeyError` if not found.
-- `get_poison(poison_type: PoisonType) -> PoisonDef` — Converts enum to lookup.
-- `builders_for_spec(spec: RogueSpec) -> list[str]` — Returns priority-ordered builder names for spec.
-- `finisher_for_spec(spec: RogueSpec, *, has_rupture: bool, fight_remaining: float) -> str` — Returns preferred damage finisher.
-
-**Key data points to get right** (from design doc triple-check):
-- SS energy: 45/42/40 (talent ranks), flat +98, normalized 2.4
-- BS energy: 60, flat +170 (NOT +255), wpn mult 1.5, normalized 1.7, Lethality applies
-- Mutilate energy: 60, flat +101 per sub-hit, 1.5x if DP active, generates 2 CP, Lethality applies
-- Shiv energy: `20 + 10 * oh_speed` (dynamic), miss_refund 0.80, cannot_be_dodged
-- Ambush energy: 60, flat +290, wpn mult 2.5, normalized 1.7
-- Garrote: 672 total over 18s (6 ticks of 112)
-- Thistle Tea: 100 energy (game-accurate, NOT WoWSims 40)
-- AR, Cold Blood, Thistle Tea, Premeditation: OFF_GCD flag
-- Envenom: nature damage, ignores armor, consumes DP stacks (1 per CP)
-
-**Tests (~15):**
-- Every ability exists in registry with correct energy cost
-- Ability flags are correct (builder/finisher/normalized/off_gcd)
-- `builders_for_spec` returns correct order per spec
-- `finisher_for_spec` returns envenom for mutilate, evis for combat
-- Poison proc chances match design doc values
-- Shiv energy cost scales with OH speed
-- All cooldowns have correct duration and cooldown values
-- `get_ability` raises KeyError for unknown ability
-
-**Run:** `python3 -m pytest tests/unit/sim/test_abilities.py -v`
-
----
-
-## Step 4: Talent System
-
-**Files:**
-- Create: `code/shukketsu/sim/talents.py`
-- Create: `tests/unit/sim/test_talents.py`
-
-**What to build:**
-
-Talent definitions and modifier computation from Section 4 of the design doc.
-
-**Models:**
-- `TalentDef(BaseModel)` — name, tree (assassination/combat/subtlety), tier, column, max_ranks, effect_per_rank (dict mapping modifier name to value per rank)
-- `TalentAllocation(BaseModel)` — assassination (int), combat (int), subtlety (int), points (dict mapping talent_name to ranks). Parsed from "20/41/0" string + point distribution.
-- `TalentModifiers(BaseModel, frozen=True)` — All computed modifier fields:
-  - `bonus_crit_pct`, `bonus_hit_pct`, `bonus_expertise`
-  - `ss_energy_reduction`, `ss_damage_bonus_pct`
-  - `bs_crit_bonus_pct`, `bs_damage_bonus_pct`
-  - `mutilate_crit_bonus_pct`, `mutilate_damage_bonus_pct`
-  - `evis_damage_bonus_pct`, `rupture_damage_bonus_pct`
-  - `snd_duration_mult`, `snd_haste_bonus` (for T6 2pc, applied separately)
-  - `lethality_secondary_mod`
-  - `crit_damage_primary_mod` (Mace Spec)
-  - `find_weakness_damage_pct`
-  - `seal_fate_proc_chance`
-  - `ruthlessness_proc_chance`
-  - `relentless_strikes_per_cp`
-  - `quick_recovery_refund_pct`
-  - `combat_potency_proc_chance`, `combat_potency_energy`
-  - `sword_spec_proc_chance` (per rank)
-  - `dagger_spec_crit_bonus`, `fist_spec_crit_bonus`
-  - `dw_spec_oh_bonus_pct`
-  - `imp_poisons_ranks`, `vile_poisons_pct`, `master_poisoner_hit_pct`
-  - `murder_damage_pct`
-  - `aggression_damage_pct`
-  - `opportunity_damage_pct`
-  - `surprise_attacks_damage_pct`, `surprise_attacks_finisher_undodgeable` (bool)
-  - `vitality_agi_mult`, `sinister_calling_agi_mult`, `deadliness_ap_mult`
-  - `serrated_blades_arpen`, `serrated_blades_rupture_pct`
-  - `vigor` (bool), `cold_blood` (bool), `blade_flurry` (bool), `adrenaline_rush` (bool)
-  - `mutilate_talented` (bool), `hemorrhage_talented` (bool), `premeditation_talented` (bool)
-
-**Static registries:**
-- `TALENT_DEFS: dict[str, TalentDef]` — All talents from design doc (Assassination, Combat, Subtlety trees)
-
-**Functions:**
-- `parse_talents(talent_string: str, spec: RogueSpec) -> TalentAllocation` — Parses "20/41/0" and infers point distribution based on spec template. Validates total points <= 61.
-- `compute_modifiers(allocation: TalentAllocation) -> TalentModifiers` — Pure function. Iterates allocation.points, accumulates each talent's effect_per_rank * ranks into modifier fields.
-- `get_spec_template(spec: RogueSpec) -> dict[str, int]` — Returns canonical talent point distribution for a spec (e.g., Combat Swords 20/41/0 standard build).
-
-**Tests (~15):**
-- `parse_talents` with valid "20/41/0" string
-- `parse_talents` rejects >61 total points
-- `compute_modifiers` for Combat Swords (20/41/0): verify Precision 5/5, Sword Spec 5/5, Combat Potency 5/5, Lethality 5/5, etc.
-- `compute_modifiers` for Mutilate (41/20/0): verify Seal Fate, Find Weakness, Mutilate talented, etc.
-- Individual talent effects are correct magnitude (e.g., Lethality 5/5 = 0.30 secondary mod)
-- Multiplicative stat stacking: Vitality * Sinister Calling correctly computed
-- `get_spec_template` returns known builds
-- TalentModifiers is frozen (immutable)
-
-**Run:** `python3 -m pytest tests/unit/sim/test_talents.py -v`
-
----
-
-## Step 5: Item Database + Data Conversion
-
-**Files:**
-- Create: `code/shukketsu/sim/items.py`
-- Create: `code/shukketsu/sim/data/` directory
-- Create: `code/shukketsu/sim/data/items.json` (converted from WoWSims)
-- Create: `code/shukketsu/sim/data/enchants.json`
-- Create: `code/shukketsu/sim/data/gems.json`
-- Create: `code/shukketsu/sim/data/sets.json`
-- Create: `scripts/convert_wowsims_items.py` (offline converter)
-- Create: `tests/unit/sim/test_items.py`
-
-**What to build:**
-
-Item database and WoWSims data conversion from Section 5 of the design doc.
-
-**Data conversion script** (`scripts/convert_wowsims_items.py`):
-- Clones/reads WoWSims `sim/core/items/` Go files
-- Parses Go struct literals with regex
-- Emits `items.json`, `enchants.json`, `gems.json`, `sets.json`
-- Filters for Rogue-relevant items (leather/mail, jewelry, weapons, trinkets)
-- This is a one-time offline script, not runtime code
-- For initial implementation, manually curate a minimal set (~50 key items covering all phases, all specs) to unblock testing. Full conversion comes later.
-
-**ItemDatabase class:**
-```python
-class ItemDatabase:
-    def __init__(self, data_dir: Path | None = None) -> None: ...
-    def get_item(self, item_id: int) -> Item | None: ...
-    def get_enchant(self, enchant_id: int) -> Enchant | None: ...
-    def get_gem(self, gem_id: int) -> Gem | None: ...
-    def get_set_bonuses(self, set_name: str) -> list[SetBonus]: ...
-    def items_for_slot(self, slot: GearSlot, *, phase: int | None = None, min_ilvl: int = 0) -> list[Item]: ...
-    def search(self, query: str, *, slot: GearSlot | None = None) -> list[Item]: ...
-    def rogue_items_for_slot(self, slot: GearSlot, spec: RogueSpec, phase: int = 5) -> list[Item]: ...
-```
-
-**Set bonus data** (hardcoded in `items.py`):
-- Netherblade (T4): 2pc SND +3s, 4pc 15% CP on finisher
-- Deathmantle (T5): 2pc +40/CP on Evis/Envenom, 4pc 1.0 PPM free finisher
-- Slayer's Armor (T6): 2pc SND +5% haste, 4pc +6% SS/BS/Mut/Hemo
-
-**Notable proc items** (manually defined with correct ICD/PPM/effects):
-- Dragonspine Trophy: 1.0 PPM, 20s ICD, 10s +325 haste rating
-- Tsunami Talisman: 10% on crit, 45s ICD, 10s +340 AP
-- Madness of the Betrayer: ~1 PPM, 10s ICD, 10s +300 ArP
-- Mongoose enchant: 1.0 PPM/weapon, 15s +120 agi +2% haste
-- Executioner enchant: 1.0 PPM, 15s +840 ArP
-
-**Minimal curated item set** (for testing, ~50 items):
-- P1 BiS Combat Swords gear (Blinkstrike, Latro's, DST, Brooch, Netherblade 4pc)
-- P3 BiS additions (Warglaives, Deathmantle)
-- P5 BiS additions (Slayer's 4pc, Madness)
-- Key daggers for Mutilate (Emerald Ripper, etc.)
-- Common enchants (Mongoose, Executioner, etc.)
-- Common gems (Delicate Living Ruby, etc.)
-
-**Tests (~20):**
-- `ItemDatabase` loads from JSON files
-- `get_item` returns correct item by ID
-- `get_item` returns None for unknown ID
-- `items_for_slot` filters by slot
-- `items_for_slot` filters by phase
-- `search` finds items by name (case-insensitive substring)
-- `rogue_items_for_slot` excludes non-Rogue items
-- Set bonuses load correctly
-- Proc items have correct ProcEffect data
-- `get_enchant`, `get_gem` work correctly
-
-**Run:** `python3 -m pytest tests/unit/sim/test_items.py -v`
-
----
-
-## Step 6: Buffs, Consumables & Character Import
-
-**Files:**
-- Create: `code/shukketsu/sim/buffs.py`
-- Create: `code/shukketsu/sim/imports.py`
-- Create: `tests/unit/sim/test_buffs.py`
-- Create: `tests/unit/sim/test_imports.py`
-
-**What to build:**
-
-### Buffs (`buffs.py`)
-
-Buff definitions, stacking rules, and preset profiles from Section 6 of the design doc.
-
-**Models:**
-- `BuffDef(BaseModel)` — name, buff_id (str), category (BuffCategory), stats (dict), proc (ProcEffect | None), blocks_poison (bool, for WF), description
-- `ResolvedBuffs(BaseModel)` — flat_stats (dict), stat_multipliers (dict), active_procs (list[ProcEffect]), boss_armor_reduction (int), active_buff_ids (set[str])
-
-**Static registries:**
-- `RAID_BUFFS: dict[str, BuffDef]` — All raid buffs: kings, imp_battle_shout, imp_grace_of_air, imp_soe, imp_motw, lotp, wf_totem, trueshot_aura, heroism, drums_of_battle
-- `BOSS_DEBUFFS: dict[str, BuffDef]` — sunder_armor, faerie_fire, curse_of_recklessness
-- `CONSUMABLES: dict[str, BuffDef]` — flask_relentless_assault, elixir_major_agi, food_clefthoof, food_warp_burger, haste_potion, etc.
-- `RAID_PRESETS: dict[str, list[str]]` — full_25man, karazhan_10man, solo, custom
-
-**Functions:**
-- `resolve_buffs(buff_ids: list[str], debuff_ids: list[str], consumable_ids: list[str]) -> ResolvedBuffs` — Applies BuffCategory stacking rules (same category = highest wins), aggregates flat stats and multipliers, computes boss armor reduction from debuffs.
-- `get_preset(name: str) -> tuple[list[str], list[str], list[str]]` — Returns (buffs, debuffs, consumables) for a preset name.
-
-### Character Import (`imports.py`)
-
-Three import formats with auto-detection from Section 5 of the design doc.
-
-**Models:**
-- `ImportFormat(StrEnum)` — SIMC, SEVENTYUPGRADES, WOWSIMS
-- `CharacterImport(BaseModel)` — spec, race, talents, gear (dict[GearSlot, int]), enchants, gems
-
-**Functions:**
-- `detect_format(raw: str) -> ImportFormat` — `=` in first line → SIMC, starts with `{` → SEVENTYUPGRADES, else → WOWSIMS
-- `parse_simc(raw: str) -> CharacterImport` — Parse `/simc` addon output (key=value lines)
-- `parse_seventyupgrades(raw: str) -> CharacterImport` — Parse 70u JSON export
-- `parse_wowsims(raw: str) -> CharacterImport` — Parse WoWSims Base64 URL/export
-- `parse_import(raw: str) -> CharacterImport` — Auto-detect and delegate
-- `build_config(char_import: CharacterImport, *, preset: str = "full_25man", **overrides) -> SimConfig` — Builds SimConfig from import + defaults
-
-**Tests (~25):**
-
-Buffs (~12):
-- `resolve_buffs` with full 25-man preset produces correct aggregate stats
-- BuffCategory stacking: two buffs in same category → highest wins
-- BuffCategory stacking: different categories stack
-- WF totem blocks_poison flag
-- Preset names return correct buff lists
-- Empty buff list returns zero stats
-- Boss debuff armor reduction sums correctly
-- Consumable flask vs elixir stacking (mutually exclusive)
-
-Imports (~13):
-- `detect_format` identifies SimC format
-- `detect_format` identifies 70u JSON format
-- `detect_format` identifies WoWSims Base64 format
-- `parse_simc` extracts gear, talents, race from sample input
-- `parse_seventyupgrades` extracts from sample JSON
-- `parse_wowsims` extracts from sample Base64
-- `parse_import` auto-detects and delegates correctly
-- `build_config` produces valid SimConfig with preset buffs
-- Invalid import string raises `InvalidSimConfigError`
-- Missing required fields raise `InvalidSimConfigError`
-
-**Run:** `python3 -m pytest tests/unit/sim/test_buffs.py tests/unit/sim/test_imports.py -v`
-
----
-
-## Step 7: Rotation Engine
-
-**Files:**
-- Create: `code/shukketsu/sim/rotation.py`
-- Create: `tests/unit/sim/test_rotation.py`
-
-**What to build:**
-
-State-machine rotation engine from Section 7 of the design doc.
-
-**Models:**
-- `RotationState(StrEnum)` — OPENER, SLICE_ASAP, DISPATCH, BUILD_FOR_SND, BUILD_FOR_EA, FILL_BEFORE_SND, FILL_BEFORE_EA
-- `RotationAction(BaseModel)` — ability_name (str), target (str, "boss" or "self"), wait_for_energy (bool)
-- `RotationContext(BaseModel, frozen=True)` — Read-only snapshot: combo_points, energy, max_energy, snd_remaining_ms, rupture_remaining_ms, ea_remaining_ms, dp_remaining_ms, dp_stacks, ar_active, bf_active, bf_ready, ar_ready, cb_ready, tea_ready, premeditation_ready, fight_remaining_ms, target_count, is_stealthed, gcd_ready_at_ms, current_time_ms
-
-**RotationEngine class:**
-```python
-class RotationEngine:
-    def __init__(self, spec: RogueSpec, modifiers: TalentModifiers, *, expose_armor: bool = False) -> None: ...
-    def decide(self, ctx: RotationContext) -> RotationAction: ...
-    def _dispatch(self, ctx: RotationContext) -> RotationAction: ...
-    def _should_use_cooldown(self, cd_name: str, ctx: RotationContext) -> bool: ...
-    def _select_builder(self, ctx: RotationContext) -> str: ...
-    def _select_finisher(self, ctx: RotationContext) -> str: ...
-    def _should_pool_energy(self, ctx: RotationContext) -> bool: ...
-```
-
-**Key behaviors to implement:**
-1. **State transitions**: OPENER → SLICE_ASAP → DISPATCH is the standard flow. DISPATCH is the central decision hub.
-2. **DISPATCH priority**: (1) SND expired → SLICE_ASAP, (2) EA refresh needed → EA states, (3) SND refresh needed → BUILD_FOR_SND, (4) enough CPs → damage finisher (pool check), (5) Shiv for DP (Mut only), (6) build CPs
-3. **Energy pooling**: Don't finisher below 50 energy (30 during AR) unless SND dropping
-4. **SND refresh buffer**: `4.0 - combo_points * 0.8` seconds
-5. **Builder selection**: Mutilate (if talented + daggers) > Backstab (dagger MH) > SS (fallback)
-6. **Finisher selection**: Rupture if not active and fight long enough. Else Envenom (Mut) or Evis (Combat).
-7. **Cooldown timing**: AR at energy <= 85, BF with SND active, Cold Blood paired with AR or on CD, Tea at energy <= max-100
-
-**Tests (~20):**
-- OPENER state returns opener ability
-- SLICE_ASAP state returns SND at any CP count
-- DISPATCH with SND expired → SLICE_ASAP
-- DISPATCH with enough CPs and SND active → damage finisher
-- DISPATCH with low CPs → builder
-- Energy pooling: don't finisher at 40 energy
-- Energy pooling: DO finisher at 40 energy during AR
-- Builder selection: combat_swords → sinister_strike
-- Builder selection: assassination_mutilate → mutilate
-- Builder selection: combat_daggers → backstab
-- Finisher selection: combat + rupture not active → rupture
-- Finisher selection: mutilate → envenom
-- Cooldown timing: AR offered when energy <= 85 and SND active
-- Cooldown timing: BF offered when SND active
-- Cooldown timing: Tea offered when energy <= max-100
-- Shiv for DP: offered when DP < 2s remaining (Mutilate only)
-- SND refresh buffer calculation
-- State machine doesn't get stuck (fuzzy: random contexts, always returns an action)
-
-**Run:** `python3 -m pytest tests/unit/sim/test_rotation.py -v`
-
----
-
-## Step 8: Combat Event Loop
-
-**Files:**
-- Create: `code/shukketsu/sim/combat.py`
-- Create: `tests/unit/sim/test_combat.py`
-
-**What to build:**
-
-The heart of the simulation: discrete-event combat loop from Section 8 of the design doc.
-
-**Models/Enums:**
-- `EventType(StrEnum)` — MH_AUTO, OH_AUTO, ENERGY_TICK, ABILITY_USE, DOT_TICK, BUFF_EXPIRE, PROC_TRIGGER, COOLDOWN_USE, POTION_USE
-- `SimEvent(BaseModel)` — timestamp_ms (int), event_type (EventType), priority (int), data (dict). Implements `__lt__` for heapq ordering by (timestamp_ms, priority).
-- `CombatState` (dataclass, mutable) — current_time_ms, energy, max_energy, combo_points, health_pct, gcd_ready_at_ms, mh_swing_at_ms, oh_swing_at_ms, next_energy_tick_ms, buff_timers (dict[str, int]), dot_timers (dict[str, DotState]), proc_icds (dict[str, int]), sword_spec_icd_ms (int), damage_by_ability (defaultdict), casts_by_ability (defaultdict), outcome_counts (nested defaultdict), proc_counts (defaultdict), proc_uptime_ms (defaultdict), resource_tracker (energy waste, CP waste, etc.)
-
-**DotState(BaseModel):**
-- remaining_ticks, tick_interval_ms, damage_per_tick, next_tick_ms, snapshot_ap (for Rupture)
-
-**CombatSimulation class:**
-```python
-class CombatSimulation:
-    def __init__(
-        self,
-        config: SimConfig,
-        modifiers: TalentModifiers,
-        resolved_buffs: ResolvedBuffs,
-        item_db: ItemDatabase,
-        rotation: RotationEngine,
-    ) -> None: ...
-
-    def run(self, iterations: int, *, seed: int = 42) -> SimResult: ...
-    def _run_iteration(self, rng: Random) -> float: ...
-    def _schedule(self, event: SimEvent) -> None: ...
-    def _dispatch_event(self, event: SimEvent, state: CombatState, rng: Random) -> None: ...
-    def _handle_mh_auto(self, state, rng) -> None: ...
-    def _handle_oh_auto(self, state, rng) -> None: ...
-    def _handle_energy_tick(self, state) -> None: ...
-    def _handle_ability(self, ability_name, state, rng) -> None: ...
-    def _handle_dot_tick(self, dot_name, state) -> None: ...
-    def _handle_buff_expire(self, buff_name, state) -> None: ...
-    def _handle_proc(self, proc_name, state, rng) -> None: ...
-    def _apply_damage(self, ability, base_damage, outcome, state) -> float: ...
-    def _check_procs(self, source, outcome, state, rng) -> None: ...
-    def _apply_poison(self, hand, state, rng) -> None: ...
-    def _adjust_swing_timers(self, old_haste, new_haste, state) -> None: ...
-    def _aggregate_results(self, iteration_dps: list[float]) -> SimResult: ...
-```
-
-**Key mechanics to implement:**
-1. **Event scheduling**: `heapq.heappush(queue, event)`, pop min timestamp
-2. **Auto-attack startup**: One weapon gets random 0-50% delay
-3. **Energy tick**: First at random offset [0, 2020ms], then every 2020ms
-4. **GCD**: 1.0s for Rogues. Abilities can't be used until GCD ready.
-5. **Proc-on-proc**: White → can trigger SwordSpec + WF + poisons. Yellow → SwordSpec + poisons (no WF). SwordSpec → WF + poisons (not self). WF → SwordSpec + poisons (not self). Sword Spec 500ms ICD.
-6. **Haste swing adjustment**: When SND/BF activates/expires, adjust in-progress swing timers proportionally.
-7. **Blade Flurry cleave**: Mirror damage to 2nd target (re-apply armor on cleave).
-8. **Deterministic RNG**: `Random(seed=iteration_number)` per iteration.
-9. **Result aggregation**: Mean, std, median, min, max DPS across iterations. Per-ability breakdown. Proc uptimes. Resource stats.
-
-**Tests (~25):**
-- Single iteration produces non-zero DPS
-- Deterministic: same seed → same DPS
-- Different seeds → different DPS
-- Auto-attacks fire at correct intervals
-- Energy ticks provide 20.2 energy
-- GCD prevents double-casting
-- Sinister Strike costs energy and generates 1 CP
-- Eviscerate at 5 CP deals more than at 1 CP
-- SND activates haste buff (swing timer shortens)
-- Blade Flurry adds cleave damage when target_count >= 2
-- Sword Spec procs generate extra MH hits
-- Sword Spec 500ms ICD is respected
-- Combat Potency procs on OH auto hits
-- Poison procs on melee hits
-- Deadly Poison stacks accumulate
-- Adrenaline Rush doubles energy regen
-- Rupture ticks deal bleed damage (ignores armor)
-- Proc-on-proc: Sword Spec can trigger WF
-- Proc-on-proc: WF cannot trigger another WF
-- Proc-on-proc: Yellow hits don't trigger WF
-- Result aggregation produces correct mean/std
-- DPS timeline has correct bucket count
-- Resource stats track energy waste
-
-**Run:** `python3 -m pytest tests/unit/sim/test_combat.py -v`
-
----
-
-## Step 9: Runner + Public API
-
-**Files:**
-- Create: `code/shukketsu/sim/runner.py`
-- Create: `tests/unit/sim/test_runner.py`
-
-**What to build:**
-
-Public API from Section 9 of the design doc.
-
-**SimRunner class:**
-```python
-class SimRunner:
-    def __init__(self, item_db: ItemDatabase | None = None) -> None: ...
-
-    async def sim_run(self, config: SimConfig) -> SimResult: ...
-    async def sim_compare(self, config_a: SimConfig, config_b: SimConfig) -> CompareResult: ...
-    async def sim_optimize(self, config: SimConfig, slot: GearSlot, *, top_n: int = 5, phase: int = 5) -> OptimizeResult: ...
-    async def stat_weights(self, config: SimConfig, *, delta: int | None = None) -> list[StatWeight]: ...
-
-    def build_config_from_import(self, raw: str, **overrides: Any) -> SimConfig: ...
-    def swap_item(self, config: SimConfig, slot: GearSlot, item_query: str) -> SimConfig: ...
-
-    def _build_simulation(self, config: SimConfig) -> CombatSimulation: ...
-    def _pre_filter_candidates(self, config: SimConfig, slot: GearSlot, phase: int) -> list[Item]: ...
-```
-
-**Additional result models:**
-- `StatDiff(BaseModel)` — stat_name, before, after, delta
-- `AbilityDiff(BaseModel)` — ability_name, dps_before, dps_after, delta, delta_pct
-- `CompareResult(BaseModel)` — dps_before, dps_after, dps_delta, dps_delta_pct, stat_changes (list[StatDiff]), ability_changes (list[AbilityDiff]), summary (str)
-- `ItemRecommendation(BaseModel)` — item_name, item_id, dps, dps_delta, source, phase
-- `OptimizeResult(BaseModel)` — current_item, current_dps, recommendations (list[ItemRecommendation])
-
-**Key behaviors:**
-1. `sim_run`: Builds CombatSimulation, runs via `asyncio.to_thread` (CPU-bound). Constructs TalentModifiers, resolves buffs, creates RotationEngine, creates CombatSimulation, calls `.run()`.
-2. `sim_compare`: Runs two configs in parallel via `asyncio.gather(sim_run(a), sim_run(b))`. Diffs the results.
-3. `sim_optimize`: Pre-filters candidates for slot using EP approximation, sims top ~20, returns ranked.
-4. `stat_weights`: Delta-sim — run base config, then re-run with +delta of each stat (hit, crit, haste, AP, agi, str, ArP, expertise, weapon DPS). Normalize to AP = 1.0 EP. Flag capped stats.
-5. `swap_item`: Fuzzy search item_db, return new config with item swapped in slot.
-6. `_pre_filter_candidates`: Compute approximate EP for each candidate item vs current, take top 20.
-
-**Tests (~15):**
-- `sim_run` returns valid SimResult with non-zero DPS
-- `sim_run` with different configs returns different DPS
-- `sim_compare` returns CompareResult with correct delta sign
-- `sim_compare` two identical configs → delta ~0
-- `sim_optimize` returns ranked recommendations
-- `stat_weights` returns EP values for all stats
-- `stat_weights` flags hit cap when at cap
-- `build_config_from_import` with SimC format produces valid config
-- `swap_item` changes the correct slot
-- `swap_item` with unknown item raises error
-- `_pre_filter_candidates` returns <= 20 items
-- Async execution doesn't block event loop
-
-**Run:** `python3 -m pytest tests/unit/sim/test_runner.py -v`
-
----
-
-## Step 10: Agent Tools + Analyst Agent
-
-**Files:**
-- Create: `code/shukketsu/tools/analysis/sim_run.py`
-- Create: `code/shukketsu/tools/analysis/sim_compare.py`
-- Create: `code/shukketsu/tools/analysis/sim_optimize.py`
-- Create: `code/shukketsu/tools/analysis/__init__.py`
-- Create: `code/shukketsu/agents/analyst.py`
-- Create: `code/shukketsu/llm/prompts/analyst.py`
-- Modify: `code/shukketsu/agents/tasks.py` (add AgentRole.ANALYST, AnalysisTask, AnalysisResult)
-- Modify: `code/shukketsu/agents/factory.py` (register AnalystAgent)
-- Modify: `code/shukketsu/config.py` (ANALYST_SYSTEM_PROMPT import)
-- Create: `tests/unit/sim/test_tools.py`
-- Create: `tests/unit/agents/test_analyst.py`
-
-**What to build:**
-
-### Tool schemas (following `tools/schemas.py` + `tools/registry.py` pattern):
-
-**SimRunTool** (`tools/analysis/sim_run.py`):
-- `name = "sim_run"`, description for LLM
-- `parameters_schema`: spec, talents, gear_overrides, buff_preset, boss_armor, fight_length, iterations, compute_stat_weights
-- `execute()`: Builds SimConfig, calls `SimRunner.sim_run()`, formats result as observation string
-
-**SimCompareTool** (`tools/analysis/sim_compare.py`):
-- `name = "sim_compare"`, description for LLM
-- `parameters_schema`: swap_slot, swap_item, OR change_type + change_value
-- `execute()`: Builds two configs, calls `SimRunner.sim_compare()`, formats as observation
-
-**SimOptimizeTool** (`tools/analysis/sim_optimize.py`):
-- `name = "sim_optimize"`, description for LLM
-- `parameters_schema`: slot, phase, top_n
-- `execute()`: Calls `SimRunner.sim_optimize()`, formats as observation
-
-### Analyst Agent (`agents/analyst.py`):
-
-Following `agents/researcher.py` pattern:
+- Modify: `code/shukketsu/apis/wcl/ingest.py:244-313` (per-fight loops)
+- Modify: `code/shukketsu/apis/wcl/ingest.py:136-180` (store actors)
+- Modify: `code/shukketsu/apis/wcl/ingest.py:189-242` (add player_name)
+- Modify: `code/shukketsu/db/connection.py:73-99` (v5.1 migration)
+- Test: `tests/unit/apis/wcl/test_wcl_ingest.py`
+
+**Step 1: Write failing tests for per-fight damage storage**
+
+Add to `tests/unit/apis/wcl/test_wcl_ingest.py`:
 
 ```python
-class AnalystAgent(BaseAgent):
-    """Specialist agent for quantitative DPS analysis using the sim engine."""
+class TestPerFightStorage:
+    """Tests for per-fight data storage (not aggregated)."""
 
-    async def execute(self, task: AnalysisTask, ...) -> AnalysisResult:
-        outcome = await self._run_loop(...)
-        # Post-process: extract key numbers from tool results
-        return AnalysisResult(
-            output=outcome.output,
-            dps_mean=...,
-            stat_weights=...,
-            trajectory=[...],
+    @pytest.fixture()
+    def diver(self, test_db, mock_client):
+        return ReportDiver(mock_client, test_db)
+
+    async def test_damage_stored_per_fight(self, diver, test_db, mock_client):
+        """Each fight_id gets its own damage rows, not aggregated under fight_ids[0]."""
+        # Mock returns damage data for two fights
+        fight_ids = [1, 2]
+        mock_client.query = AsyncMock(side_effect=[
+            # Fight 1 damage
+            {"reportData": {"report": {"table": {"data": {"entries": [
+                {"name": "Lyroo", "type": "Rogue", "total": 50000, "activeTime": 60000,
+                 "abilities": [{"name": "Sinister Strike", "total": 30000}],
+                 "targets": []}
+            ]}}}}},
+            # Fight 2 damage
+            {"reportData": {"report": {"table": {"data": {"entries": [
+                {"name": "Lyroo", "type": "Rogue", "total": 80000, "activeTime": 90000,
+                 "abilities": [{"name": "Sinister Strike", "total": 45000}],
+                 "targets": []}
+            ]}}}}},
+        ])
+        # Store report metadata first
+        diver._store_report("ABC123", "fresh")
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 1, 100, "Boss1", 1, 60000),
         )
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 2, 100, "Boss1", 1, 90000),
+        )
+
+        await diver._fetch_damage("ABC123", fight_ids, "fresh")
+
+        rows = test_db.execute(
+            "SELECT fight_id, total_damage FROM wcl_damage WHERE report_code = ? ORDER BY fight_id",
+            ("ABC123",),
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0] == (1, 50000)
+        assert rows[1] == (2, 80000)
+
+    async def test_buffs_stored_per_fight(self, diver, test_db, mock_client):
+        """Each fight_id gets its own buff rows."""
+        fight_ids = [1, 2]
+        mock_client.query = AsyncMock(side_effect=[
+            {"reportData": {"report": {"table": {"data": {"auras": [
+                {"name": "Slice and Dice", "guid": 6774, "totalUptime": 55000, "totalUses": 3, "bands": []}
+            ]}}}}},
+            {"reportData": {"report": {"table": {"data": {"auras": [
+                {"name": "Slice and Dice", "guid": 6774, "totalUptime": 80000, "totalUses": 5, "bands": []}
+            ]}}}}},
+        ])
+        diver._store_report("ABC123", "fresh")
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 1, 100, "Boss1", 1, 60000),
+        )
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 2, 100, "Boss1", 1, 90000),
+        )
+
+        await diver._fetch_buffs("ABC123", fight_ids, "fresh")
+
+        rows = test_db.execute(
+            "SELECT fight_id, total_uptime_ms FROM wcl_buffs WHERE report_code = ? ORDER BY fight_id",
+            ("ABC123",),
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0] == (1, 55000)
+        assert rows[1] == (2, 80000)
+
+    async def test_casts_stored_per_fight(self, diver, test_db, mock_client):
+        """Each fight_id gets its own cast rows."""
+        fight_ids = [1, 2]
+        mock_client.query = AsyncMock(side_effect=[
+            {"reportData": {"report": {"table": {"data": {"entries": [
+                {"name": "Lyroo", "abilities": [{"name": "Sinister Strike", "total": 40}]}
+            ]}}}}},
+            {"reportData": {"report": {"table": {"data": {"entries": [
+                {"name": "Lyroo", "abilities": [{"name": "Sinister Strike", "total": 60}]}
+            ]}}}}},
+        ])
+        diver._store_report("ABC123", "fresh")
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 1, 100, "Boss1", 1, 60000),
+        )
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 2, 100, "Boss1", 1, 90000),
+        )
+
+        await diver._fetch_casts("ABC123", fight_ids, "fresh")
+
+        rows = test_db.execute(
+            "SELECT fight_id, cast_count FROM wcl_casts WHERE report_code = ? AND player_name = ? ORDER BY fight_id",
+            ("ABC123", "Lyroo"),
+        ).fetchall()
+        assert len(rows) == 2
+        assert rows[0] == (1, 40)
+        assert rows[1] == (2, 60)
+
+    async def test_combatant_player_name_stored(self, diver, test_db, mock_client):
+        """wcl_combatants stores player_name from actors list."""
+        mock_client.query = AsyncMock(return_value={
+            "reportData": {"report": {
+                "events": {"data": [
+                    {"sourceID": 5, "specID": 260, "fight": 1,
+                     "strength": 100, "agility": 500,
+                     "gear": [], "talents": [], "auras": []}
+                ]}
+            }}
+        })
+        diver._store_report("ABC123", "fresh")
+        test_db.execute(
+            "INSERT OR REPLACE INTO wcl_fights (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            ("ABC123", 1, 100, "Boss1", 1, 60000),
+        )
+        # Store actor mapping (simulating what _fetch_fights stores)
+        diver._actor_map = {5: "Lyroo"}
+
+        await diver._fetch_combatant_info("ABC123", [1], "fresh")
+
+        row = test_db.execute(
+            "SELECT player_name FROM wcl_combatants WHERE report_code = ? AND source_id = ?",
+            ("ABC123", 5),
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "Lyroo"
 ```
 
-### System Prompt (`llm/prompts/analyst.py`):
+**Step 2: Run tests to verify they fail**
 
-The full analyst system prompt from the analyst-agent design doc (Section: System Prompt). Key principles: always sim before claiming, explain WHY not just WHAT, reference specific mechanics, show numbers, consider current gear, explain trade-offs, flag stat caps.
+Run: `python3 -m pytest tests/unit/apis/wcl/test_wcl_ingest.py::TestPerFightStorage -v`
+Expected: FAIL — tests expect per-fight storage but code stores under `fight_ids[0]`.
 
-### Task Protocol additions (`agents/tasks.py`):
+**Step 3: Fix `_fetch_damage()` — per-fight loop**
 
-- Add `ANALYST = "analyst"` to `AgentRole` enum
-- `AnalysisTask(AgentTask)` — import_string, comparison_mode, optimization_slot, etc.
-- `AnalysisResult(AgentResult)` — dps_mean, stat_weights, comparison, recommendations
+In `code/shukketsu/apis/wcl/ingest.py`, replace lines 244-267:
 
-### Factory registration (`agents/factory.py`):
-
-Add to `_ROLE_PROMPTS`, `_ROLE_MAX_ITERATIONS`, `_ROLE_CLASSES` dicts.
-
-**Tests (~20):**
-
-Tools (~10):
-- SimRunTool schema validates correct input
-- SimRunTool schema rejects invalid spec
-- SimRunTool execute returns formatted observation string
-- SimCompareTool parses swap_slot + swap_item correctly
-- SimOptimizeTool formats ranked results correctly
-- Tools register correctly in ToolRegistry
-
-Agent (~10):
-- AnalystAgent initializes with correct role
-- AnalystAgent registered in factory
-- AgentRole.ANALYST exists in enum
-- AnalysisTask/AnalysisResult models validate
-- Analyst system prompt is non-empty and contains key phrases
-- Factory creates AnalystAgent with correct tools
-- Orchestrator can dispatch to Analyst for ANALYSIS tasks
-
-**Run:** `python3 -m pytest tests/unit/sim/test_tools.py tests/unit/agents/test_analyst.py -v`
-
----
-
-## Step 11: Sim Web UI
-
-**Files:**
-- Create: `code/shukketsu/web/routers/sim.py`
-- Create: `code/shukketsu/web/templates/sim/index.html`
-- Create: `code/shukketsu/web/templates/sim/partials/gear_table.html`
-- Create: `code/shukketsu/web/templates/sim/partials/results_panel.html`
-- Create: `code/shukketsu/web/templates/sim/partials/import_form.html`
-- Create: `code/shukketsu/web/templates/sim/partials/buff_toggles.html`
-- Create: `code/shukketsu/web/templates/sim/partials/stat_weights.html`
-- Create: `code/shukketsu/web/templates/sim/partials/ability_breakdown.html`
-- Create: `code/shukketsu/web/static/js/sim-charts.js`
-- Modify: `code/shukketsu/web/app.py` (register sim router)
-- Modify: `code/shukketsu/web/templates/base.html` (add Sim nav link)
-- Create: `tests/unit/web/test_sim_routes.py`
-
-**What to build:**
-
-From the sim-ui design doc (`2026-02-13-phase4-sim-ui.md`).
-
-### Routes (`web/routers/sim.py`):
-
-**Page routes (HTML):**
-- `GET /sim/` — Render sim page with empty state
-- `POST /sim/import` — Parse import string, return gear_table partial
-- `POST /sim/run` — Run sim, return results_panel partial
-- `POST /sim/swap/{slot}` — Swap item, return updated gear row
-
-**API routes (JSON, for agent tools):**
-- `POST /api/sim/run` — JSON API wrapping SimRunner.sim_run
-- `POST /api/sim/compare` — JSON API wrapping SimRunner.sim_compare
-- `POST /api/sim/optimize` — JSON API wrapping SimRunner.sim_optimize
-- `GET /api/sim/items/{slot}` — Search items for dropdown
-- `GET /api/sim/presets` — List buff presets
-
-### Templates:
-
-**`sim/index.html`** — Full page layout (extends base.html):
-1. Import bar (textarea + submit button, HTMX post to /sim/import)
-2. Character header (spec, race, talents — populated from import)
-3. Gear table (17 rows, one per slot, with swap buttons)
-4. Buff configuration (preset selector + individual toggles)
-5. Run button + results area
-
-**Partials** — HTMX fragments returned by POST endpoints:
-- `gear_table.html`: Slot name, item name + ilvl, [Swap] button
-- `results_panel.html`: DPS summary, Chart.js placeholders for charts
-- `import_form.html`: Success/error feedback
-- `buff_toggles.html`: Preset selector + individual checkbox toggles
-- `stat_weights.html`: Stat weight table
-- `ability_breakdown.html`: Ability pie chart + table
-
-### Chart.js (`sim-charts.js`):
-- `renderAbilityPie(canvasId, breakdownData)` — Pie chart for ability DPS breakdown
-- `renderStatWeightBar(canvasId, weightData)` — Horizontal bar chart for stat weights
-- `renderDpsHistogram(canvasId, distributionData)` — Histogram for DPS spread
-
-### App registration:
-- Add `from code.shukketsu.web.routers.sim import router as sim_router` to `app.py`
-- `app.include_router(sim_router)`
-- Add "Sim" link to base.html navigation
-
-**Tests (~15):**
-- `GET /sim/` returns 200 with sim page content
-- `POST /sim/import` with valid SimC string returns gear table
-- `POST /sim/import` with invalid string returns error
-- `POST /sim/run` returns results panel with DPS data
-- `POST /sim/swap/trinket_1` returns updated row
-- `POST /api/sim/run` returns JSON SimResult
-- `POST /api/sim/compare` returns JSON CompareResult
-- `POST /api/sim/optimize` returns JSON OptimizeResult
-- `GET /api/sim/items/trinket_1` returns item list
-- `GET /api/sim/presets` returns preset names
-- Sim page template renders without errors
-- Chart.js data format is correct in response
-- Navigation includes "Sim" link
-
-**Run:** `python3 -m pytest tests/unit/web/test_sim_routes.py -v`
-
----
-
-## Step 12: Validation + Integration Tests
-
-**Files:**
-- Create: `code/shukketsu/sim/validation.py`
-- Create: `tests/unit/sim/test_validation.py`
-- Create: `tests/integration/sim/test_sim_integration.py`
-- Create: `tests/integration/sim/__init__.py`
-
-**What to build:**
-
-### Validation module (`sim/validation.py`):
-
-**ValidationProfile** model:
 ```python
-class ValidationProfile(BaseModel):
-    name: str
-    spec: RogueSpec
-    phase: int
-    config: SimConfig
-    expected_dps_range: tuple[float, float]  # (min, max) from design doc
-    tolerance_pct: float = 2.0  # 4.0 for Mutilate profiles
+async def _fetch_damage(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+    """Fetch and store damage table per fight."""
+    for fid in fight_ids:
+        query, variables = build_damage_table_query(code, [fid])
+        data = await self._client.query(query, variables, endpoint=endpoint)
+        table = data.get("reportData", {}).get("report", {}).get("table", {})
+        entries = table.get("data", {}).get("entries", [])
+
+        for entry in entries:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO wcl_damage
+                   (report_code, fight_id, player_name, player_type, total_damage,
+                    active_time_ms, abilities_json, targets_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    code,
+                    fid,
+                    entry.get("name", ""),
+                    entry.get("type"),
+                    entry.get("total", 0),
+                    entry.get("activeTime"),
+                    json.dumps(entry.get("abilities", [])),
+                    json.dumps(entry.get("targets", [])),
+                ),
+            )
 ```
 
-**VALIDATION_PROFILES** — 10 canonical profiles from the validation design doc:
-1. P1 BiS Combat Swords (1200-1400 DPS)
-2. P2 BiS Combat Swords (1500-1700 DPS)
-3. P3 BiS Combat Swords (1800-2000 DPS)
-4. P5 BiS Combat Swords (2200-2500 DPS)
-5. P1 BiS Combat Daggers
-6. P3 BiS Combat Fists
-7. P3 BiS Mutilate (4% tolerance)
-8. P5 BiS Mutilate (4% tolerance)
-9. No WF group (Combat, P3)
-10. Solo / no buffs (Combat, P3)
+**Step 4: Fix `_fetch_buffs()` — per-fight loop**
 
-**Functions:**
-- `get_validation_profiles() -> list[ValidationProfile]` — Returns all profiles
-- `run_validation(runner: SimRunner, profile: ValidationProfile) -> ValidationResult` — Runs sim and checks against expected range
-- `ValidationResult(BaseModel)` — profile_name, our_dps, expected_range, within_range (bool), drift_pct
+Replace lines 269-291:
 
-### Sanity Tests (`test_validation.py`):
-- Each validation profile has a valid SimConfig
-- Profile configs can be loaded by SimRunner
-- Expected DPS ranges are reasonable (> 500, < 5000)
+```python
+async def _fetch_buffs(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+    """Fetch and store buff table per fight."""
+    for fid in fight_ids:
+        query, variables = build_buff_table_query(code, [fid])
+        data = await self._client.query(query, variables, endpoint=endpoint)
+        table = data.get("reportData", {}).get("report", {}).get("table", {})
+        auras = table.get("data", {}).get("auras", [])
 
-### Integration Tests (`test_sim_integration.py`):
-- Full sim_run end-to-end: P1 BiS Combat Swords produces DPS in expected range
-- Full sim_compare: DST vs Brooch produces positive delta for DST
-- Stat weights: Hit below cap has higher EP than hit above cap
-- Character import → sim_run produces reasonable DPS
-- Analyst agent tool → sim_run → formatted observation
-- **All marked `@pytest.mark.integration`** (require item database)
+        for aura in auras:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO wcl_buffs
+                   (report_code, fight_id, buff_name, buff_guid, total_uptime_ms,
+                    total_uses, bands_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    code,
+                    fid,
+                    aura.get("name", ""),
+                    aura.get("guid", 0),
+                    aura.get("totalUptime", 0),
+                    aura.get("totalUses", 0),
+                    json.dumps(aura.get("bands", [])),
+                ),
+            )
+```
 
-**Tests (~15):**
+**Step 5: Fix `_fetch_casts()` — per-fight loop**
 
-Validation unit (~5):
-- All 10 profiles load without error
-- Profile configs pass SimConfig validation
-- Expected ranges are reasonable
-- Tolerance values are correct (2% for combat, 4% for mutilate)
-- ValidationResult model validates
+Replace lines 293-313:
 
-Integration (~10):
-- P1 BiS Combat Swords DPS in range [1000, 1600]
-- P3 BiS Combat Swords DPS in range [1600, 2200]
-- sim_compare: DST > Brooch (dps_delta > 0)
-- stat_weights: all EP values > 0
-- stat_weights: AP EP ~1.0 (normalization check)
-- SimC import → sim_run → reasonable DPS
-- Analyst tool → observation string contains DPS number
-- Rotation doesn't deadlock (10-second timeout on sim_run)
-- Different iteration counts produce similar mean DPS (convergence)
-- Blade Flurry on 2-target cleave fight > single target
+```python
+async def _fetch_casts(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+    """Fetch and store cast table per fight."""
+    for fid in fight_ids:
+        query, variables = build_cast_table_query(code, [fid])
+        data = await self._client.query(query, variables, endpoint=endpoint)
+        table = data.get("reportData", {}).get("report", {}).get("table", {})
+        entries = table.get("data", {}).get("entries", [])
 
-**Run:**
+        for entry in entries:
+            for ability in entry.get("abilities", []):
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO wcl_casts
+                       (report_code, fight_id, player_name, ability_name, cast_count)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        code,
+                        fid,
+                        entry.get("name", ""),
+                        ability.get("name", ""),
+                        ability.get("total", 0),
+                    ),
+                )
+```
+
+**Step 6: Store actors in `_fetch_fights()` and add `player_name` to combatants**
+
+In `_fetch_fights()`, after extracting fights, store the actor map:
+
+```python
+# At end of _fetch_fights(), after the fights loop:
+actors = report.get("masterData", {}).get("actors", [])
+self._actor_map: dict[int, str] = {a["id"]: a["name"] for a in actors if a.get("id") and a.get("name")}
+```
+
+In `_fetch_combatant_info()`, use the actor map to populate `player_name`:
+
+```python
+# In the INSERT, add player_name column:
+player_name = getattr(self, "_actor_map", {}).get(evt.get("sourceID", 0), "")
+# Add player_name to the INSERT and values tuple
+```
+
+**Step 7: Add v5.1 migration**
+
+In `code/shukketsu/db/connection.py`, add after `_migrate_v4_to_v5`:
+
+```python
+_V5_1_SQL = """
+ALTER TABLE wcl_combatants ADD COLUMN player_name TEXT;
+"""
+
+
+def _migrate_v5_to_v5_1(conn: sqlite3.Connection) -> None:
+    """Migrate v5 to v5.1: add player_name to wcl_combatants."""
+    try:
+        conn.execute(_V5_1_SQL)
+    except sqlite3.OperationalError:
+        pass  # Column already exists (idempotent)
+    conn.execute("INSERT INTO schema_version (version) VALUES (51)")
+    conn.commit()
+    logger.info("Database migrated from v5 to v5.1 (wcl_combatants.player_name)")
+```
+
+Update `init_db()` to call this migration:
+```python
+if version < 51:
+    _migrate_v5_to_v5_1(conn)
+```
+
+**Step 8: Run tests to verify they pass**
+
+Run: `python3 -m pytest tests/unit/apis/wcl/test_wcl_ingest.py -v`
+Expected: ALL PASS (existing + new)
+
+**Step 9: Run full suite**
+
+Run: `python3 -m pytest tests/ -x -q`
+Expected: All 1470+ tests pass
+
+**Step 10: Commit**
+
 ```bash
-python3 -m pytest tests/unit/sim/test_validation.py -v
-python3 -m pytest tests/integration/sim/ -v -m integration
+git add code/shukketsu/apis/wcl/ingest.py code/shukketsu/db/connection.py tests/unit/apis/wcl/test_wcl_ingest.py
+git commit -m "fix(wcl): per-fight data storage and actor name mapping
+
+BREAKING: WCL ingest now queries per-fight instead of aggregating
+under fight_ids[0]. Adds player_name to wcl_combatants via schema
+v5.1 migration. Required for sim validation pipeline."
 ```
 
 ---
 
-## Dependency Graph
+### Task 1: Add Error Types
 
-```
-Step 1 (Models/Config/Errors)
-  ├── Step 2 (Mechanics)
-  ├── Step 3 (Abilities)
-  ├── Step 4 (Talents)
-  ├── Step 5 (Items)
-  └── Step 6 (Buffs + Imports)
-        │
-        └── Step 7 (Rotation) ← depends on 3, 4, 6
-              │
-              └── Step 8 (Combat Loop) ← depends on 2, 3, 4, 5, 6, 7
-                    │
-                    └── Step 9 (Runner API) ← depends on 8
-                          │
-                          ├── Step 10 (Agent + Tools)
-                          ├── Step 11 (Web UI)
-                          └── Step 12 (Validation + Integration)
+**Files:**
+- Modify: `code/shukketsu/resilience/errors.py`
+- Test: `tests/unit/test_errors.py`
+
+**Step 1: Write failing tests**
+
+Add to `tests/unit/test_errors.py`:
+
+```python
+class TestPhase4Errors:
+    def test_wcl_bridge_error(self):
+        from code.shukketsu.resilience.errors import WCLBridgeError, FailureMode
+        err = WCLBridgeError("Missing weapon item 32837")
+        assert err.failure_mode == FailureMode.SIM_VALIDATION
+        assert "32837" in str(err)
+
+    def test_log_parse_error(self):
+        from code.shukketsu.resilience.errors import LogParseError, FailureMode
+        err = LogParseError("Invalid CLEU line format")
+        assert err.failure_mode == FailureMode.SIM_VALIDATION
+        assert "CLEU" in str(err)
+
+    def test_validation_pipeline_error(self):
+        from code.shukketsu.resilience.errors import ValidationPipelineError, FailureMode
+        err = ValidationPipelineError("No valid fights found")
+        assert err.failure_mode == FailureMode.SIM_VALIDATION
 ```
 
-**Parallelizable batches:**
-- Batch 1: Step 1 (foundation)
-- Batch 2: Steps 2, 3, 4, 5, 6 (all depend only on Step 1)
-- Batch 3: Step 7 (rotation, depends on 3+4+6)
-- Batch 4: Step 8 (combat loop, depends on everything)
-- Batch 5: Step 9 (runner, depends on 8)
-- Batch 6: Steps 10, 11, 12 (all depend only on 9)
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_errors.py::TestPhase4Errors -v`
+Expected: FAIL — ImportError
+
+**Step 3: Implement**
+
+Add to `code/shukketsu/resilience/errors.py` after `ItemNotFoundError`:
+
+```python
+class WCLBridgeError(ShukketsuError):
+    """Raised when WCL-to-SimConfig bridge cannot reconstruct a config."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
+
+
+class LogParseError(ShukketsuError):
+    """Raised when a combat log cannot be parsed."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
+
+
+class ValidationPipelineError(ShukketsuError):
+    """Raised when the validation pipeline fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
+```
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_errors.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/resilience/errors.py tests/unit/test_errors.py
+git commit -m "feat(errors): add WCLBridgeError, LogParseError, ValidationPipelineError"
+```
 
 ---
 
-## Estimated Test Growth
+### Task 2: Spell ID Mapping
 
-| Step | New Tests | Running Total |
-|------|-----------|---------------|
-| 1. Models + Config + Errors | ~35 | ~813 |
-| 2. Combat Mechanics | ~25 | ~838 |
-| 3. Abilities Database | ~15 | ~853 |
-| 4. Talent System | ~15 | ~868 |
-| 5. Item Database | ~20 | ~888 |
-| 6. Buffs + Imports | ~25 | ~913 |
-| 7. Rotation Engine | ~20 | ~933 |
-| 8. Combat Event Loop | ~25 | ~958 |
-| 9. Runner + API | ~15 | ~973 |
-| 10. Agent + Tools | ~20 | ~993 |
-| 11. Web UI | ~15 | ~1008 |
-| 12. Validation + Integration | ~15 | ~1023 |
+**Files:**
+- Create: `code/shukketsu/sim/spell_map.py`
+- Create: `tests/unit/test_spell_map.py`
 
-**Starting count:** 778 tests (Phase 3 complete)
-**Estimated final:** ~1023 tests
+**Step 1: Write failing tests**
+
+Create `tests/unit/test_spell_map.py`:
+
+```python
+"""Tests for WCL spell ID <-> sim ability name mapping."""
+
+import pytest
+
+
+class TestSpellIdToAbility:
+    def test_sinister_strike_rank10(self):
+        from code.shukketsu.sim.spell_map import wcl_ability_name
+        assert wcl_ability_name(1752) == "sinister_strike"
+
+    def test_sinister_strike_other_rank(self):
+        from code.shukketsu.sim.spell_map import wcl_ability_name
+        assert wcl_ability_name(11294) == "sinister_strike"
+
+    def test_eviscerate(self):
+        from code.shukketsu.sim.spell_map import wcl_ability_name
+        assert wcl_ability_name(26865) == "eviscerate"
+
+    def test_unknown_spell(self):
+        from code.shukketsu.sim.spell_map import wcl_ability_name
+        assert wcl_ability_name(99999) is None
+
+    def test_blade_flurry(self):
+        from code.shukketsu.sim.spell_map import wcl_ability_name
+        assert wcl_ability_name(13877) == "blade_flurry"
+
+    def test_instant_poison(self):
+        from code.shukketsu.sim.spell_map import wcl_ability_name
+        assert wcl_ability_name(26891) == "instant_poison"
+
+
+class TestDisplayName:
+    def test_sinister_strike_display(self):
+        from code.shukketsu.sim.spell_map import sim_display_name
+        assert sim_display_name("sinister_strike") == "Sinister Strike"
+
+    def test_unknown_ability_returns_title_case(self):
+        from code.shukketsu.sim.spell_map import sim_display_name
+        assert sim_display_name("some_ability") == "Some Ability"
+
+
+class TestBuffMapping:
+    def test_kings(self):
+        from code.shukketsu.sim.spell_map import wcl_buff_name
+        assert wcl_buff_name(25898) == "kings"
+
+    def test_heroism(self):
+        from code.shukketsu.sim.spell_map import wcl_buff_name
+        assert wcl_buff_name(32182) == "heroism"
+
+    def test_unknown_buff(self):
+        from code.shukketsu.sim.spell_map import wcl_buff_name
+        assert wcl_buff_name(99999) is None
+
+
+class TestAggregateAbilities:
+    def test_aggregate_abilities_merges_ranks(self):
+        """Multiple spell IDs for the same ability should merge."""
+        from code.shukketsu.sim.spell_map import aggregate_wcl_abilities
+        wcl_abilities = [
+            {"guid": 1752, "name": "Sinister Strike", "total": 10000},
+            {"guid": 11294, "name": "Sinister Strike", "total": 5000},
+            {"guid": 26865, "name": "Eviscerate", "total": 8000},
+        ]
+        result = aggregate_wcl_abilities(wcl_abilities)
+        assert result["sinister_strike"] == 15000
+        assert result["eviscerate"] == 8000
+```
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_spell_map.py -v`
+Expected: FAIL — ModuleNotFoundError
+
+**Step 3: Implement**
+
+Create `code/shukketsu/sim/spell_map.py`:
+
+```python
+"""WCL spell ID <-> sim ability name mapping.
+
+Maps WCL spell/ability IDs from combat logs and API data to the
+internal ability names used by the simulation engine.
+"""
+
+from typing import Final
+
+# WCL spell ID -> sim ability name
+SPELL_ID_TO_ABILITY: Final[dict[int, str]] = {
+    # Builders
+    1752: "sinister_strike",
+    11294: "sinister_strike",
+    53: "backstab",
+    34413: "mutilate",
+    16511: "hemorrhage",
+    5938: "shiv",
+    # Finishers
+    26865: "eviscerate",
+    26867: "rupture",
+    6774: "slice_and_dice",
+    32645: "envenom",
+    8647: "expose_armor",
+    # Openers
+    11297: "ambush",
+    11290: "garrote",
+    1833: "cheap_shot",
+    # Cooldowns
+    13877: "blade_flurry",
+    13750: "adrenaline_rush",
+    14177: "cold_blood",
+    9512: "thistle_tea",
+    14185: "premeditation",
+    # Poisons
+    26891: "instant_poison",
+    27282: "deadly_poison",
+    27283: "wound_poison",
+    # Procs
+    23577: "combat_potency",
+    13964: "sword_specialization",
+    # Auto-attacks (melee swing)
+    1: "melee",
+}
+
+# Sim ability name -> display name
+ABILITY_DISPLAY_NAMES: Final[dict[str, str]] = {
+    "sinister_strike": "Sinister Strike",
+    "backstab": "Backstab",
+    "mutilate": "Mutilate",
+    "hemorrhage": "Hemorrhage",
+    "shiv": "Shiv",
+    "eviscerate": "Eviscerate",
+    "rupture": "Rupture",
+    "slice_and_dice": "Slice and Dice",
+    "envenom": "Envenom",
+    "expose_armor": "Expose Armor",
+    "ambush": "Ambush",
+    "garrote": "Garrote",
+    "cheap_shot": "Cheap Shot",
+    "blade_flurry": "Blade Flurry",
+    "adrenaline_rush": "Adrenaline Rush",
+    "cold_blood": "Cold Blood",
+    "thistle_tea": "Thistle Tea",
+    "premeditation": "Premeditation",
+    "instant_poison": "Instant Poison",
+    "deadly_poison": "Deadly Poison",
+    "wound_poison": "Wound Poison",
+    "combat_potency": "Combat Potency",
+    "sword_specialization": "Sword Specialization",
+    "melee": "Melee",
+}
+
+# WCL buff/aura ability IDs -> our buff system names
+WCL_BUFF_MAP: Final[dict[int, str]] = {
+    25898: "kings",
+    2048: "battle_shout",
+    25359: "grace_of_air",
+    25528: "strength_of_earth",
+    26990: "motw",
+    34300: "lotp",
+    16293: "wf_totem",
+    27066: "trueshot_aura",
+    32182: "heroism",
+    35476: "drums_of_battle",
+    25225: "sunder_armor",
+    26993: "faerie_fire",
+    27226: "curse_of_recklessness",
+}
+
+
+def wcl_ability_name(spell_id: int) -> str | None:
+    """Return sim ability name for a WCL spell ID, or None if unknown."""
+    return SPELL_ID_TO_ABILITY.get(spell_id)
+
+
+def sim_display_name(ability_name: str) -> str:
+    """Return human-readable display name for a sim ability."""
+    return ABILITY_DISPLAY_NAMES.get(ability_name, ability_name.replace("_", " ").title())
+
+
+def wcl_buff_name(spell_id: int) -> str | None:
+    """Return our buff system name for a WCL buff spell ID, or None."""
+    return WCL_BUFF_MAP.get(spell_id)
+
+
+def aggregate_wcl_abilities(
+    wcl_abilities: list[dict],
+) -> dict[str, int]:
+    """Aggregate WCL ability entries by sim ability name.
+
+    Multiple spell IDs mapping to the same ability (different ranks)
+    are summed together. Unknown spell IDs are skipped.
+
+    Args:
+        wcl_abilities: List of dicts with 'guid' and 'total' keys.
+
+    Returns:
+        Dict of sim_ability_name -> total_damage.
+    """
+    result: dict[str, int] = {}
+    for entry in wcl_abilities:
+        ability = wcl_ability_name(entry.get("guid", 0))
+        if ability is not None:
+            result[ability] = result.get(ability, 0) + entry.get("total", 0)
+    return result
+```
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_spell_map.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/sim/spell_map.py tests/unit/test_spell_map.py
+git commit -m "feat(sim): add WCL spell ID mapping for validation pipeline"
+```
 
 ---
 
-## Phase Gate Checklist
+### Task 3: Fight Filter
 
-After all 12 steps:
+**Files:**
+- Create: `code/shukketsu/sim/fight_filter.py`
+- Create: `tests/unit/test_fight_filter.py`
 
-- [ ] P1 BiS Combat Swords sim produces DPS in range [1000, 1600]
-- [ ] P5 BiS Combat Swords sim produces DPS in range [2000, 2800]
-- [ ] P3 BiS Mutilate sim produces DPS in range [1400, 2000]
-- [ ] Analyst agent can answer "what's my best trinket?" end-to-end
-- [ ] Character import works for SimC format
-- [ ] `/sim` page renders gear overview and sim results
-- [ ] Stat weights computed and displayed
-- [ ] All unit tests pass
-- [ ] All integration tests pass
-- [ ] `ruff check` and `ruff format` clean
-- [ ] `mypy` passes
+**Step 1: Write failing tests**
+
+Create `tests/unit/test_fight_filter.py`:
+
+```python
+"""Tests for WCL fight filtering and validation."""
+
+import sqlite3
+
+import pytest
+
+from code.shukketsu.sim.fight_filter import (
+    PATCHWERK_ENCOUNTERS,
+    FightFilter,
+    FilterCriteria,
+    ValidatedFight,
+)
+
+
+@pytest.fixture()
+def fight_db(test_db):
+    """Populate test DB with sample fight data."""
+    test_db.execute("INSERT OR IGNORE INTO wcl_reports (code, endpoint) VALUES ('RPT1', 'fresh')")
+    fights = [
+        ("RPT1", 1, 725, "Brutallus", 1, 180000, 10, 25),
+        ("RPT1", 2, 725, "Brutallus", 0, 120000, 10, 25),  # wipe
+        ("RPT1", 3, 999, "Unknown Boss", 1, 60000, 10, 25),  # non-patchwerk
+        ("RPT1", 4, 725, "Brutallus", 1, 15000, 10, 25),  # too short
+    ]
+    for f in fights:
+        test_db.execute(
+            """INSERT OR REPLACE INTO wcl_fights
+               (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms, difficulty, raid_size)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            f,
+        )
+    # Add damage rows for Lyroo
+    for fid, dmg in [(1, 200000), (2, 100000), (4, 5000)]:
+        test_db.execute(
+            """INSERT OR REPLACE INTO wcl_damage
+               (report_code, fight_id, player_name, player_type, total_damage, active_time_ms, abilities_json, targets_json)
+               VALUES (?, ?, 'Lyroo', 'Rogue', ?, ?, '[]', '[]')""",
+            ("RPT1", fid, dmg, fid * 1000),
+        )
+    # Add combatant for Lyroo
+    for fid in [1, 2, 4]:
+        test_db.execute(
+            """INSERT OR REPLACE INTO wcl_combatants
+               (report_code, fight_id, source_id, player_name) VALUES (?, ?, 5, 'Lyroo')""",
+            ("RPT1", fid),
+        )
+    test_db.commit()
+    return test_db
+
+
+class TestFilterCriteria:
+    def test_default_criteria(self):
+        c = FilterCriteria()
+        assert c.kills_only is True
+        assert c.min_duration_ms == 30000
+        assert c.patchwerk_only is True
+
+    def test_frozen(self):
+        c = FilterCriteria()
+        with pytest.raises(Exception):
+            c.kills_only = False  # type: ignore[misc]
+
+
+class TestFightFilter:
+    def test_excludes_wipes(self, fight_db):
+        ff = FightFilter()
+        results = ff.filter_fights(fight_db, "Lyroo")
+        wipe = next(r for r in results if r.fight_id == 2)
+        assert not wipe.included
+        assert wipe.exclusion_reason == "wipe"
+
+    def test_excludes_short_fights(self, fight_db):
+        ff = FightFilter()
+        results = ff.filter_fights(fight_db, "Lyroo")
+        short = next(r for r in results if r.fight_id == 4)
+        assert not short.included
+        assert short.exclusion_reason == "short_fight"
+
+    def test_includes_valid_kill(self, fight_db):
+        ff = FightFilter()
+        results = ff.filter_fights(fight_db, "Lyroo")
+        valid = next(r for r in results if r.fight_id == 1)
+        assert valid.included
+        assert valid.exclusion_reason is None
+        assert valid.wcl_total_damage == 200000
+
+    def test_custom_criteria_override(self, fight_db):
+        """encounter_ids whitelist overrides patchwerk_only."""
+        criteria = FilterCriteria(patchwerk_only=False, encounter_ids={999})
+        ff = FightFilter(criteria=criteria)
+        results = ff.filter_fights(fight_db, "Lyroo")
+        included = [r for r in results if r.included]
+        assert len(included) >= 0  # May or may not have fights for encounter 999
+
+
+class TestPatchworkEncounters:
+    def test_brutallus_is_patchwerk(self):
+        assert 725 in PATCHWERK_ENCOUNTERS
+
+    def test_gruul_is_patchwerk(self):
+        assert 649 in PATCHWERK_ENCOUNTERS
+```
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_fight_filter.py -v`
+Expected: FAIL — ModuleNotFoundError
+
+**Step 3: Implement**
+
+Create `code/shukketsu/sim/fight_filter.py`:
+
+```python
+"""WCL fight filtering for sim validation.
+
+Selects fights suitable for DPS calibration by excluding wipes,
+deaths, short fights, and movement-heavy encounters.
+"""
+
+import logging
+import sqlite3
+from typing import Final
+
+from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
+
+# Encounters where continuous combat assumption holds
+PATCHWERK_ENCOUNTERS: Final[dict[int, str]] = {
+    # Molten Core (Fresh)
+    200663: "Lucifron",
+    200664: "Magmadar",
+    200670: "Golemagg the Incinerator",
+    # Karazhan
+    652: "Attumen the Huntsman",
+    # Gruul's Lair
+    649: "Gruul the Dragonkiller",
+    # SSC
+    623: "Hydross the Unstable",
+    624: "The Lurker Below",
+    # TK
+    730: "Void Reaver",
+    # Black Temple
+    601: "Supremus",
+    602: "Shade of Akama",
+    # Sunwell Plateau
+    725: "Brutallus",
+    726: "Felmyst",
+}
+
+
+class FilterCriteria(BaseModel):
+    """Criteria for selecting valid calibration fights."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kills_only: bool = True
+    min_duration_ms: int = 30_000
+    max_death_pct: float = 0.0
+    patchwerk_only: bool = True
+    encounter_ids: set[int] | None = None
+
+
+class ValidatedFight(BaseModel):
+    """A WCL fight annotated with inclusion/exclusion status."""
+
+    report_code: str
+    fight_id: int
+    encounter_id: int
+    encounter_name: str
+    duration_ms: int
+    source_id: int
+    wcl_active_dps: float
+    wcl_total_damage: int
+    included: bool
+    exclusion_reason: str | None = None
+
+
+class FightFilter:
+    """Filters WCL fights for sim validation suitability."""
+
+    def __init__(self, criteria: FilterCriteria = FilterCriteria()) -> None:
+        self._criteria = criteria
+
+    def filter_fights(
+        self,
+        conn: sqlite3.Connection,
+        character_name: str,
+    ) -> list[ValidatedFight]:
+        """Return all fights for a character, annotated with inclusion/exclusion."""
+        rows = conn.execute(
+            """SELECT f.report_code, f.fight_id, f.encounter_id, f.encounter_name,
+                      f.kill, f.duration_ms,
+                      d.total_damage, d.active_time_ms,
+                      c.source_id
+               FROM wcl_fights f
+               JOIN wcl_damage d ON d.report_code = f.report_code AND d.fight_id = f.fight_id
+               JOIN wcl_combatants c ON c.report_code = f.report_code AND c.fight_id = f.fight_id
+               WHERE d.player_name = ? AND c.player_name = ?""",
+            (character_name, character_name),
+        ).fetchall()
+
+        results: list[ValidatedFight] = []
+        for row in rows:
+            (report_code, fight_id, encounter_id, encounter_name,
+             kill, duration_ms, total_damage, active_time_ms, source_id) = row
+
+            exclusion_reason = self._check_exclusion(
+                kill=kill,
+                duration_ms=duration_ms,
+                encounter_id=encounter_id,
+                total_damage=total_damage,
+                active_time_ms=active_time_ms,
+            )
+
+            active_dps = (
+                total_damage / (active_time_ms / 1000)
+                if active_time_ms and active_time_ms > 0
+                else 0.0
+            )
+
+            results.append(
+                ValidatedFight(
+                    report_code=report_code,
+                    fight_id=fight_id,
+                    encounter_id=encounter_id,
+                    encounter_name=encounter_name,
+                    duration_ms=duration_ms,
+                    source_id=source_id,
+                    wcl_active_dps=active_dps,
+                    wcl_total_damage=total_damage,
+                    included=exclusion_reason is None,
+                    exclusion_reason=exclusion_reason,
+                )
+            )
+
+        return results
+
+    def _check_exclusion(
+        self,
+        *,
+        kill: int,
+        duration_ms: int,
+        encounter_id: int,
+        total_damage: int,
+        active_time_ms: int | None,
+    ) -> str | None:
+        """Return exclusion reason or None if fight is valid."""
+        c = self._criteria
+
+        if c.kills_only and not kill:
+            return "wipe"
+
+        if duration_ms < c.min_duration_ms:
+            return "short_fight"
+
+        if c.patchwerk_only and c.encounter_ids is None:
+            if encounter_id not in PATCHWERK_ENCOUNTERS:
+                return "movement_boss"
+        elif c.encounter_ids is not None:
+            if encounter_id not in c.encounter_ids:
+                return "not_in_whitelist"
+
+        # Check for likely death: active time < 90% of fight duration
+        if active_time_ms and duration_ms > 0:
+            active_ratio = active_time_ms / duration_ms
+            if active_ratio < (1.0 - c.max_death_pct) * 0.9:
+                return "death"
+
+        return None
+```
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_fight_filter.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/sim/fight_filter.py tests/unit/test_fight_filter.py
+git commit -m "feat(sim): add fight filter for validation pipeline"
+```
+
+---
+
+### Task 4: Config Additions
+
+**Files:**
+- Modify: `code/shukketsu/config.py`
+- Modify: `tests/unit/test_wcl_config.py`
+
+**Step 1: Write failing test**
+
+Add to `tests/unit/test_wcl_config.py`:
+
+```python
+def test_validation_config_constants():
+    from code.shukketsu import config
+    assert hasattr(config, "VALIDATION_CONCURRENCY")
+    assert config.VALIDATION_CONCURRENCY == 4
+    assert hasattr(config, "VALIDATION_ITERATIONS")
+    assert config.VALIDATION_ITERATIONS == 5000
+    assert hasattr(config, "VALIDATION_DPS_THRESHOLD")
+    assert config.VALIDATION_DPS_THRESHOLD == 5.0
+    assert hasattr(config, "LOG_UPLOAD_MAX_SIZE_MB")
+    assert config.LOG_UPLOAD_MAX_SIZE_MB == 100
+
+def test_lyroo_has_race():
+    from code.shukketsu import config
+    lyroo = config.WCL_TRACKED_CHARACTERS[0]
+    assert "race" in lyroo
+    assert lyroo["race"] == "orc"
+```
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_wcl_config.py::test_validation_config_constants -v`
+Expected: FAIL — AttributeError
+
+**Step 3: Implement**
+
+Add to `code/shukketsu/config.py` after the `# Backup` section:
+
+```python
+# Validation pipeline
+VALIDATION_CONCURRENCY = int(os.getenv("VALIDATION_CONCURRENCY", "4"))
+VALIDATION_ITERATIONS = int(os.getenv("VALIDATION_ITERATIONS", "5000"))
+VALIDATION_DPS_THRESHOLD = float(os.getenv("VALIDATION_DPS_THRESHOLD", "5.0"))
+VALIDATION_ABILITY_THRESHOLD = float(os.getenv("VALIDATION_ABILITY_THRESHOLD", "15.0"))
+VALIDATION_BUFF_THRESHOLD = float(os.getenv("VALIDATION_BUFF_THRESHOLD", "5.0"))
+
+# Log upload
+LOG_UPLOAD_MAX_SIZE_MB = int(os.getenv("LOG_UPLOAD_MAX_SIZE_MB", "100"))
+```
+
+Update `WCL_TRACKED_CHARACTERS`:
+```python
+WCL_TRACKED_CHARACTERS: list[dict[str, str | int]] = [
+    {"wcl_id": 104956434, "name": "Lyroo", "server": "nightslayer", "region": "us", "endpoint": "fresh", "race": "orc"},
+]
+```
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_wcl_config.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/config.py tests/unit/test_wcl_config.py
+git commit -m "feat(config): add validation pipeline and log upload constants"
+```
+
+---
+
+### Task 5: Comparison Engine
+
+**Files:**
+- Create: `code/shukketsu/sim/comparator.py`
+- Create: `tests/unit/test_comparator.py`
+
+**Step 1: Write failing tests**
+
+Create `tests/unit/test_comparator.py`:
+
+```python
+"""Tests for sim validation comparison engine."""
+
+import pytest
+
+from code.shukketsu.sim.comparator import (
+    AbilityMetrics,
+    BossAggregate,
+    FightValidation,
+    MetricDrift,
+    SimComparator,
+    ValidationReport,
+    WCLFightMetrics,
+)
+
+
+class TestMetricDrift:
+    def test_pass_within_threshold(self):
+        d = MetricDrift(
+            metric_name="dps", sim_value=1050, wcl_value=1000,
+            absolute_delta=50, relative_pct=5.0, status="pass",
+        )
+        assert d.status == "pass"
+
+    def test_fail_above_threshold(self):
+        d = MetricDrift(
+            metric_name="dps", sim_value=1200, wcl_value=1000,
+            absolute_delta=200, relative_pct=20.0, status="fail",
+        )
+        assert d.status == "fail"
+
+
+class TestWCLFightMetrics:
+    def test_creation(self):
+        m = WCLFightMetrics(
+            total_damage=300000, active_dps=1000.0, fight_duration_ms=300000,
+            ability_breakdown={"sinister_strike": AbilityMetrics(
+                damage_total=150000, damage_pct=50.0, cast_count=120, hit_count=100, crit_count=40,
+            )},
+            buff_uptimes={"slice_and_dice": 0.95},
+            proc_counts={"combat_potency": 45},
+        )
+        assert m.active_dps == 1000.0
+        assert "sinister_strike" in m.ability_breakdown
+
+
+class TestSimComparator:
+    def test_compute_drift_pass(self):
+        comp = SimComparator.__new__(SimComparator)
+        drift = comp._compute_drift("dps", 1020.0, 1000.0, threshold_pass=5.0, threshold_warn=10.0)
+        assert drift.status == "pass"
+        assert abs(drift.relative_pct - 2.0) < 0.1
+
+    def test_compute_drift_warn(self):
+        comp = SimComparator.__new__(SimComparator)
+        drift = comp._compute_drift("dps", 1080.0, 1000.0, threshold_pass=5.0, threshold_warn=10.0)
+        assert drift.status == "warn"
+
+    def test_compute_drift_fail(self):
+        comp = SimComparator.__new__(SimComparator)
+        drift = comp._compute_drift("dps", 1200.0, 1000.0, threshold_pass=5.0, threshold_warn=10.0)
+        assert drift.status == "fail"
+
+    def test_compute_drift_zero_wcl(self):
+        """Zero WCL value should not divide by zero."""
+        comp = SimComparator.__new__(SimComparator)
+        drift = comp._compute_drift("dps", 100.0, 0.0, threshold_pass=5.0, threshold_warn=10.0)
+        assert drift.status == "fail"
+
+
+class TestValidationReport:
+    def test_report_aggregation(self):
+        report = ValidationReport(
+            character_name="Lyroo",
+            total_fights=10,
+            included_fights=8,
+            excluded_fights=2,
+            per_fight=[],
+            per_boss={},
+            overall_dps_drift_pct=3.5,
+            overall_status="pass",
+            timestamp="2026-02-13T00:00:00",
+        )
+        assert report.overall_status == "pass"
+```
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_comparator.py -v`
+Expected: FAIL — ModuleNotFoundError
+
+**Step 3: Implement**
+
+Create `code/shukketsu/sim/comparator.py` — full implementation as specified in design doc Section 4. See the companion design document for the complete class with `extract_wcl_metrics()`, `compare_fight()`, `build_report()`, and `_compute_drift()`.
+
+Key classes: `AbilityMetrics`, `WCLFightMetrics`, `MetricDrift`, `FightValidation`, `BossAggregate`, `ValidationReport`, `SimComparator`.
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_comparator.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/sim/comparator.py tests/unit/test_comparator.py
+git commit -m "feat(sim): add comparison engine for validation pipeline"
+```
+
+---
+
+### Task 6: Schema v6 Migration
+
+**Files:**
+- Modify: `code/shukketsu/db/connection.py`
+- Test: `tests/unit/test_db.py`
+
+**Step 1: Write failing test**
+
+Add to `tests/unit/test_db.py`:
+
+```python
+def test_schema_v6_validation_runs_table(test_db):
+    """Schema v6 adds validation_runs table."""
+    tables = test_db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='validation_runs'"
+    ).fetchone()
+    assert tables is not None
+
+    cols = test_db.execute("PRAGMA table_info(validation_runs)").fetchall()
+    col_names = [c[1] for c in cols]
+    assert "character_name" in col_names
+    assert "run_type" in col_names
+    assert "overall_dps_drift_pct" in col_names
+    assert "report_json" in col_names
+```
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_db.py::test_schema_v6_validation_runs_table -v`
+Expected: FAIL — table doesn't exist
+
+**Step 3: Implement**
+
+Add migration to `code/shukketsu/db/connection.py` following the existing pattern (see `_migrate_v4_to_v5`). Add `_VALIDATION_V6_SQL` constant and `_migrate_v51_to_v6()` function. Update `init_db()` chain.
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_db.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/db/connection.py tests/unit/test_db.py
+git commit -m "feat(db): add schema v6 with validation_runs table"
+```
+
+---
+
+### Task 7: Validation Pipeline
+
+**Files:**
+- Create: `code/shukketsu/sim/validation_pipeline.py`
+- Create: `tests/unit/test_validation_pipeline.py`
+
+**Step 1: Write failing tests**
+
+Create `tests/unit/test_validation_pipeline.py` with tests for:
+- Pipeline construction
+- `run_validation()` with no valid fights (empty report)
+- `run_validation()` stores report in `validation_runs` table
+- Progress callback fires
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_validation_pipeline.py -v`
+Expected: FAIL — ModuleNotFoundError
+
+**Step 3: Implement**
+
+Create `code/shukketsu/sim/validation_pipeline.py` — orchestrates FightFilter -> WCLBridge -> SimRunner -> SimComparator -> store report. Uses ProcessPoolExecutor for CPU parallelism.
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_validation_pipeline.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/sim/validation_pipeline.py tests/unit/test_validation_pipeline.py
+git commit -m "feat(sim): add validation pipeline orchestrator"
+```
+
+---
+
+### Task 8: CLEU Combat Log Parser
+
+**Files:**
+- Create: `code/shukketsu/sim/log_parser.py`
+- Create: `tests/unit/test_log_parser.py`
+
+**Step 1: Write failing tests**
+
+Create `tests/unit/test_log_parser.py` with sample CLEU log data and tests for:
+- Parse finds fights from ENCOUNTER_START/END
+- Fight metadata (encounter_id, name, kill status)
+- Damage tracking by spell ID
+- Buff timeline (apply/remove pairs)
+- Cast counts
+- Empty log handling
+- Wrong character produces no damage
+
+**Step 2: Run to verify failure**
+
+Run: `python3 -m pytest tests/unit/test_log_parser.py -v`
+Expected: FAIL — ModuleNotFoundError
+
+**Step 3: Implement**
+
+Create `code/shukketsu/sim/log_parser.py` — streaming line-by-line parser for TBC CLEU format. Tracks ENCOUNTER_START/END boundaries, aggregates SPELL_DAMAGE, SWING_DAMAGE, SPELL_AURA_APPLIED/REMOVED, SPELL_CAST_SUCCESS, UNIT_DIED events per character.
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_log_parser.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/sim/log_parser.py tests/unit/test_log_parser.py
+git commit -m "feat(sim): add CLEU combat log parser for validation"
+```
+
+---
+
+### Task 9: WoWSims Import Parser
+
+**Files:**
+- Modify: `code/shukketsu/sim/imports.py:243-251`
+- Modify: `tests/unit/test_sim_imports.py`
+
+**Step 1: Write failing tests** — test basic JSON parsing, gear extraction, talent-based spec detection
+
+**Step 2: Run to verify failure** — `InvalidSimConfigError("WoWSims import not yet supported")`
+
+**Step 3: Implement** — Replace the stub with JSON parser, add `_WOWSIMS_RACE_MAP`, `_WOWSIMS_SLOT_MAP`, `_detect_spec_from_talents()`. Update `detect_format()` to distinguish WoWSims JSON from SeventyUpgrades JSON.
+
+**Step 4: Run tests**
+
+Run: `python3 -m pytest tests/unit/test_sim_imports.py -v`
+Expected: ALL PASS
+
+**Step 5: Commit**
+
+```bash
+git add code/shukketsu/sim/imports.py tests/unit/test_sim_imports.py
+git commit -m "feat(sim): implement WoWSims JSON import parser"
+```
+
+---
+
+### Task 10: Web Validation Dashboard
+
+**Files:**
+- Modify: `code/shukketsu/web/routers/sim.py`
+- Create: `code/shukketsu/web/templates/sim/validate/index.html`
+- Create: `code/shukketsu/web/templates/sim/validate/partials/report.html`
+- Test: `tests/unit/test_sim_routes.py`
+
+Add `/sim/validate/` GET route (dashboard with run history table) and `/sim/validate/report/{run_id}` GET route (renders full report JSON). Templates extend `base.html` with the existing dark WoW theme.
+
+---
+
+### Task 11: Web Log Upload Routes
+
+**Files:**
+- Create: `code/shukketsu/web/routers/logs.py`
+- Create: `code/shukketsu/web/templates/logs/index.html`
+- Create: `code/shukketsu/web/templates/logs/partials/fight_list.html`
+- Modify: `code/shukketsu/web/app.py` (register router)
+- Modify: `code/shukketsu/web/templates/base.html` (add Logs nav link)
+- Create: `tests/unit/test_log_routes.py`
+
+Add `/logs/` GET (upload page), `/logs/upload` POST (parse log + return fights partial). Register router in app.py, add "Logs" nav link.
+
+---
+
+### Task 12: Item Database Expansion
+
+**Files:**
+- Modify: `code/shukketsu/sim/items.py`
+- Test: `tests/unit/test_sim_items.py`
+
+Add ~80 new items to `_CURATED_ITEMS` (weapons, trinkets, set pieces). Data entry from WoWSims/wowhead. Verify >= 100 total items, key weapons exist, key trinkets exist.
+
+---
+
+### Task 13: CLAUDE.md and Memory Update
+
+Update CLAUDE.md Phase 4 section from stub to complete. Update memory with test counts and schema version. Commit.
+
+---
+
+## Execution Order Summary
+
+| Task | Description | Depends On | Est. Tests |
+|------|-------------|------------|------------|
+| 0 | WCL ingest per-fight fix | -- | +8 |
+| 1 | Error types | -- | +3 |
+| 2 | Spell ID mapping | -- | +12 |
+| 3 | Fight filter | Task 0 | +8 |
+| 4 | Config additions | -- | +2 |
+| 5 | Comparison engine | Tasks 2, 4 | +8 |
+| 6 | Schema v6 migration | Task 0 | +2 |
+| 7 | Validation pipeline | Tasks 3, 5, 6 | +4 |
+| 8 | CLEU log parser | Task 2 | +7 |
+| 9 | WoWSims import | -- | +3 |
+| 10 | Validation dashboard | Tasks 6, 7 | +2 |
+| 11 | Log upload routes | Task 8 | +2 |
+| 12 | Item DB expansion | -- | +3 |
+| 13 | CLAUDE.md + memory | All | 0 |
+
+**Parallelizable:** Tasks 1, 2, 4, 9, 12 have no dependencies and can run in parallel.
+
+**Critical path:** Task 0 -> Task 3 -> Task 7 -> Task 10 (WCL validation pipeline)
+
+**Total estimated new tests:** ~60+
