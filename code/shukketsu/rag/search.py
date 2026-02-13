@@ -98,6 +98,8 @@ async def hybrid_search(
     Returns:
         List of SearchResult ordered by RRF score (descending).
     """
+    if not query_embedding:
+        return []
     embedding_blob = struct.pack(f"{len(query_embedding)}f", *query_embedding)
     fts_query = escape_fts_query(query_text)
 

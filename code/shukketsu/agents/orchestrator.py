@@ -415,6 +415,9 @@ class Orchestrator(BaseAgent):
         """LLM-based synthesis for research-only workflows."""
         findings_text = "\n\n".join(r.output for r in results if r.output)
 
+        if not findings_text.strip():
+            return "I wasn't able to find relevant information to answer your question. Please try rephrasing."
+
         messages = [
             {"role": "system", "content": SYNTHESIS_PROMPT},
             {
@@ -431,7 +434,7 @@ class Orchestrator(BaseAgent):
             return result.response
         except Exception as exc:
             logger.warning(
-                "Synthesis LLM call failed, falling back: %s",
+                "Synthesis LLM call failed, falling back to raw findings: %s",
                 exc,
             )
             return findings_text
