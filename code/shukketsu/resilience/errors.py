@@ -30,6 +30,11 @@ class FailureMode(StrEnum):
     OOM = "out_of_memory"
     MODEL_UNAVAILABLE = "model_unavailable"
 
+    # Simulation failures
+    SIM_ERROR = "sim_error"
+    SIM_VALIDATION = "sim_validation"
+    SIM_TIMEOUT = "sim_timeout"
+
 
 class ShukketsuError(Exception):
     """Base exception for all Shukketsu errors."""
@@ -161,3 +166,31 @@ class WCLQueryError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.WCL_API)
+
+
+class SimError(ShukketsuError):
+    """Raised when a simulation run fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_ERROR)
+
+
+class InvalidSimConfigError(ShukketsuError):
+    """Raised when simulation config validation fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
+
+
+class SimTimeoutError(ShukketsuError):
+    """Raised when a simulation exceeds time budget."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_TIMEOUT)
+
+
+class ItemNotFoundError(ShukketsuError):
+    """Raised when an item ID is not found in the database."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)

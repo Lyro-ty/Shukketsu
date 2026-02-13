@@ -177,6 +177,13 @@ MEMORY_COMPOSITE_RECENCY_WEIGHT = 0.2
 MEMORY_COMPOSITE_QUALITY_WEIGHT = 0.2
 MEMORY_MAX_CONTEXT_CHARS = 2000
 
+# Simulation engine
+SIM_DEFAULT_ITERATIONS = int(os.getenv("SIM_DEFAULT_ITERATIONS", "10000"))
+SIM_DEFAULT_FIGHT_LENGTH = int(os.getenv("SIM_DEFAULT_FIGHT_LENGTH", "300"))
+SIM_STAT_WEIGHT_DELTA = int(os.getenv("SIM_STAT_WEIGHT_DELTA", "80"))
+SIM_CACHE_ENABLED = os.getenv("SIM_CACHE_ENABLED", "true").lower() == "true"
+ANALYST_MAX_ITERATIONS = int(os.getenv("ANALYST_MAX_ITERATIONS", "5"))
+
 # Role-specific system prompts
 from code.shukketsu.llm.prompts.editor import (  # noqa: E402
     EDITOR_SYSTEM_PROMPT as EDITOR_SYSTEM_PROMPT,
