@@ -74,6 +74,7 @@ class BaseAgent:
         *,
         on_status: StatusCallback | None = None,
         memory_context: str | None = None,
+        model_name: str | None = None,
     ) -> str:
         """Run the ReAct loop to answer a query.
 
@@ -81,6 +82,7 @@ class BaseAgent:
             query: The user's question.
             on_status: Optional async callback for progress updates.
             memory_context: Optional context from recalled session memories.
+            model_name: Optional model override for the ReAct loop LLM calls.
 
         Returns:
             The agent's final answer, or a graceful failure message.
@@ -89,11 +91,17 @@ class BaseAgent:
             LLMUnavailableError: If the LLM backend is unreachable.
             StructuredOutputError: If structured output validation fails.
         """
-        outcome = await self._run_loop(query, on_status=on_status, memory_context=memory_context)
+        outcome = await self._run_loop(query, on_status=on_status, memory_context=memory_context, model_name=model_name)
         return outcome.output
 
     @observe(as_type="agent")
-    async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> AgentResult:
+    async def execute(
+        self,
+        task: AgentTask,
+        *,
+        on_status: StatusCallback | None = None,
+        model_name: str | None = None,
+    ) -> AgentResult:
         """Execute a typed task and return a structured result.
 
         This is the task-based interface used by the multi-agent system.
@@ -106,6 +114,7 @@ class BaseAgent:
         Args:
             task: The task to execute.
             on_status: Optional async callback for progress updates.
+            model_name: Optional model override for the ReAct loop LLM calls.
 
         Returns:
             AgentResult with the output and execution status.
@@ -119,7 +128,9 @@ class BaseAgent:
             raise ValueError("Cannot execute() without a role. Use AgentFactory or set role in constructor.")
 
         memory_ctx = task.context.get("memory_context") if task.context else None
-        outcome = await self._run_loop(task.query, on_status=on_status, memory_context=memory_ctx)
+        outcome = await self._run_loop(
+            task.query, on_status=on_status, memory_context=memory_ctx, model_name=model_name
+        )
 
         trajectory = [
             ToolCallRecord(tool_name=entry["tool_name"], tool_input=entry["tool_input"]) for entry in outcome.scratchpad
@@ -139,6 +150,7 @@ class BaseAgent:
         *,
         on_status: StatusCallback | None = None,
         memory_context: str | None = None,
+        model_name: str | None = None,
     ) -> _RunOutcome:
         """The core ReAct loop. Shared by run() and execute().
 
@@ -156,6 +168,7 @@ class BaseAgent:
             step: AgentStep = await get_structured_output(
                 response_model=AgentStep,
                 messages=messages,
+                model=model_name,
             )
 
             if step.action == ActionType.FINAL_ANSWER:

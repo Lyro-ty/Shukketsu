@@ -410,6 +410,40 @@ class TestStatusCallbackEvents:
         assert dict_events[0]["agent"] == "researcher"
 
 
+class TestModelNameThreading:
+    """Tests for model_name parameter threading through run/execute/_run_loop."""
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_run_passes_model_name_to_loop(self, mock_llm: AsyncMock) -> None:
+        """run(model_name=...) passes model= to get_structured_output."""
+        mock_llm.return_value = _final_answer("Answer.")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()))
+        await agent.run("query", model_name="qwen2.5:7b")
+
+        call_kwargs = mock_llm.call_args.kwargs
+        assert call_kwargs["model"] == "qwen2.5:7b"
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_execute_passes_model_name_to_loop(self, mock_llm: AsyncMock) -> None:
+        """execute(model_name=...) passes model= to get_structured_output."""
+        mock_llm.return_value = _final_answer("Answer.")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER)
+        await agent.execute(AgentTask(query="q"), model_name="qwen2.5:7b")
+
+        call_kwargs = mock_llm.call_args.kwargs
+        assert call_kwargs["model"] == "qwen2.5:7b"
+
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_default_model_name_is_none(self, mock_llm: AsyncMock) -> None:
+        """Without model_name, get_structured_output receives model=None (defaults to 70B)."""
+        mock_llm.return_value = _final_answer("Answer.")
+        agent = BaseAgent(tool_registry=_registry(EchoTool()), role=AgentRole.RESEARCHER)
+        await agent.execute(AgentTask(query="q"))
+
+        call_kwargs = mock_llm.call_args.kwargs
+        assert call_kwargs["model"] is None
+
+
 class TestTokenEstimation:
     """Tests for _estimate_tokens helper."""
 

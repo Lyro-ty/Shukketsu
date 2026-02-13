@@ -88,6 +88,7 @@ class Orchestrator(BaseAgent):
         task: AgentTask,
         *,
         on_status: StatusCallback | None = None,
+        model_name: str | None = None,
     ) -> OrchestratorResult:
         """Execute a complex task by decomposing, dispatching, and synthesizing."""
         if self.role is None:

@@ -89,7 +89,13 @@ class Editor(BaseAgent):
         except AttributeError:
             return None
 
-    async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> EditResult | AgentResult:
+    async def execute(
+        self,
+        task: AgentTask,
+        *,
+        on_status: StatusCallback | None = None,
+        model_name: str | None = None,
+    ) -> EditResult | AgentResult:
         """Execute an edit task: verify claims in an article against the KB.
 
         Args:

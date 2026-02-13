@@ -445,6 +445,40 @@ class TestResearcherFactory:
         assert agent.max_iterations == config.RESEARCHER_MAX_ITERATIONS
 
 
+class TestResearcherModelName:
+    """Tests for model_name threading through Researcher.execute()."""
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_model_name_reaches_react_loop(self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock) -> None:
+        """model_name is passed to the ReAct loop's get_structured_output calls."""
+        mock_loop_llm.return_value = _final_answer("Answer.")
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        await researcher.execute(AgentTask(query="q"), model_name="qwen2.5:7b")
+
+        # ReAct loop call should have model="qwen2.5:7b"
+        call_kwargs = mock_loop_llm.call_args.kwargs
+        assert call_kwargs["model"] == "qwen2.5:7b"
+
+    @patch("code.shukketsu.agents.researcher.get_structured_output")
+    @patch("code.shukketsu.agents.base.get_structured_output")
+    async def test_model_name_reaches_structuring_pass(
+        self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
+    ) -> None:
+        """model_name is passed to the structuring pass's get_structured_output call."""
+        mock_loop_llm.return_value = _final_answer("Answer.")
+        mock_struct_llm.return_value = _mock_structured_findings()
+
+        researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
+        await researcher.execute(AgentTask(query="q"), model_name="qwen2.5:7b")
+
+        # Structuring call should have model="qwen2.5:7b"
+        call_kwargs = mock_struct_llm.call_args.kwargs
+        assert call_kwargs["model"] == "qwen2.5:7b"
+
+
 class TestReflection:
     """Tests for the reflection step in Researcher.execute()."""
 

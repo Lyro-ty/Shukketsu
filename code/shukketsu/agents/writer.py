@@ -75,12 +75,19 @@ class Writer(BaseAgent):
         )
         self._km = knowledge_manager
 
-    async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> WriteResult | AgentResult:
+    async def execute(
+        self,
+        task: AgentTask,
+        *,
+        on_status: StatusCallback | None = None,
+        model_name: str | None = None,
+    ) -> WriteResult | AgentResult:
         """Execute a write task: generate article from research findings.
 
         Args:
             task: Must be a WriteTask with ResearchResult.
             on_status: Optional async callback for progress updates.
+            model_name: Unused — Writer always uses the reasoning model.
 
         Returns:
             WriteResult on success, AgentResult with FAILED status on error.

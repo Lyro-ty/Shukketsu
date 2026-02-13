@@ -342,6 +342,57 @@ class TestComplexityRouting:
         researcher.execute.assert_not_called()
 
 
+class TestFastModelRouting:
+    """Tests for fast model tier routing in moderate vs complex queries."""
+
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_moderate_passes_fast_model(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+    ) -> None:
+        """MODERATE complexity passes config.FAST_MODEL to researcher.execute()."""
+        from code.shukketsu import config
+
+        mock_classify.return_value = _moderate_decision()
+        researcher, orchestrator = _mock_agents("Researcher answer")
+        mock_agents.return_value = (researcher, orchestrator)
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "What is the hit cap?"})
+            _drain_status(ws)
+
+        researcher.execute.assert_called_once()
+        call_kwargs = researcher.execute.call_args
+        assert call_kwargs.kwargs.get("model_name") == config.FAST_MODEL
+
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_complex_no_model_override(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+    ) -> None:
+        """COMPLEX complexity does not pass model_name to orchestrator.execute()."""
+        mock_classify.return_value = _complex_decision()
+        researcher, orchestrator = _mock_agents("Orchestrator answer")
+        mock_agents.return_value = (researcher, orchestrator)
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Write a full guide"})
+            _drain_status(ws)
+
+        orchestrator.execute.assert_called_once()
+        call_kwargs = orchestrator.execute.call_args
+        # No model_name kwarg should be passed (orchestrator always uses 70B)
+        assert "model_name" not in call_kwargs.kwargs
+
+
 class TestSendStatusFormat:
     """Tests for _send_status handling of str and dict messages."""
 

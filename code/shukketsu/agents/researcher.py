@@ -41,7 +41,9 @@ class Researcher(BaseAgent):
     """
 
     @observe(as_type="agent")
-    async def execute(self, task: AgentTask, *, on_status: StatusCallback | None = None) -> ResearchResult:
+    async def execute(
+        self, task: AgentTask, *, on_status: StatusCallback | None = None, model_name: str | None = None
+    ) -> ResearchResult:
         """Execute a research task and return structured findings.
 
         Runs the ReAct loop, then structures the output via a second
@@ -61,7 +63,7 @@ class Researcher(BaseAgent):
         if self.role is None:
             raise ValueError("Researcher requires a role. Use AgentFactory or set role in constructor.")
 
-        outcome = await self._run_loop(task.query, on_status=on_status)
+        outcome = await self._run_loop(task.query, on_status=on_status, model_name=model_name)
 
         trajectory = [ToolCallRecord(tool_name=e["tool_name"], tool_input=e["tool_input"]) for e in outcome.scratchpad]
 
@@ -86,6 +88,7 @@ class Researcher(BaseAgent):
                 query=task.query,
                 output=outcome.output,
                 scratchpad=outcome.scratchpad,
+                model_name=model_name,
             )
         except Exception as exc:
             logger.warning("Structuring pass failed, returning basic result: %s", exc)
@@ -145,11 +148,14 @@ class Researcher(BaseAgent):
         query: str,
         output: str,
         scratchpad: list[dict[str, Any]],
+        *,
+        model_name: str | None = None,
     ) -> StructuredFindings:
-        """Run the Llama 70B structuring pass.
+        """Run the structuring pass to convert free-text into typed findings.
 
         Takes the agent's free-text output and tool observations,
         returns structured findings with evidence and confidence.
+        Uses the same model as the ReAct loop when a model override is set.
         """
         observations_text = self._format_scratchpad(scratchpad)
 
@@ -166,6 +172,7 @@ class Researcher(BaseAgent):
         result: StructuredFindings = await get_structured_output(
             response_model=StructuredFindings,
             messages=messages,
+            model=model_name,
         )
         return result
 

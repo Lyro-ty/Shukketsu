@@ -254,6 +254,7 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                     context={"memory_context": memory_context} if memory_context else {},
                 ),
                 on_status=_send_status,
+                model_name=config.FAST_MODEL,
             )
             answer = result.output
             trajectory = [{"tool_name": t.tool_name, "tool_input": t.tool_input} for t in result.trajectory]

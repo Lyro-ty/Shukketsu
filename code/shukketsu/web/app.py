@@ -32,7 +32,7 @@ async def _warmup_ollama() -> None:
     request with keep_alive=24h on startup, we prevent Ollama from
     evicting it after the default 5-minute idle timeout.
     """
-    models = [config.REASONING_MODEL, config.ROUTER_MODEL, config.EMBEDDING_MODEL]
+    models = [config.REASONING_MODEL, config.FAST_MODEL, config.ROUTER_MODEL, config.EMBEDDING_MODEL]
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout=300.0, connect=10.0)) as client:
         for model in models:
             try:

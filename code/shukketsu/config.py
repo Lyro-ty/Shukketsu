@@ -12,6 +12,7 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # Model names (all served by Ollama)
 REASONING_MODEL = os.getenv("REASONING_MODEL", "llama3.3:70b")
 ROUTER_MODEL = "qwen3-router"  # Custom Modelfile: qwen3:4b with thinking disabled
+FAST_MODEL = os.getenv("FAST_MODEL", "qwen2.5:7b")  # 7B model for moderate queries
 EMBEDDING_MODEL = "nomic-embed-text"
 
 # API credentials
@@ -104,7 +105,7 @@ LOOP_MAX_CONSECUTIVE_SAME = 3
 LOOP_MAX_TOTAL_REPEATS = 3
 
 # Phase 2 agent limits
-RESEARCHER_MAX_ITERATIONS = 10  # Multi-step research needs more room
+RESEARCHER_MAX_ITERATIONS = 6  # Balanced: enough depth without excessive latency on GB10
 RESEARCHER_MAX_TOKENS = 150_000  # Research produces more context
 REFLECTION_ENABLED = os.getenv("REFLECTION_ENABLED", "true").lower() == "true"
 REFLECTION_TEMPERATURE = float(os.getenv("REFLECTION_TEMPERATURE", "0.1"))
