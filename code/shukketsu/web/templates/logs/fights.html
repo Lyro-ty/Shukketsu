@@ -1,0 +1,61 @@
+<div class="bg-shadow rounded-lg border border-white/10 p-6">
+    <h2 class="text-lg font-semibold text-parchment mb-4">
+        Parsed Fights for {{ character_name }}
+        <span class="text-parchment-dim text-sm font-normal ml-2">({{ fights | length }} encounter{{ "s" if fights | length != 1 }})</span>
+    </h2>
+
+    {% for fight in fights %}
+    <div class="bg-shadow-deep rounded-lg p-4 mb-4{% if not loop.last %} border-b border-white/5{% endif %}">
+        <div class="grid grid-cols-3 gap-4 mb-3">
+            <div class="text-center">
+                <div class="text-2xl font-bold text-wow-gold">{{ "%.1f"|format(fight.active_dps) }}</div>
+                <div class="text-parchment-dim text-xs mt-1">Active DPS</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-parchment">{{ "{:,}".format(fight.total_damage) }}</div>
+                <div class="text-parchment-dim text-xs mt-1">Total Damage</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-parchment">{{ "%.1f"|format(fight.fight_duration_ms / 1000) }}s</div>
+                <div class="text-parchment-dim text-xs mt-1">Duration</div>
+            </div>
+        </div>
+
+        {% if fight.ability_breakdown %}
+        <h3 class="text-sm font-semibold text-parchment-dim mt-3 mb-2">Ability Breakdown</h3>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-white/10">
+                    <th class="text-left py-1 text-parchment-dim">Ability</th>
+                    <th class="text-right py-1 text-parchment-dim">Damage</th>
+                    <th class="text-right py-1 text-parchment-dim">%</th>
+                    <th class="text-right py-1 text-parchment-dim">Casts</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for name, metrics in fight.ability_breakdown.items() %}
+                <tr class="border-b border-white/5">
+                    <td class="py-1 text-parchment">{{ name | replace('_', ' ') | title }}</td>
+                    <td class="py-1 text-right text-parchment">{{ "{:,}".format(metrics.damage_total) }}</td>
+                    <td class="py-1 text-right text-parchment">{{ "%.1f"|format(metrics.damage_pct) }}%</td>
+                    <td class="py-1 text-right text-parchment-dim">{{ metrics.cast_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if fight.buff_uptimes %}
+        <h3 class="text-sm font-semibold text-parchment-dim mt-3 mb-2">Buff Uptimes</h3>
+        <div class="grid grid-cols-2 gap-2">
+            {% for name, uptime in fight.buff_uptimes.items() %}
+            <div class="flex justify-between text-sm">
+                <span class="text-parchment">{{ name | replace('_', ' ') | title }}</span>
+                <span class="text-parchment-dim">{{ "%.1f"|format(uptime * 100) }}%</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>

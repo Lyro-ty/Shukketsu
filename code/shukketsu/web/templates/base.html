@@ -51,6 +51,10 @@
                    class="text-sm transition-colors {% if request.url.path.startswith('/sim') %}text-wow-gold{% else %}text-parchment-dim hover:text-parchment{% endif %}">
                     Sim
                 </a>
+                <a href="/logs/"
+                   class="text-sm transition-colors {% if request.url.path.startswith('/logs') %}text-wow-gold{% else %}text-parchment-dim hover:text-parchment{% endif %}">
+                    Logs
+                </a>
                 <a href="/evals/"
                    class="text-sm transition-colors {% if request.url.path.startswith('/evals') %}text-wow-gold{% else %}text-parchment-dim hover:text-parchment{% endif %}">
                     Evals

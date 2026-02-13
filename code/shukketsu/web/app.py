@@ -18,6 +18,7 @@ from code.shukketsu.web.routers.backup import router as backup_router
 from code.shukketsu.web.routers.chat import router as chat_router
 from code.shukketsu.web.routers.evals import router as evals_router
 from code.shukketsu.web.routers.freshness import router as freshness_router
+from code.shukketsu.web.routers.logs import router as logs_router
 from code.shukketsu.web.routers.sim import router as sim_router
 from code.shukketsu.web.routers.wiki import router as wiki_router
 
@@ -104,6 +105,7 @@ app.include_router(backup_router)
 app.include_router(chat_router)
 app.include_router(evals_router)
 app.include_router(freshness_router)
+app.include_router(logs_router)
 app.include_router(sim_router)
 app.include_router(wiki_router)
 
