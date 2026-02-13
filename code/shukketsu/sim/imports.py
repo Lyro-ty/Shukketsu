@@ -107,6 +107,39 @@ _RACE_MAP: dict[str, Race] = {
     "troll": Race.TROLL,
 }
 
+# WoWSims race enum -> Race (Rogue-eligible races)
+_WOWSIMS_RACE_MAP: dict[int, Race] = {
+    1: Race.HUMAN,
+    2: Race.ORC,
+    3: Race.DWARF,
+    4: Race.NIGHT_ELF,
+    7: Race.GNOME,
+    8: Race.TROLL,
+    10: Race.BLOOD_ELF,
+    11: Race.UNDEAD,
+}
+
+# WoWSims ItemSlot enum -> GearSlot (0-indexed)
+_WOWSIMS_SLOT_MAP: dict[int, GearSlot] = {
+    0: GearSlot.HEAD,
+    1: GearSlot.NECK,
+    2: GearSlot.SHOULDER,
+    3: GearSlot.BACK,
+    4: GearSlot.CHEST,
+    5: GearSlot.WRIST,
+    6: GearSlot.HANDS,
+    7: GearSlot.WAIST,
+    8: GearSlot.LEGS,
+    9: GearSlot.FEET,
+    10: GearSlot.RING_1,
+    11: GearSlot.RING_2,
+    12: GearSlot.TRINKET_1,
+    13: GearSlot.TRINKET_2,
+    14: GearSlot.MAIN_HAND,
+    15: GearSlot.OFF_HAND,
+    16: GearSlot.RANGED,
+}
+
 _SPEC_MAP: dict[str, RogueSpec] = {
     "combat": RogueSpec.COMBAT_SWORDS,
     "combat_swords": RogueSpec.COMBAT_SWORDS,
@@ -125,8 +158,9 @@ def detect_format(raw: str) -> ImportFormat:
     """Auto-detect import format from raw text.
 
     Key=value pattern in first non-empty line -> SIMC (e.g. ``rogue="Name"``).
-    Starts with '{' or '[' -> SEVENTYUPGRADES (JSON).
-    Otherwise -> WOWSIMS (Base64).
+    JSON with ``"player"`` key -> WOWSIMS.
+    Other JSON (starts with '{' or '[') -> SEVENTYUPGRADES.
+    Otherwise -> WOWSIMS (Base64 fallback).
     """
     stripped = raw.strip()
     if not stripped:
@@ -135,6 +169,13 @@ def detect_format(raw: str) -> ImportFormat:
     first_line = stripped.split("\n")[0].strip()
 
     if first_line.startswith(("{", "[")):
+        # Distinguish WoWSims JSON (has "player" key) from SeventyUpgrades
+        try:
+            data = json.loads(stripped)
+            if isinstance(data, dict) and "player" in data:
+                return ImportFormat.WOWSIMS
+        except json.JSONDecodeError:
+            pass
         return ImportFormat.SEVENTYUPGRADES
     # SimC lines have word=value pattern where '=' is followed by content
     # (Base64 only has '=' as trailing padding)
@@ -240,15 +281,94 @@ def parse_seventyupgrades(raw: str) -> CharacterImport:
     return CharacterImport(spec=spec, race=race, talents=talents, gear=gear)
 
 
-def parse_wowsims(raw: str) -> CharacterImport:
-    """Parse WoWSims Base64 URL export.
+def _detect_spec_from_talents(talents_str: str) -> RogueSpec:
+    """Detect Rogue spec from WoWSims talent string.
 
-    This format uses protobuf encoding and is not yet implemented.
+    WoWSims talent strings are formatted as "assassination-combat-subtlety"
+    with hyphen separators (unlike our slash separators).
+    """
+    trees = talents_str.split("-")
+    if len(trees) < 2:
+        return RogueSpec.COMBAT_SWORDS
+
+    # Count points in each tree
+    assassination = sum(int(c) for c in trees[0] if c.isdigit())
+    combat = sum(int(c) for c in trees[1] if c.isdigit())
+
+    if assassination > combat:
+        return RogueSpec.ASSASSINATION_MUTILATE
+    return RogueSpec.COMBAT_SWORDS
+
+
+def parse_wowsims(raw: str | dict) -> CharacterImport:
+    """Parse WoWSims export JSON into CharacterImport.
+
+    Accepts either a raw JSON string or an already-parsed dict.
+
+    Args:
+        raw: Raw JSON string or parsed dict from WoWSims export.
+
+    Returns:
+        CharacterImport with gear, talents, race, and spec.
 
     Raises:
-        InvalidSimConfigError: Always, as this format is not yet supported.
+        InvalidSimConfigError: If required fields are missing or JSON is malformed.
     """
-    raise InvalidSimConfigError("WoWSims import not yet supported")
+    if isinstance(raw, dict):
+        data = raw
+    else:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise InvalidSimConfigError(f"Invalid JSON in WoWSims import: {e}") from e
+
+    player = data.get("player")
+    if not player:
+        raise InvalidSimConfigError("WoWSims export missing 'player' key")
+
+    # Race
+    race_id = player.get("race", 1)
+    race = _WOWSIMS_RACE_MAP.get(race_id, Race.HUMAN)
+
+    # Talents
+    talents_str = player.get("talentsString", "")
+    spec = _detect_spec_from_talents(talents_str)
+    # Convert WoWSims hyphen format to our slash format
+    talents = talents_str.replace("-", "/")
+
+    # Equipment
+    equipment = player.get("equipment", {})
+    items = equipment.get("items", [])
+    gear: dict[GearSlot, int] = {}
+    enchants: dict[GearSlot, int] = {}
+    gems: dict[GearSlot, list[int]] = {}
+
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id", 0)
+        if item_id == 0:
+            continue
+        slot = _WOWSIMS_SLOT_MAP.get(idx)
+        if slot is not None:
+            gear[slot] = item_id
+            # Extract enchant if present
+            enchant_id = item.get("enchant", 0)
+            if enchant_id:
+                enchants[slot] = enchant_id
+            # Extract gems if present
+            item_gems = item.get("gems", [])
+            if item_gems:
+                gems[slot] = item_gems
+
+    return CharacterImport(
+        spec=spec,
+        race=race,
+        talents=talents,
+        gear=gear,
+        enchants=enchants,
+        gems=gems,
+    )
 
 
 def parse_import(raw: str) -> CharacterImport:
