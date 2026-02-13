@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), and 3 (Memory, Reflection, Performance) are complete. Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, GB10 timeout tuning, and the **WCL API integration** (168 tests: OAuth2 auth, rate-limit-aware GraphQL client, Pydantic models, DB schema v5, ingest orchestrator, CLI). All other modules contain real implementation code — see Project Layout for the full listing.
+Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), 3 (Memory, Reflection, Performance), and 4 (DPS Simulation Engine) are complete. Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, GB10 timeout tuning, and the **WCL API integration** (168 tests: OAuth2 auth, rate-limit-aware GraphQL client, Pydantic models, DB schema v5, ingest orchestrator, CLI). All other modules contain real implementation code — see Project Layout for the full listing.
 
 ## Development Workflow
 
@@ -77,7 +77,7 @@ Plain Python classes with ReAct loops, no external framework (LangChain, CrewAI,
 - **Researcher** — information gathering (hybrid search, graph search, web search); promoted from General Agent
 - **Writer** — wiki article creation from research findings
 - **Editor** — fact-checking articles against knowledge base and graph
-- **Analyst** — deferred to Phase 4 (requires simulation engine)
+- **Analyst** — DPS simulation analysis (sim_run, sim_compare, sim_optimize tools)
 
 The Orchestrator routes queries through Qwen 4B first (trivial → answered directly, moderate → Researcher solo via 7B, complex → multi-agent plan via 70B). Phase 3 added cross-session memory (recall/extraction), reflection passes, context compaction, parallel subtask execution, and evidence-based trust scoring.
 
@@ -112,15 +112,15 @@ The `apis/wcl/` module provides a rate-limit-aware GraphQL client for the WCL v2
 code/shukketsu/          # Main Python package (import as code.shukketsu)
   config.py              # All env vars, model names, paths, agent defaults
   routing/               # Qwen 4B query classification (models.py, router.py)
-  agents/                # BaseAgent, Orchestrator, Researcher, Writer, Editor, guardrails
+  agents/                # BaseAgent, Orchestrator, Researcher, Writer, Editor, Analyst, guardrails
   llm/                   # Ollama clients, Instructor integration, prompts/
-  tools/                 # Agent tools: knowledge/ (search, graph_search), research/ (web_search, web_ingest)
+  tools/                 # Agent tools: knowledge/ (search, graph_search), research/ (web_search, web_ingest), analysis/ (sim_run, sim_compare, sim_optimize)
   rag/                   # Agentic RAG: entities, graph (GraphStore), fusion, search, reranker
   ingest/                # pipeline.py (chunk+embed+extract), batch.py (concurrent/browser ingest), manifest.py
   scraping/              # Rate limiter, robots.txt compliance, httpx fetcher
   memory/                # Cross-session memory: models.py, manager.py (recall/extract/strategy)
   apis/wcl/              # Warcraft Logs v2 API: auth, client, queries, models, ingest, schema
-  sim/                   # TBC Rogue DPS simulation engine — STUB (Phase 4)
+  sim/                   # TBC Rogue DPS simulation engine: models, mechanics, abilities, talents, items, buffs, imports, rotation, combat, runner, validation
   db/                    # SQLite connection factory, schema.sql v5 (WAL, sqlite-vec, FTS5, graph, memory, WCL)
   web/                   # FastAPI app, Jinja2 templates, HTMX, wiki_render.py
   trust/                 # Evidence-based source trust scoring with trust_events
@@ -216,6 +216,7 @@ Phases 1-3 are complete. Post-Phase 3 work: batch ingest engine, 7B model tier, 
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
 | `2026-02-13-wcl-api-integration.md` | WCL API design doc (OAuth2, GraphQL, endpoints, schema, ingest modes) |
 | `2026-02-13-wcl-api-implementation.md` | WCL API implementation plan (10 tasks, 168 tests, complete) |
+| `2026-02-13-phase4-implementation.md` | Phase 4 implementation plan (12 steps, 421 sim tests, complete) |
 
 ### Phase 1: Agent Core — COMPLETE
 
@@ -249,8 +250,24 @@ All 9 steps done. 778 tests at completion, now 813 with post-phase additions (ba
 - Source manifest at `data/sources/manifest.yaml` with 20+ TBC Rogue content URLs
 - **WCL API integration** (`apis/wcl/`): OAuth2 auth, rate-limit-aware GraphQL client, 20 Pydantic models, DB schema v5 (10 tables), 3 ingest modes (rankings/deep-dive/character sync), CLI. 168 tests. Tracks Lyroo-Nightslayer (US) on fresh endpoint.
 
+### Phase 4: DPS Simulation Engine (12 steps) — COMPLETE
+
+Full discrete-event TBC 2.4.3 Rogue DPS simulation engine. 421 sim tests. 12 steps in 6 batches:
+
+1. ~~Foundation Models~~ — COMPLETE (data models, config, errors: RogueSpec, GearSlot, SimConfig, BossConfig, PoisonConfig, SimResult)
+2. ~~Combat Mechanics~~ — COMPLETE (hit/crit/glancing tables, armor mitigation, dual-wield miss penalty, AP→DPS conversion)
+3. ~~Abilities Database~~ — COMPLETE (18 abilities + 3 poisons, energy/CP costs, damage formulas, cooldowns)
+4. ~~Talent System~~ — COMPLETE (33 DPS-relevant talents, TalentModifiers frozen model, talent string parsing)
+5. ~~Item Database~~ — COMPLETE (50 curated TBC items across all phases, stat extraction, slot filtering)
+6. ~~Buffs & Imports~~ — COMPLETE (buff system with 5 presets, SimC/70U/WoWSims import parsing)
+7. ~~Rotation Engine~~ — COMPLETE (priority-based state machine, 4 specs, off-GCD CDs, energy pooling, SND refresh)
+8. ~~Combat Event Loop~~ — COMPLETE (discrete-event scheduler, auto-attack, energy regen, buff tracking, ability breakdown)
+9. ~~Runner + Public API~~ — COMPLETE (SimRunner: sim_run, sim_compare, sim_optimize, stat_weights, swap_item)
+10. ~~Agent Tools + Analyst~~ — COMPLETE (3 sim tools, Analyst agent, factory registration, task protocol)
+11. ~~Sim Web UI~~ — COMPLETE (FastAPI routes, Jinja2 templates, Chart.js, HTMX partials, gear table, stat weights)
+12. ~~Validation Profiles~~ — COMPLETE (9 canonical profiles, verified item IDs, DPS range validation)
+
 ### Future Phases
 
-- **Phase 4**: DPS simulation engine (TBC combat mechanics, validation vs WoWSims)
 - **Phase 5**: Evaluation + observability polish (Ragas, trajectory eval, feedback)
 - **Phase 6**: UI polish + growth (talent trees, sim builder, charts, PvP)
