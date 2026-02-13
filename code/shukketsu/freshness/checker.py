@@ -164,7 +164,8 @@ async def check_source_freshness(
             hash_input = extracted if extracted and extracted.strip() else get_resp.text
             new_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
-    except (httpx.HTTPError, OSError) as exc:
+    except Exception as exc:
+        logger.warning("Freshness check failed for source %d (%s): %s", source.id, source.url, exc)
         return FreshnessResult(
             source_id=source.id,
             url=source.url,
@@ -221,6 +222,19 @@ async def run_freshness_sweep(
     stale = find_stale_sources(conn)
     results = []
     for source in stale:
-        result = await check_source_freshness(source, conn, timeout=timeout)
+        try:
+            result = await check_source_freshness(source, conn, timeout=timeout)
+        except Exception as exc:
+            logger.warning("Freshness sweep: source %d (%s) crashed: %s", source.id, source.url, exc)
+            result = FreshnessResult(
+                source_id=source.id,
+                url=source.url,
+                changed=False,
+                old_hash=source.content_hash,
+                new_hash=None,
+                checked_at=datetime.now(UTC).isoformat(),
+                head_only=False,
+                error=str(exc),
+            )
         results.append(result)
     return results

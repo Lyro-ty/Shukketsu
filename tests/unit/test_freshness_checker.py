@@ -325,3 +325,73 @@ class TestRunFreshnessSweep:
         """Sweep with no stale sources returns empty list."""
         results = await run_freshness_sweep(test_db)
         assert results == []
+
+    async def test_sweep_continues_after_source_crash(self, test_db: sqlite3.Connection) -> None:
+        """If one source crashes, sweep still processes the remaining sources."""
+        old_time = (datetime.now(UTC) - timedelta(hours=200)).isoformat()
+        test_db.execute(
+            "INSERT INTO sources (url, title, content_hash, check_interval_hours, last_checked) VALUES (?, ?, ?, ?, ?)",
+            ("https://example.com/a", "A", "hash_a", 168, old_time),
+        )
+        test_db.execute(
+            "INSERT INTO sources (url, title, content_hash, check_interval_hours, last_checked) VALUES (?, ?, ?, ?, ?)",
+            ("https://example.com/b", "B", "hash_b", 168, old_time),
+        )
+        test_db.commit()
+
+        call_count = 0
+
+        async def _mock_check(source, conn, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("trafilatura lxml crash")
+            return FreshnessResult(
+                source_id=source.id,
+                url=source.url,
+                changed=False,
+                old_hash=source.content_hash,
+                new_hash=source.content_hash,
+                checked_at="2026-02-13T00:00:00",
+                head_only=False,
+            )
+
+        with patch("code.shukketsu.freshness.checker.check_source_freshness", side_effect=_mock_check):
+            results = await run_freshness_sweep(test_db)
+
+        assert len(results) == 2
+        assert results[0].error is not None
+        assert "lxml crash" in results[0].error
+        assert results[1].error is None
+
+
+class TestCheckSourceFreshnessExceptionHandling:
+    async def test_trafilatura_crash_returns_error_result(self, test_db: sqlite3.Connection) -> None:
+        """trafilatura exceptions should be caught and return an error FreshnessResult."""
+        old_time = (datetime.now(UTC) - timedelta(hours=200)).isoformat()
+        test_db.execute(
+            "INSERT INTO sources (url, title, content_hash, check_interval_hours, last_checked) VALUES (?, ?, ?, ?, ?)",
+            ("https://example.com/bad", "Bad Page", "oldhash", 168, old_time),
+        )
+        test_db.commit()
+        source = _make_stale(url="https://example.com/bad")
+
+        head_resp = httpx.Response(200, headers={})
+        get_resp = httpx.Response(200, text="<html>bad html</html>")
+
+        with (
+            patch("code.shukketsu.freshness.checker.httpx.AsyncClient") as mock_client_cls,
+            patch("code.shukketsu.freshness.checker.trafilatura.extract", side_effect=ValueError("lxml parse error")),
+        ):
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.head = AsyncMock(return_value=head_resp)
+            mock_client.get = AsyncMock(return_value=get_resp)
+            mock_client_cls.return_value = mock_client
+
+            result = await check_source_freshness(source, test_db)
+
+        assert result.error is not None
+        assert "lxml parse error" in result.error
+        assert not result.changed
