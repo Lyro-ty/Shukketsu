@@ -86,6 +86,8 @@ def init_db(conn: sqlite3.Connection) -> None:
                 _migrate_v3_to_v4(conn)
             if version < 5:
                 _migrate_v4_to_v5(conn)
+            if version < 6:
+                _migrate_v5_to_v6(conn)
             return
     except sqlite3.OperationalError:
         pass  # Table doesn't exist yet — need to initialize
@@ -96,7 +98,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
     if version < 5:
         _migrate_v4_to_v5(conn)
-    logger.info("Database schema initialized (version 5)")
+    if version < 6:
+        _migrate_v5_to_v6(conn)
+    logger.info("Database schema initialized (version 6)")
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
@@ -200,6 +204,17 @@ def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO schema_version (version) VALUES (5)")
     conn.commit()
     logger.info("Database migrated from v4 to v5 (WCL API tables)")
+
+
+def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
+    """Migrate v5 to v6: add player_name to wcl_combatants."""
+    try:
+        conn.execute("ALTER TABLE wcl_combatants ADD COLUMN player_name TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists (idempotent)
+    conn.execute("INSERT INTO schema_version (version) VALUES (6)")
+    conn.commit()
+    logger.info("Database migrated from v5 to v6 (wcl_combatants.player_name)")
 
 
 def _configure(conn: sqlite3.Connection) -> None:

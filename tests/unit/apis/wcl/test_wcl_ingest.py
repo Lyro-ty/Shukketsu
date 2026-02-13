@@ -410,6 +410,24 @@ class TestReportDiver:
         assert rows[0]["rank_percent"] == 95
         assert rows[0]["server_name"] == "Nightslayer"
 
+    async def test_deep_dive_stores_combatant_player_name(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
+        """CombatantInfo events include player_name from actor map."""
+        mock_client.query.side_effect = [  # type: ignore[union-attr]
+            _fights_response(),
+            _combatant_info_response(),
+            _damage_table_response(),
+            _buff_table_response(),
+            _cast_table_response(),
+            _report_rankings_response(),
+        ]
+
+        diver = ReportDiver(mock_client, db)
+        await diver.dive("ABC123")
+
+        row = db.execute("SELECT player_name FROM wcl_combatants WHERE source_id = 1").fetchone()
+        assert row is not None
+        assert row["player_name"] == "Lyroo"
+
     async def test_deep_dive_skips_archived(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
         """Archived reports are marked in DB and the dive is skipped."""
         mock_client.query.side_effect = WCLQueryError(  # type: ignore[union-attr]
@@ -497,3 +515,270 @@ class TestCharacterSyncer:
         assert changes[0]["to_report"] == "RPT_B"
         assert changes[0]["old_gear"][0]["id"] == 28830
         assert changes[0]["new_gear"][0]["id"] == 29383
+
+
+# ---------------------------------------------------------------------------
+# Per-fight data storage tests
+# ---------------------------------------------------------------------------
+
+
+class TestPerFightStorage:
+    """Tests for per-fight data storage (not aggregated)."""
+
+    async def test_damage_stored_per_fight(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
+        """Each fight_id gets its own damage rows, not aggregated under fight_ids[0]."""
+        mock_client.query = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[
+                # Fight 1 damage
+                {
+                    "reportData": {
+                        "report": {
+                            "table": {
+                                "data": {
+                                    "entries": [
+                                        {
+                                            "name": "Lyroo",
+                                            "type": "Rogue",
+                                            "total": 50000,
+                                            "activeTime": 60000,
+                                            "abilities": [{"name": "Sinister Strike", "total": 30000}],
+                                            "targets": [],
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                # Fight 2 damage
+                {
+                    "reportData": {
+                        "report": {
+                            "table": {
+                                "data": {
+                                    "entries": [
+                                        {
+                                            "name": "Lyroo",
+                                            "type": "Rogue",
+                                            "total": 80000,
+                                            "activeTime": 90000,
+                                            "abilities": [{"name": "Sinister Strike", "total": 45000}],
+                                            "targets": [],
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+            ]
+        )
+        diver = ReportDiver(mock_client, db)
+        diver._store_report("ABC123", "fresh")
+        for fid, dur in [(1, 60000), (2, 90000)]:
+            db.execute(
+                """INSERT OR REPLACE INTO wcl_fights
+                   (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms)
+                   VALUES (?, ?, 100, 'Boss1', 1, ?)""",
+                ("ABC123", fid, dur),
+            )
+
+        await diver._fetch_damage("ABC123", [1, 2], "fresh")
+
+        rows = db.execute(
+            "SELECT fight_id, total_damage FROM wcl_damage WHERE report_code = ? ORDER BY fight_id",
+            ("ABC123",),
+        ).fetchall()
+        assert len(rows) == 2
+        assert dict(rows[0]) == {"fight_id": 1, "total_damage": 50000}
+        assert dict(rows[1]) == {"fight_id": 2, "total_damage": 80000}
+
+    async def test_buffs_stored_per_fight(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
+        """Each fight_id gets its own buff rows."""
+        mock_client.query = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[
+                {
+                    "reportData": {
+                        "report": {
+                            "table": {
+                                "data": {
+                                    "auras": [
+                                        {
+                                            "name": "Slice and Dice",
+                                            "guid": 6774,
+                                            "totalUptime": 55000,
+                                            "totalUses": 3,
+                                            "bands": [],
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "reportData": {
+                        "report": {
+                            "table": {
+                                "data": {
+                                    "auras": [
+                                        {
+                                            "name": "Slice and Dice",
+                                            "guid": 6774,
+                                            "totalUptime": 80000,
+                                            "totalUses": 5,
+                                            "bands": [],
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+            ]
+        )
+        diver = ReportDiver(mock_client, db)
+        diver._store_report("ABC123", "fresh")
+        for fid, dur in [(1, 60000), (2, 90000)]:
+            db.execute(
+                """INSERT OR REPLACE INTO wcl_fights
+                   (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms)
+                   VALUES (?, ?, 100, 'Boss1', 1, ?)""",
+                ("ABC123", fid, dur),
+            )
+
+        await diver._fetch_buffs("ABC123", [1, 2], "fresh")
+
+        rows = db.execute(
+            "SELECT fight_id, total_uptime_ms FROM wcl_buffs WHERE report_code = ? ORDER BY fight_id",
+            ("ABC123",),
+        ).fetchall()
+        assert len(rows) == 2
+        assert dict(rows[0]) == {"fight_id": 1, "total_uptime_ms": 55000}
+        assert dict(rows[1]) == {"fight_id": 2, "total_uptime_ms": 80000}
+
+    async def test_casts_stored_per_fight(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
+        """Each fight_id gets its own cast rows."""
+        mock_client.query = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[
+                {
+                    "reportData": {
+                        "report": {
+                            "table": {
+                                "data": {
+                                    "entries": [
+                                        {
+                                            "name": "Lyroo",
+                                            "abilities": [{"name": "Sinister Strike", "total": 40}],
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "reportData": {
+                        "report": {
+                            "table": {
+                                "data": {
+                                    "entries": [
+                                        {
+                                            "name": "Lyroo",
+                                            "abilities": [{"name": "Sinister Strike", "total": 60}],
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+            ]
+        )
+        diver = ReportDiver(mock_client, db)
+        diver._store_report("ABC123", "fresh")
+        for fid, dur in [(1, 60000), (2, 90000)]:
+            db.execute(
+                """INSERT OR REPLACE INTO wcl_fights
+                   (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms)
+                   VALUES (?, ?, 100, 'Boss1', 1, ?)""",
+                ("ABC123", fid, dur),
+            )
+
+        await diver._fetch_casts("ABC123", [1, 2], "fresh")
+
+        rows = db.execute(
+            "SELECT fight_id, cast_count FROM wcl_casts WHERE report_code = ? AND player_name = ? ORDER BY fight_id",
+            ("ABC123", "Lyroo"),
+        ).fetchall()
+        assert len(rows) == 2
+        assert dict(rows[0]) == {"fight_id": 1, "cast_count": 40}
+        assert dict(rows[1]) == {"fight_id": 2, "cast_count": 60}
+
+    async def test_actor_map_stored_from_fights(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
+        """_fetch_fights populates _actor_map from masterData.actors."""
+        mock_client.query = AsyncMock(  # type: ignore[method-assign]
+            return_value={
+                "reportData": {
+                    "report": {
+                        "fights": [
+                            {"id": 5, "encounterID": 652, "name": "Gruul", "kill": True, "duration": 200000},
+                        ],
+                        "masterData": {
+                            "actors": [
+                                {"id": 1, "name": "Lyroo", "type": "Player"},
+                                {"id": 2, "name": "Gruul", "type": "NPC"},
+                            ]
+                        },
+                    }
+                },
+            }
+        )
+        diver = ReportDiver(mock_client, db)
+        diver._store_report("ABC123", "fresh")
+
+        await diver._fetch_fights("ABC123", "fresh")
+
+        assert diver._actor_map == {1: "Lyroo", 2: "Gruul"}
+
+    async def test_combatant_player_name_stored(self, db: sqlite3.Connection, mock_client: WCLClient) -> None:
+        """wcl_combatants stores player_name from _actor_map."""
+        mock_client.query = AsyncMock(  # type: ignore[method-assign]
+            return_value={
+                "reportData": {
+                    "report": {
+                        "events": {
+                            "data": [
+                                {
+                                    "sourceID": 5,
+                                    "specID": 260,
+                                    "fight": 1,
+                                    "strength": 100,
+                                    "agility": 500,
+                                    "gear": [],
+                                    "talents": [],
+                                    "auras": [],
+                                }
+                            ],
+                        },
+                    },
+                },
+            }
+        )
+        diver = ReportDiver(mock_client, db)
+        diver._actor_map = {5: "Lyroo"}
+        diver._store_report("ABC123", "fresh")
+        db.execute(
+            """INSERT OR REPLACE INTO wcl_fights
+               (report_code, fight_id, encounter_id, encounter_name, kill, duration_ms)
+               VALUES ('ABC123', 1, 100, 'Boss1', 1, 60000)""",
+        )
+
+        await diver._fetch_combatant_info("ABC123", [1], "fresh")
+
+        row = db.execute(
+            "SELECT player_name FROM wcl_combatants WHERE report_code = ? AND source_id = ?",
+            ("ABC123", 5),
+        ).fetchone()
+        assert row is not None
+        assert row["player_name"] == "Lyroo"

@@ -148,10 +148,10 @@ class TestInitDb:
         for name in ("entity_types", "entities", "relationships"):
             assert name in tables, f"Missing table: {name}"
 
-    def test_schema_version_is_5(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 5 after fresh initialization."""
+    def test_schema_version_is_6(self, db: sqlite3.Connection) -> None:
+        """Schema version should be 6 after fresh initialization."""
         version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
 
     def test_entity_type_unique_name(self, db: sqlite3.Connection) -> None:
         """entity_types.name should enforce uniqueness."""

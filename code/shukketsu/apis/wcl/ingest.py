@@ -105,6 +105,7 @@ class ReportDiver:
     def __init__(self, client: WCLClient, conn: sqlite3.Connection) -> None:
         self._client = client
         self._conn = conn
+        self._actor_map: dict[int, str] = {}
 
     async def dive(
         self,
@@ -177,6 +178,10 @@ class ReportDiver:
                 ),
             )
 
+        # Build actor map for player_name resolution in _fetch_combatant_info
+        actors = report.get("masterData", {}).get("actors", [])
+        self._actor_map = {a["id"]: a["name"] for a in actors if a.get("id") and a.get("name")}
+
         return fight_ids
 
     def _store_report(self, code: str, endpoint: str) -> None:
@@ -199,21 +204,23 @@ class ReportDiver:
 
             # Events may include a fight field; fall back to first fight_id
             fight_id = evt.get("fight", fight_ids[0] if fight_ids else 0)
+            player_name = self._actor_map.get(evt.get("sourceID", 0), "")
 
             self._conn.execute(
                 """INSERT OR REPLACE INTO wcl_combatants
-                   (report_code, fight_id, source_id, spec_id, faction,
+                   (report_code, fight_id, source_id, player_name, spec_id, faction,
                     strength, agility, stamina, intellect, spirit,
                     crit_melee, crit_ranged, crit_spell,
                     haste_melee, haste_ranged, haste_spell,
                     hit_melee, hit_ranged, hit_spell,
                     expertise, dodge, parry, block, armor,
                     gear_json, talents_json, auras_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     code,
                     fight_id,
                     evt.get("sourceID", 0),
+                    player_name,
                     evt.get("specID"),
                     evt.get("faction"),
                     evt.get("strength"),
@@ -242,75 +249,78 @@ class ReportDiver:
             )
 
     async def _fetch_damage(self, code: str, fight_ids: list[int], endpoint: str) -> None:
-        """Fetch and store damage table."""
-        query, variables = build_damage_table_query(code, fight_ids)
-        data = await self._client.query(query, variables, endpoint=endpoint)
-        table = data.get("reportData", {}).get("report", {}).get("table", {})
-        entries = table.get("data", {}).get("entries", [])
+        """Fetch and store damage table per fight."""
+        for fid in fight_ids:
+            query, variables = build_damage_table_query(code, [fid])
+            data = await self._client.query(query, variables, endpoint=endpoint)
+            table = data.get("reportData", {}).get("report", {}).get("table", {})
+            entries = table.get("data", {}).get("entries", [])
 
-        for entry in entries:
-            self._conn.execute(
-                """INSERT OR REPLACE INTO wcl_damage
-                   (report_code, fight_id, player_name, player_type, total_damage,
-                    active_time_ms, abilities_json, targets_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    code,
-                    fight_ids[0] if fight_ids else 0,
-                    entry.get("name", ""),
-                    entry.get("type"),
-                    entry.get("total", 0),
-                    entry.get("activeTime"),
-                    json.dumps(entry.get("abilities", [])),
-                    json.dumps(entry.get("targets", [])),
-                ),
-            )
-
-    async def _fetch_buffs(self, code: str, fight_ids: list[int], endpoint: str) -> None:
-        """Fetch and store buff table."""
-        query, variables = build_buff_table_query(code, fight_ids)
-        data = await self._client.query(query, variables, endpoint=endpoint)
-        table = data.get("reportData", {}).get("report", {}).get("table", {})
-        auras = table.get("data", {}).get("auras", [])
-
-        for aura in auras:
-            self._conn.execute(
-                """INSERT OR REPLACE INTO wcl_buffs
-                   (report_code, fight_id, buff_name, buff_guid, total_uptime_ms,
-                    total_uses, bands_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    code,
-                    fight_ids[0] if fight_ids else 0,
-                    aura.get("name", ""),
-                    aura.get("guid", 0),
-                    aura.get("totalUptime", 0),
-                    aura.get("totalUses", 0),
-                    json.dumps(aura.get("bands", [])),
-                ),
-            )
-
-    async def _fetch_casts(self, code: str, fight_ids: list[int], endpoint: str) -> None:
-        """Fetch and store cast table."""
-        query, variables = build_cast_table_query(code, fight_ids)
-        data = await self._client.query(query, variables, endpoint=endpoint)
-        table = data.get("reportData", {}).get("report", {}).get("table", {})
-        entries = table.get("data", {}).get("entries", [])
-
-        for entry in entries:
-            for ability in entry.get("abilities", []):
+            for entry in entries:
                 self._conn.execute(
-                    """INSERT OR REPLACE INTO wcl_casts
-                       (report_code, fight_id, player_name, ability_name, cast_count)
-                       VALUES (?, ?, ?, ?, ?)""",
+                    """INSERT OR REPLACE INTO wcl_damage
+                       (report_code, fight_id, player_name, player_type, total_damage,
+                        active_time_ms, abilities_json, targets_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         code,
-                        fight_ids[0] if fight_ids else 0,
+                        fid,
                         entry.get("name", ""),
-                        ability.get("name", ""),
-                        ability.get("total", 0),
+                        entry.get("type"),
+                        entry.get("total", 0),
+                        entry.get("activeTime"),
+                        json.dumps(entry.get("abilities", [])),
+                        json.dumps(entry.get("targets", [])),
                     ),
                 )
+
+    async def _fetch_buffs(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+        """Fetch and store buff table per fight."""
+        for fid in fight_ids:
+            query, variables = build_buff_table_query(code, [fid])
+            data = await self._client.query(query, variables, endpoint=endpoint)
+            table = data.get("reportData", {}).get("report", {}).get("table", {})
+            auras = table.get("data", {}).get("auras", [])
+
+            for aura in auras:
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO wcl_buffs
+                       (report_code, fight_id, buff_name, buff_guid, total_uptime_ms,
+                        total_uses, bands_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        code,
+                        fid,
+                        aura.get("name", ""),
+                        aura.get("guid", 0),
+                        aura.get("totalUptime", 0),
+                        aura.get("totalUses", 0),
+                        json.dumps(aura.get("bands", [])),
+                    ),
+                )
+
+    async def _fetch_casts(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+        """Fetch and store cast table per fight."""
+        for fid in fight_ids:
+            query, variables = build_cast_table_query(code, [fid])
+            data = await self._client.query(query, variables, endpoint=endpoint)
+            table = data.get("reportData", {}).get("report", {}).get("table", {})
+            entries = table.get("data", {}).get("entries", [])
+
+            for entry in entries:
+                for ability in entry.get("abilities", []):
+                    self._conn.execute(
+                        """INSERT OR REPLACE INTO wcl_casts
+                           (report_code, fight_id, player_name, ability_name, cast_count)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (
+                            code,
+                            fid,
+                            entry.get("name", ""),
+                            ability.get("name", ""),
+                            ability.get("total", 0),
+                        ),
+                    )
 
     async def _fetch_rankings(self, code: str, endpoint: str) -> None:
         """Fetch and store per-fight rankings."""

@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS wcl_combatants (
     report_code TEXT NOT NULL REFERENCES wcl_reports(code),
     fight_id INTEGER NOT NULL,
     source_id INTEGER NOT NULL,
+    player_name TEXT,
     spec_id INTEGER,
     faction INTEGER,
     strength INTEGER, agility INTEGER, stamina INTEGER,

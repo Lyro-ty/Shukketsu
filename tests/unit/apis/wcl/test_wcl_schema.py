@@ -175,9 +175,9 @@ class TestWCLIndexesExist:
         assert index_names == expected
 
 
-class TestSchemaVersionIs5:
-    """After init_db, schema_version should contain version 5."""
+class TestSchemaVersionIs6:
+    """After init_db, schema_version should contain version 6."""
 
-    def test_schema_version_is_5(self, db: sqlite3.Connection) -> None:
+    def test_schema_version_is_6(self, db: sqlite3.Connection) -> None:
         version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 5
+        assert version == 6
