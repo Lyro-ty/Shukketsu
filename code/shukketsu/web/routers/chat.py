@@ -171,6 +171,22 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
     if msg_type == "stop":
         return
 
+    if msg_type == "feedback":
+        trace_id = data.get("trace_id")
+        score = data.get("score")
+        if trace_id is not None and score is not None:
+            try:
+                langfuse = get_client()
+                langfuse.score(
+                    trace_id=trace_id,
+                    name="user_feedback",
+                    value=float(score),
+                    comment=f"thumbs {'up' if score else 'down'}",
+                )
+            except Exception:
+                logger.warning("Failed to record feedback", exc_info=True)
+        return
+
     if msg_type != "message":
         await websocket.send_json({"type": "error", "content": f"Unknown message type: {msg_type}"})
         return
@@ -301,8 +317,9 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 if result.needs_human_review:
                     answer += "\n*Article pending review in Wiki*"
 
+        trace_id = get_client().get_current_trace_id()
         session.add_message("assistant", answer)
-        await websocket.send_json({"type": "done", "content": answer})
+        await websocket.send_json({"type": "done", "content": answer, "trace_id": trace_id})
 
         # Memory extraction: store key facts from this conversation (fire-and-forget)
         if config.MEMORY_ENABLED:

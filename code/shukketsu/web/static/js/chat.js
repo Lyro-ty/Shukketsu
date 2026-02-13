@@ -12,6 +12,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 let currentAssistantEl = null;
 let fullResponse = "";
 let isStreaming = false;
+let lastTraceId = null;
 
 // --- DOM ---
 const messagesEl = document.getElementById("chat-messages");
@@ -94,10 +95,23 @@ function handleMessage(msg) {
         case "done":
             if (currentAssistantEl) {
                 fullResponse = msg.content;
+                lastTraceId = msg.trace_id || null;
                 if (fullResponse) {
                     currentAssistantEl.innerHTML =
                         DOMPurify.sanitize(marked.parse(fullResponse));
                     currentAssistantEl.classList.add("markdown-body");
+                }
+                // Add feedback buttons
+                if (lastTraceId) {
+                    const feedbackRow = document.createElement("div");
+                    feedbackRow.className = "flex gap-2 mt-2 feedback-row";
+                    feedbackRow.innerHTML = `
+                        <button class="thumb-btn text-parchment-dim hover:text-green-400 transition-colors text-sm px-2 py-1 rounded border border-white/10 hover:border-green-400/50"
+                                onclick="sendFeedback(1, '${lastTraceId}', this.parentElement)">👍</button>
+                        <button class="thumb-btn text-parchment-dim hover:text-red-400 transition-colors text-sm px-2 py-1 rounded border border-white/10 hover:border-red-400/50"
+                                onclick="sendFeedback(0, '${lastTraceId}', this.parentElement)">👎</button>
+                    `;
+                    currentAssistantEl.parentElement.appendChild(feedbackRow);
                 }
             }
             endStreaming();
@@ -251,6 +265,25 @@ document.querySelectorAll(".example-prompt").forEach((btn) => {
         sendMessage();
     });
 });
+
+// ============================================================
+// Feedback
+// ============================================================
+
+function sendFeedback(score, traceId, row) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "feedback", score: score, trace_id: traceId }));
+    }
+    // Disable buttons after click
+    row.querySelectorAll(".thumb-btn").forEach(btn => {
+        btn.disabled = true;
+        btn.classList.add("opacity-30", "cursor-not-allowed");
+    });
+    // Highlight selected
+    const btns = row.querySelectorAll(".thumb-btn");
+    if (score === 1) btns[0].classList.add("text-green-400", "border-green-400/50");
+    else btns[1].classList.add("text-red-400", "border-red-400/50");
+}
 
 // ============================================================
 // Init

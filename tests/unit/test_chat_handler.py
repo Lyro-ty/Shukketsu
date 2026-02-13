@@ -141,7 +141,8 @@ class TestAgentResponse:
             ws.receive_json()  # routing
             ws.receive_json()  # planning
             done = ws.receive_json()
-            assert done == {"type": "done", "content": "The hit cap is 9%."}
+            assert done["type"] == "done"
+            assert done["content"] == "The hit cap is 9%."
 
     @patch("code.shukketsu.web.routers.chat._get_agents")
     @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
@@ -210,7 +211,8 @@ class TestQueryRouting:
             routing = ws.receive_json()
             assert routing == {"type": "status", "content": "routing..."}
             done = ws.receive_json()
-            assert done == {"type": "done", "content": "Sinister Strike costs 40 energy."}
+            assert done["type"] == "done"
+            assert done["content"] == "Sinister Strike costs 40 energy."
             researcher.execute.assert_not_called()
             orchestrator.execute.assert_not_called()
 
@@ -230,7 +232,8 @@ class TestQueryRouting:
             planning = ws.receive_json()
             assert planning == {"type": "status", "content": "planning..."}
             done = ws.receive_json()
-            assert done == {"type": "done", "content": "Detailed analysis here."}
+            assert done["type"] == "done"
+            assert done["content"] == "Detailed analysis here."
             orchestrator.execute.assert_called_once()
 
     @patch("code.shukketsu.web.routers.chat._get_agents")
@@ -251,7 +254,8 @@ class TestQueryRouting:
             ws.receive_json()  # routing
             ws.receive_json()  # planning
             done = ws.receive_json()
-            assert done == {"type": "done", "content": "Orchestrator handled it."}
+            assert done["type"] == "done"
+            assert done["content"] == "Orchestrator handled it."
 
     @patch("code.shukketsu.web.routers.chat._get_agents")
     @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
@@ -267,7 +271,8 @@ class TestQueryRouting:
             ws.receive_json()  # routing
             ws.receive_json()  # planning
             done = ws.receive_json()
-            assert done == {"type": "done", "content": "Orchestrator answer."}
+            assert done["type"] == "done"
+            assert done["content"] == "Orchestrator answer."
             orchestrator.execute.assert_called_once()
 
 
