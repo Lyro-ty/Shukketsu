@@ -84,13 +84,19 @@ def init_db(conn: sqlite3.Connection) -> None:
                 _migrate_v2_to_v3(conn)
             if version < 4:
                 _migrate_v3_to_v4(conn)
+            if version < 5:
+                _migrate_v4_to_v5(conn)
             return
     except sqlite3.OperationalError:
         pass  # Table doesn't exist yet — need to initialize
 
     schema_sql = (_DB_DIR / "schema.sql").read_text()
     conn.executescript(schema_sql)
-    logger.info("Database schema initialized (version 4)")
+    # Apply any migrations beyond base schema version
+    version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+    if version < 5:
+        _migrate_v4_to_v5(conn)
+    logger.info("Database schema initialized (version 5)")
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
@@ -182,6 +188,18 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO schema_version (version) VALUES (4)")
     conn.commit()
     logger.info("Database migrated from v3 to v4 (memory + trust_events tables)")
+
+
+_WCL_SCHEMA = Path(__file__).resolve().parent.parent / "apis" / "wcl" / "schema.sql"
+
+
+def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
+    """Migrate v4 schema to v5: add WCL API data tables."""
+    wcl_sql = _WCL_SCHEMA.read_text()
+    conn.executescript(wcl_sql)
+    conn.execute("INSERT INTO schema_version (version) VALUES (5)")
+    conn.commit()
+    logger.info("Database migrated from v4 to v5 (WCL API tables)")
 
 
 def _configure(conn: sqlite3.Connection) -> None:

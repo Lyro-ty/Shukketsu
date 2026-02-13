@@ -89,9 +89,10 @@ class TestInitDb:
         """Calling init_db twice should not raise or duplicate data."""
         from code.shukketsu.db.connection import init_db
 
+        count_before = db.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
         init_db(db)  # second call — should be a no-op
-        count = db.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
-        assert count == 1
+        count_after = db.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
+        assert count_after == count_before
 
     def test_foreign_key_enforcement(self, db: sqlite3.Connection) -> None:
         """Inserting a chunk with invalid source_id should raise IntegrityError."""
@@ -147,10 +148,10 @@ class TestInitDb:
         for name in ("entity_types", "entities", "relationships"):
             assert name in tables, f"Missing table: {name}"
 
-    def test_schema_version_is_4(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 4 after fresh initialization."""
+    def test_schema_version_is_5(self, db: sqlite3.Connection) -> None:
+        """Schema version should be 5 after fresh initialization."""
         version = db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 4
+        assert version == 5
 
     def test_entity_type_unique_name(self, db: sqlite3.Connection) -> None:
         """entity_types.name should enforce uniqueness."""
