@@ -8,6 +8,73 @@
 
 ---
 
+## 0. WCL Ingest Layer Fixes (Prerequisite)
+
+Three blockers in the existing WCL ingest layer must be fixed before any Phase 4 work.
+
+### 0a. Per-Fight Data Storage
+
+**Problem:** `ReportDiver._fetch_damage()`, `_fetch_buffs()`, and `_fetch_casts()` pass ALL fight IDs to the WCL API in a single query, then store every returned entry under `fight_ids[0]`. The comparison engine needs per-fight, per-ability breakdowns.
+
+**Fix:** Loop over individual fight IDs. The WCL queries already accept `fightIDs: [Int]` — pass one at a time:
+
+```python
+# Before (broken):
+async def _fetch_damage(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+    query, variables = build_damage_table_query(code, fight_ids)
+    # ... stores everything under fight_ids[0]
+
+# After (fixed):
+async def _fetch_damage(self, code: str, fight_ids: list[int], endpoint: str) -> None:
+    for fid in fight_ids:
+        query, variables = build_damage_table_query(code, [fid])
+        # ... stores under the correct fight_id
+```
+
+Same fix for `_fetch_buffs()` and `_fetch_casts()`. This costs more API points (1 query per fight instead of 1 per report), but the data is usable.
+
+**Re-ingest:** After fixing, re-ingest existing reports with `--sync-characters` to repopulate with per-fight data.
+
+### 0b. Actor Name Mapping
+
+**Problem:** `wcl_combatants` has `source_id` (integer per-report), `wcl_damage` has `player_name` (string), but there's no join path. The actors list from `masterData.actors` is fetched by `REPORT_FIGHTS` but never stored.
+
+**Fix:** Add a `player_name` column to `wcl_combatants` and populate it during ingest by cross-referencing the actors list:
+
+```sql
+ALTER TABLE wcl_combatants ADD COLUMN player_name TEXT;
+```
+
+In `_fetch_combatant_info()`, after fetching actors from the report, build a `source_id → name` lookup and store it alongside each combatant row. This is the simplest fix — no new tables, no schema redesign.
+
+### 0c. Per-Player Buff Storage
+
+**Problem:** `wcl_buffs` has `UNIQUE(report_code, fight_id, buff_guid)` — no player dimension. Uptimes are fight-wide, not per-character.
+
+**Fix:** Add a `source_id` column to `wcl_buffs` and update the UNIQUE constraint:
+
+```sql
+ALTER TABLE wcl_buffs ADD COLUMN source_id INTEGER;
+-- New constraint: UNIQUE(report_code, fight_id, source_id, buff_guid)
+```
+
+Modify `_fetch_buffs()` to pass `sourceID` filter in the WCL query (or fetch per-source). For MVP, it's acceptable to fetch fight-wide buff data and note this limitation in comparison — fight-wide SND/BF uptime is still useful since those are personal buffs. But per-player storage is needed for accurate raid buff uptime comparison.
+
+**Alternative (MVP):** Skip per-player buff storage. Use fight-wide uptimes for personal buffs (SND, Blade Flurry, trinket procs) which are character-specific by nature. Flag raid buffs (Kings, Battle Shout) as "fight-wide approximation" in the comparison output.
+
+### 0d. Schema Migration
+
+These three fixes constitute a **v5.1 migration** (additive columns, no table drops):
+
+```sql
+ALTER TABLE wcl_combatants ADD COLUMN player_name TEXT;
+ALTER TABLE wcl_buffs ADD COLUMN source_id INTEGER;
+```
+
+Run as part of the existing v5 migration path or as a new migration step.
+
+---
+
 ## 1. WCL-to-SimConfig Bridge (`sim/wcl_bridge.py`)
 
 Reconstructs a `SimConfig` from WCL combatant data for a specific fight.
@@ -45,49 +112,91 @@ A `SimConfig` ready to simulate.
 
 ### Reconstruction Logic
 
-**Stats (direct mapping):**
+**Stats — the double-counting problem:**
 
-WCL combatant info includes total stat ratings. These bypass the need to reconstruct gear piece-by-piece for most stats. However, `SimConfig` currently takes `gear: dict[GearSlot, int]` (item IDs), not raw stat totals. We have two options:
+WCL combatant info includes total stat ratings **after all raid buffs are applied**. For example, WCL's `agility` field includes base + gear + Blessing of Kings + Grace of Air + food + flask. If we pass these totals to the sim and the sim also applies buff contributions (as it normally does in `_compute_base_stats()`), every buff stat gets counted twice. This would produce wildly inflated DPS.
 
-- **Option A (recommended):** Add an alternate constructor `SimConfig.from_stats()` that accepts raw stat totals + weapon info and builds the config without individual gear pieces. The combat simulation reads stats from the config — it doesn't care whether they came from items or raw totals.
-- **Option B:** Reverse-engineer every gear piece from item IDs. Fragile and unnecessary for validation.
+**Solution — synthetic Item approach (no combat engine changes):**
 
-We go with Option A. The `from_stats()` factory method on `SimConfig`:
+Rather than modifying the combat engine to support a "raw stats mode", we create synthetic `Item` objects that carry the WCL stat totals. The combat engine processes them normally through its existing `_resolve_weapons()` and `_compute_base_stats()` codepaths:
+
+1. Create a synthetic MH weapon `Item` and OH weapon `Item` from resolved `WeaponStats`
+2. Create a single synthetic "stat body" `Item` for the chest slot carrying all remaining stat totals (strength, agility, hit_rating, crit_rating, etc.) — with buff contributions subtracted
+3. Create synthetic proc `Item` objects for detected trinkets
+4. Populate `SimConfig.gear` with these synthetic item IDs (use negative IDs to avoid collision with real items)
+5. Register the synthetic items in an extended `ItemDatabase`
+6. Pass **empty** `buffs` and `consumables` lists — since WCL stats already include buff contributions, the sim must NOT re-apply them
+
+This keeps the combat engine untouched. The bridge does the hard work of de-buffing stats and packaging them.
+
+**Buff stripping logic:**
+
+The bridge must subtract known buff flat stats from WCL totals before creating the synthetic stat body. Using `buffs.py`'s `resolve_buffs()` in reverse: look at the character's `auras_json`, identify which buffs were active, compute their stat contributions, and subtract them. Then set `buffs=[]` and `consumables=[]` on the SimConfig so the combat engine doesn't re-add them.
+
+Alternatively, a simpler approach: pass WCL stats as-is AND set `buffs=[]`/`consumables=[]`. The sim won't add any buff stats, and the WCL totals already include them. This works IF `_compute_base_stats()` doesn't add base racial stats on top (which would also double-count). Need to verify the exact codepath.
+
+**Recommended hybrid:** Use the `auras_json` to reconstruct which buffs and consumables were active, pass those in the normal `buffs`/`consumables` fields, but override the gear stats to be **unbuffed** values. This preserves the sim's buff timing modeling (Heroism windows, potion timing) while avoiding double-counting.
+
+The `from_stats()` factory method on `WCLBridge` (not on SimConfig):
 
 ```python
-@classmethod
-def from_stats(
-    cls,
+def _build_synthetic_config(
+    self,
+    combatant: dict,
+    fight: dict,
     *,
-    spec: RogueSpec,
-    race: Race,
-    talents: str,
-    # Raw stat totals from WCL
-    strength: int = 0,
-    agility: int = 0,
-    hit_rating: int = 0,
-    crit_rating: int = 0,
-    haste_rating: int = 0,
-    expertise_rating: int = 0,
-    attack_power: int = 0,
-    armor_penetration: int = 0,
-    # Weapon info (required)
-    mh_weapon: WeaponStats,
-    oh_weapon: WeaponStats,
-    # Proc items (resolved from gear_json)
-    proc_items: list[ProcEffect] = [],
-    set_bonuses: list[SetBonus] = [],
-    # Fight context
-    buffs: list[str] = [],
-    consumables: list[str] = [],
-    boss: BossConfig = BossConfig(),
-    fight_length: int = 300,
-    target_count: int = 1,
-    **kwargs,
+    race: Race = Race.HUMAN,
 ) -> SimConfig:
+    """Build SimConfig from WCL combatant data using synthetic items.
+
+    WCL stats are post-buff totals. We subtract detected buff contributions
+    to get unbuffed gear stats, then let the sim apply buffs normally.
+    """
+    # 1. Resolve weapons from gear_json item IDs
+    mh_item, oh_item = self._resolve_weapons(combatant["gear_json"])
+
+    # 2. Detect active buffs/consumables from auras_json
+    active_buffs, active_consumables = self._detect_buffs(combatant["auras_json"])
+
+    # 3. Compute buff stat contributions to subtract
+    buff_stats = self._compute_buff_stats(active_buffs, active_consumables)
+
+    # 4. Create synthetic stat body with unbuffed values
+    unbuffed_stats = {
+        "agility": (combatant["agility"] or 0) - buff_stats.get("agility", 0),
+        "strength": (combatant["strength"] or 0) - buff_stats.get("strength", 0),
+        "hit_rating": combatant["hit_melee"] or 0,  # buffs rarely add hit
+        "crit_rating": combatant["crit_melee"] or 0,
+        "haste_rating": combatant["haste_melee"] or 0,
+        "expertise_rating": combatant["expertise"] or 0,
+    }
+    stat_body = self._make_synthetic_item(unbuffed_stats)
+
+    # 5. Detect proc items and set bonuses
+    proc_items = self._detect_proc_items(combatant["gear_json"])
+    set_bonuses = self._detect_set_bonuses(combatant["gear_json"])
+
+    # 6. Build gear dict with synthetic IDs
+    gear = {GearSlot.MAIN_HAND: mh_item.id, GearSlot.OFF_HAND: oh_item.id,
+            GearSlot.CHEST: stat_body.id}
+    for p in proc_items:
+        gear[p.slot] = p.id
+
+    # 7. Build normal SimConfig — sim applies buffs from the lists
+    return SimConfig(
+        spec=self._detect_spec(combatant),
+        race=race,
+        talents=self._parse_talents(combatant),
+        gear=gear,
+        buffs=active_buffs,
+        consumables=active_consumables,
+        boss=self._boss_config(fight["encounter_id"]),
+        fight_length=fight["duration_ms"] // 1000,
+        target_count=self._target_count(fight["encounter_id"]),
+    )
 ```
 
-This requires the combat simulation to support reading stats from a `raw_stats` dict when `gear` is empty. The simulation's `_calc_stats()` method (or equivalent) needs a branch: if `raw_stats` is populated, use those directly instead of summing item stats.
+**Handling nullable stat columns:** All WCL stat columns are nullable. The bridge uses `(value or 0)` for every stat access to avoid `TypeError` when passing `None` to arithmetic operations.
 
 **Weapon resolution:**
 
@@ -103,7 +212,15 @@ Parse `gear_json`, group items by `set_id` (from `WCLGearItem.set_id`). For each
 
 **Talent parsing:**
 
-WCL `talents_json` contains `WCLTalentEntry` objects with `guid` and `name`. Map these to our "X/Y/Z" talent string format. The mapping is: count talents by tree (assassination tree GUIDs, combat tree GUIDs, subtlety tree GUIDs). Maintain a `WCL_TALENT_TREE_MAP: dict[int, str]` mapping talent GUIDs to tree names.
+WCL `talents_json` contains `WCLTalentEntry` objects with `guid` and `name`. Mapping all ~60 GUIDs to tree positions is substantial unscoped work.
+
+**MVP approach:** Use `spec_id` from `wcl_combatants` to identify the spec, then use our canonical talent templates from `talents.py`:
+- `spec_id` matching Combat → `get_spec_template(RogueSpec.COMBAT_SWORDS)` → "20/41/0"
+- `spec_id` matching Assassination → `get_spec_template(RogueSpec.ASSASSINATION_MUTILATE)` → "41/20/0"
+
+This is accurate enough for validation — the canonical builds are what 95%+ of players use. Talent-point-level differences (e.g., 1 point in Lethality vs Vile Poisons) have minimal DPS impact (~0.5%).
+
+**Full mapping (deferred):** If validation shows talent-specific differences matter, build the `WCL_TALENT_TREE_MAP` later. For now, spec templates get us to 5% accuracy.
 
 **Race resolution:**
 
@@ -161,8 +278,9 @@ Selects WCL fights suitable for calibration.
 ### Filter Criteria
 
 ```python
-@dataclass(frozen=True)
-class FilterCriteria:
+class FilterCriteria(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     kills_only: bool = True
     min_duration_ms: int = 30_000       # 30 seconds
     max_death_pct: float = 0.0          # 0% = character must survive entire fight
@@ -249,8 +367,10 @@ Maps WCL spell IDs to sim ability names and back.
 ### Mapping Table
 
 ```python
+from typing import Final
+
 # WCL spell ID → sim ability name
-SPELL_ID_TO_ABILITY: dict[int, str] = {
+SPELL_ID_TO_ABILITY: Final[dict[int, str]] = {
     # Builders
     1752: "sinister_strike",    # Sinister Strike (Rank 10)
     11294: "sinister_strike",   # Sinister Strike (other ranks)
@@ -284,7 +404,7 @@ SPELL_ID_TO_ABILITY: dict[int, str] = {
 }
 
 # Sim ability name → display name
-ABILITY_DISPLAY_NAMES: dict[str, str] = {
+ABILITY_DISPLAY_NAMES: Final[dict[str, str]] = {
     "sinister_strike": "Sinister Strike",
     "backstab": "Backstab",
     "mutilate": "Mutilate",
@@ -300,7 +420,7 @@ ABILITY_DISPLAY_NAMES: dict[str, str] = {
 }
 
 # WCL buff/aura ability IDs → our buff system names
-WCL_BUFF_MAP: dict[int, str] = {
+WCL_BUFF_MAP: Final[dict[int, str]] = {
     25898: "kings",              # Greater Blessing of Kings
     2048: "battle_shout",        # Battle Shout
     25359: "grace_of_air",       # Grace of Air Totem
@@ -461,7 +581,23 @@ Orchestrates the end-to-end validation flow.
 
 ### Concurrency
 
-Each sim run is CPU-bound (10,000 iterations × 300s fight). On the GB10 with 12 CPU cores, we can parallelize 4 sims at once via `asyncio.to_thread` (which the `SimRunner` already uses). 56 fights ÷ 4 concurrent = ~14 batches.
+Each sim run is CPU-bound (5,000 iterations × fight length). `asyncio.to_thread` (used by `SimRunner`) runs in Python's `ThreadPoolExecutor`, which does NOT parallelize CPU-bound work due to the GIL — threads context-switch but don't run simultaneously.
+
+For actual parallelism, the pipeline uses `concurrent.futures.ProcessPoolExecutor`:
+
+```python
+from concurrent.futures import ProcessPoolExecutor
+
+executor = ProcessPoolExecutor(max_workers=config.VALIDATION_CONCURRENCY)
+loop = asyncio.get_event_loop()
+results = await asyncio.gather(
+    *[loop.run_in_executor(executor, _run_single_sim, cfg) for cfg in configs]
+)
+```
+
+This requires the sim function and its arguments to be picklable. `SimConfig` is a Pydantic model (picklable). `CombatSimulation` and `ItemDatabase` must be constructed inside each worker process.
+
+On the GB10 with 12 CPU cores and `VALIDATION_CONCURRENCY=4`, 56 fights runs in ~14 batches. Without `ProcessPoolExecutor`, it would be 56 sequential runs (4x slower).
 
 ### Public API
 
@@ -618,7 +754,7 @@ def parse_wowsims(raw: str) -> CharacterImport:
     gear = {}
     enchants = {}
     gems = {}
-    for item_data in data.get("equipment", {}).get("items", []):
+    for idx, item_data in enumerate(data.get("equipment", {}).get("items", [])):
         slot = _WOWSIMS_SLOT_MAP.get(idx, None)
         if slot and item_data.get("id"):
             gear[slot] = item_data["id"]
@@ -814,16 +950,17 @@ LOG_UPLOAD_MAX_SIZE_MB = int(os.getenv("LOG_UPLOAD_MAX_SIZE_MB", "100"))
 
 ### Deliverables
 
-1. `sim/wcl_bridge.py` — WCL-to-SimConfig reconstruction
-2. `sim/fight_filter.py` — Fight selection and validation
-3. `sim/spell_map.py` — Spell ID ↔ ability name mapping
-4. `sim/comparator.py` — Comparison engine with drift metrics
-5. `sim/validation_pipeline.py` — End-to-end orchestration
-6. `sim/log_parser.py` — CLEU combat log parser
-7. `sim/imports.py` — WoWSims import parser (fill stub)
-8. `sim/items.py` — Expanded item database (~130 items)
-9. `sim/models.py` — `SimConfig.from_stats()` alternate constructor + `raw_stats` support
-10. `db/connection.py` — Schema v6 migration
+0. `apis/wcl/ingest.py` — Fix per-fight data storage, actor name mapping, per-player buffs (prerequisite)
+1. `resilience/errors.py` — Add `WCLBridgeError`, `LogParseError`, `ValidationError` (all inherit `ShukketsuError` with appropriate `FailureMode`)
+2. `sim/spell_map.py` — Spell ID ↔ ability name mapping
+3. `sim/fight_filter.py` — Fight selection and validation
+4. `sim/wcl_bridge.py` — WCL-to-SimConfig reconstruction (synthetic Item approach)
+5. `sim/comparator.py` — Comparison engine with drift metrics
+6. `sim/validation_pipeline.py` — End-to-end orchestration (ProcessPoolExecutor)
+7. `sim/log_parser.py` — CLEU combat log parser
+8. `sim/imports.py` — WoWSims import parser (fill stub)
+9. `sim/items.py` — Expanded item database (~130 items)
+10. `db/connection.py` — Schema v5.1 migration (WCL column additions) + v6 migration (validation_runs)
 11. `web/routers/logs.py` — Log upload routes
 12. `web/routers/sim.py` — Validation dashboard routes
 13. `web/templates/logs/` — Upload and analysis templates
@@ -837,17 +974,41 @@ LOG_UPLOAD_MAX_SIZE_MB = int(os.getenv("LOG_UPLOAD_MAX_SIZE_MB", "100"))
 
 Recommended task sequence (each task is independently testable):
 
-1. **Spell map** — Pure data, no dependencies. Foundation for everything else.
-2. **Fight filter** — Queries DB, returns annotated fights. Tests with fixture data.
-3. **WCL bridge** — Depends on spell map. Reconstructs SimConfig from DB rows. Requires `SimConfig.from_stats()`.
-4. **SimConfig.from_stats()** — Modify `models.py` and combat engine to support raw stat input.
-5. **Comparison engine** — Depends on spell map. Compares SimResult vs WCL metrics.
-6. **Validation pipeline** — Wires filter + bridge + runner + comparator. Integration-level.
-7. **Item database expansion** — Independent. Add ~80 items, verify proc definitions.
+0. **WCL ingest fixes** — PREREQUISITE. Fix per-fight data storage, add `player_name` to combatants, update buff storage. Re-ingest existing reports. Schema v5.1 migration.
+1. **Error types** — Add `WCLBridgeError`, `LogParseError`, `ValidationError` to `resilience/errors.py`.
+2. **Spell map** — Pure data, no dependencies. Foundation for everything else.
+3. **Fight filter** — Queries DB, returns annotated fights. Tests with fixture data.
+4. **Item database expansion** — Independent. Add ~80 weapons/trinkets/sets. Needed before bridge can resolve weapons.
+5. **WCL bridge** — Depends on spell map + item DB. Builds synthetic Items from WCL data, strips buff stats, creates SimConfig. No combat engine changes.
+6. **Comparison engine** — Depends on spell map. Compares SimResult vs WCL metrics.
+7. **Validation pipeline + schema v6** — Wires filter + bridge + runner + comparator. ProcessPoolExecutor for CPU parallelism. `validation_runs` table.
 8. **CLEU log parser** — Independent of WCL pipeline. Uses spell map for normalization.
 9. **WoWSims import** — Independent. Fill the stub in imports.py.
-10. **Schema v6 migration** — Add `validation_runs` table.
-11. **Web: validation dashboard** — Routes + templates for WCL validation.
-12. **Web: log upload** — Routes + templates for combat log upload + analysis.
-13. **Calibration** — Run the pipeline, identify drift sources, tune mechanics until phase gate passes.
-14. **CLAUDE.md + memory update** — Document completion.
+10. **Web: validation dashboard** — Routes + templates for WCL validation.
+11. **Web: log upload** — Routes + templates for combat log upload + analysis.
+12. **Calibration** — Run the pipeline, identify drift sources, tune mechanics until phase gate passes.
+13. **CLAUDE.md + memory update** — Document completion.
+
+**Key change from original order:** Item DB expansion moves up to task 4 (before bridge) because the bridge needs to resolve weapon item IDs. The `from_stats()` approach is replaced by synthetic Items, eliminating the need to modify the combat engine.
+
+---
+
+## Appendix: Design Review Findings (resolved)
+
+Review performed against the actual codebase before implementation. All issues have been incorporated into the design above.
+
+| # | Severity | Issue | Resolution |
+|---|----------|-------|------------|
+| 1 | BLOCKER | WCL damage/buff/cast stored aggregated, not per-fight | Added Section 0a: per-fight query loop in ingest |
+| 2 | BLOCKER | No source_id → player_name mapping in DB | Added Section 0b: `player_name` column on `wcl_combatants` |
+| 3 | BLOCKER | WCL stats include buffs; sim would double-count | Redesigned Section 1: synthetic Item approach with buff stripping |
+| 4 | BUG | WoWSims import used undefined `idx` variable | Fixed in Section 7: `for idx, item_data in enumerate(...)` |
+| 5 | BUG | Mutable default arguments in `from_stats()` | Eliminated: `from_stats()` replaced by `WCLBridge._build_synthetic_config()` |
+| 6 | DESIGN | CombatSimulation coupled to ItemDatabase | Resolved by synthetic Item approach — no combat engine changes |
+| 7 | DESIGN | `WCLBridgeError` / `LogParseError` not in error taxonomy | Added to deliverables item 1 |
+| 8 | DESIGN | `wcl_buffs` not per-player | Added Section 0c with MVP alternative (fight-wide for personal buffs) |
+| 9 | DESIGN | Talent GUID mapping is ~60 entries of research | MVP: use `spec_id` + canonical templates (Section 1) |
+| 10 | DESIGN | `asyncio.to_thread` gives no CPU parallelism (GIL) | Fixed Section 5: `ProcessPoolExecutor` |
+| 11 | DESIGN | Nullable stat columns not handled | Added explicit `(value or 0)` pattern in Section 1 |
+| 12 | STYLE | Spell mapping dicts should be `Final` | Fixed in Section 3 |
+| 13 | STYLE | `FilterCriteria` used dataclass instead of BaseModel | Fixed in Section 2 |
