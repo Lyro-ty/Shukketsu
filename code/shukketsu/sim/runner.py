@@ -192,10 +192,11 @@ class SimRunner:
         breakdown_b = {ab.name: ab for ab in result_b.ability_breakdown}
         all_abilities = sorted(set(breakdown_a.keys()) | set(breakdown_b.keys()))
         ability_changes: list[AbilityDiff] = []
-        fight_length = config_a.fight_length or 1
+        fight_length_a = config_a.fight_length or 1
+        fight_length_b = config_b.fight_length or 1
         for name in all_abilities:
-            dps_a = breakdown_a[name].damage_total / fight_length if name in breakdown_a else 0.0
-            dps_b = breakdown_b[name].damage_total / fight_length if name in breakdown_b else 0.0
+            dps_a = breakdown_a[name].damage_total / fight_length_a if name in breakdown_a else 0.0
+            dps_b = breakdown_b[name].damage_total / fight_length_b if name in breakdown_b else 0.0
             ab_delta = dps_b - dps_a
             ab_delta_pct = (ab_delta / dps_a * 100) if dps_a > 0 else 0.0
             if abs(ab_delta) > 0.01:

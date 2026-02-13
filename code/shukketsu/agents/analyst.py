@@ -11,7 +11,7 @@ import re
 from langfuse import observe
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
-from code.shukketsu.agents.tasks import AgentRole, AgentTask, AnalysisResult, TaskStatus, ToolCallRecord
+from code.shukketsu.agents.tasks import AgentRole, AgentTask, AnalysisResult, ToolCallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class Analyst(BaseAgent):
         return AnalysisResult(
             task_id=task.task_id,
             agent_role=AgentRole.ANALYST,
-            status=TaskStatus.SUCCESS if outcome.output else TaskStatus.FAILED,
+            status=outcome.status,
             output=outcome.output,
             trajectory=trajectory,
             dps_mean=dps_mean,

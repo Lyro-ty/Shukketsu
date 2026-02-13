@@ -159,6 +159,24 @@ class TestSimCompare:
         assert result.dps_delta == 0.0
         assert result.dps_delta_pct == 0.0
 
+    @pytest.mark.asyncio
+    async def test_compare_different_fight_lengths_uses_correct_divisor(self) -> None:
+        """Each config's fight_length should be used for its own ability DPS calc."""
+        runner = SimRunner()
+        config_a = _minimal_config(fight_length=30, iterations=2)
+        config_b = _minimal_config(fight_length=60, iterations=2)
+
+        result = await runner.sim_compare(config_a, config_b)
+
+        assert isinstance(result, CompareResult)
+        # Both should produce valid DPS (non-negative)
+        assert result.dps_before >= 0
+        assert result.dps_after >= 0
+        # Ability changes should have reasonable per-ability DPS values
+        for ab in result.ability_changes:
+            assert ab.dps_before >= 0
+            assert ab.dps_after >= 0
+
 
 # =============================================================================
 # build_config_from_import

@@ -39,3 +39,27 @@ class TestRenderMarkdown:
         assert "First" in html1
         assert "Second" in html2
         assert "First" not in html2
+
+    def test_xss_script_tag_stripped(self) -> None:
+        """Inline <script> tags are stripped by nh3 sanitization."""
+        html = render_markdown("Hello <script>alert('xss')</script> world")
+        assert "<script>" not in html
+        assert "alert" not in html
+        assert "Hello" in html
+
+    def test_xss_iframe_stripped(self) -> None:
+        """Iframe injection is stripped."""
+        html = render_markdown('<iframe src="http://evil.com"></iframe>')
+        assert "<iframe" not in html
+
+    def test_xss_event_handler_stripped(self) -> None:
+        """Event handler attributes are stripped from allowed tags."""
+        html = render_markdown('<a href="#" onclick="alert(1)">click</a>')
+        assert "onclick" not in html
+        assert "click" in html
+
+    def test_safe_link_preserved(self) -> None:
+        """Normal markdown links are preserved after sanitization."""
+        html = render_markdown("[Wowhead](https://www.wowhead.com)")
+        assert "href" in html
+        assert "wowhead.com" in html
