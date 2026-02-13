@@ -67,6 +67,41 @@ class TestListBackups:
         assert backups[0].created_at >= backups[1].created_at
 
 
+    def test_empty_directory(self, backup_mgr: BackupManager) -> None:
+        backups = backup_mgr.list_backups()
+        assert backups == []
+
+    def test_ignores_non_matching_files(self, backup_mgr: BackupManager, tmp_path: Path) -> None:
+        """Files not matching shukketsu-*.db pattern should be ignored."""
+        (tmp_path / "backups" / "other.db").write_text("irrelevant")
+        (tmp_path / "backups" / "random.txt").write_text("data")
+        backup_mgr.create_backup()
+        backups = backup_mgr.list_backups()
+        assert len(backups) == 1
+
+
+class TestBackupDataIntegrity:
+    def test_backup_contains_source_data(self, backup_mgr: BackupManager) -> None:
+        """Backup should contain the same data as the source DB."""
+        result = backup_mgr.create_backup()
+        conn = sqlite3.connect(result.path)
+        try:
+            row = conn.execute("SELECT value FROM test WHERE id = 1").fetchone()
+            assert row is not None
+            assert row[0] == "hello"
+        finally:
+            conn.close()
+
+    def test_truncated_db_integrity_fails(self, backup_mgr: BackupManager, tmp_path: Path) -> None:
+        """verify_integrity should return False for a truncated (partially corrupt) DB."""
+        result = backup_mgr.create_backup()
+        backup_path = Path(result.path)
+        # Truncate the file to corrupt it
+        original = backup_path.read_bytes()
+        backup_path.write_bytes(original[:100])
+        assert not backup_mgr.verify_integrity(backup_path)
+
+
 class TestPrune:
     def test_keeps_correct_count(self, backup_mgr: BackupManager) -> None:
         for _ in range(5):

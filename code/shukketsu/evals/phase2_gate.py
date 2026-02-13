@@ -111,7 +111,7 @@ async def run_phase_gate(
             coverage[a.spec] = coverage.get(a.spec, 0) + 1
         report = report.model_copy(update={"wiki_coverage": coverage})
     except Exception:
-        pass
+        logger.warning("Failed to compute wiki coverage", exc_info=True)
 
     return report
 
