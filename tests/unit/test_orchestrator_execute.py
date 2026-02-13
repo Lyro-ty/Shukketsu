@@ -637,3 +637,126 @@ class TestParallelExecution:
         statuses = [r.status for r in result.specialist_results]
         assert TaskStatus.SUCCESS in statuses
         assert TaskStatus.FAILED in statuses
+
+
+class TestFactoryCreateFailure:
+    """Tests for factory.create() failure handling in _execute_single."""
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_factory_create_error_marks_failed(self, mock_llm: AsyncMock) -> None:
+        """factory.create() raising marks the subtask as FAILED (not silently dropped)."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="research"),
+            ]
+        )
+
+        call_count = 0
+
+        async def _mock_structured(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is OrchestratorPlan:
+                return plan
+            return response_model(response="Synthesized.")
+
+        mock_llm.side_effect = _mock_structured
+
+        factory = MagicMock()
+        factory.create.side_effect = RuntimeError("Cannot instantiate agent")
+
+        orch = _orchestrator(factory=factory)
+        result = await orch.execute(AgentTask(query="test"))
+
+        # The subtask should be marked FAILED, not silently dropped
+        assert len(result.specialist_results) == 1
+        assert result.specialist_results[0].status == TaskStatus.FAILED
+        assert "creation failed" in result.specialist_results[0].output.lower()
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_factory_create_error_in_parallel_doesnt_block_others(self, mock_llm: AsyncMock) -> None:
+        """Factory failure for one parallel subtask doesn't block the other."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="good"),
+                SubTask(agent_role=AgentRole.RESEARCHER, description="broken"),
+            ]
+        )
+
+        call_count = 0
+
+        async def _mock_structured(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is OrchestratorPlan:
+                return plan
+            return response_model(response="Synthesized.")
+
+        mock_llm.side_effect = _mock_structured
+
+        factory = MagicMock()
+        create_count = 0
+
+        def _create(role, **kwargs):
+            nonlocal create_count
+            create_count += 1
+            if create_count == 2:
+                raise RuntimeError("Cannot instantiate agent")
+            agent = MagicMock()
+            agent.execute = AsyncMock(return_value=_research_result())
+            return agent
+
+        factory.create.side_effect = _create
+
+        orch = _orchestrator(factory=factory)
+        result = await orch.execute(AgentTask(query="test"))
+
+        assert len(result.specialist_results) == 2
+        statuses = [r.status for r in result.specialist_results]
+        assert TaskStatus.SUCCESS in statuses
+        assert TaskStatus.FAILED in statuses
+
+
+class TestGatherExceptionInspection:
+    """Tests verifying asyncio.gather exceptions are properly caught."""
+
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_unexpected_exception_in_parallel_marked_failed(self, mock_llm: AsyncMock) -> None:
+        """An unexpected exception raised inside gather gets caught and marked FAILED."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="ok"),
+                SubTask(agent_role=AgentRole.RESEARCHER, description="crash"),
+            ]
+        )
+
+        call_count = 0
+
+        async def _mock_structured(response_model, messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if response_model is OrchestratorPlan:
+                return plan
+            return response_model(response="Synthesized.")
+
+        mock_llm.side_effect = _mock_structured
+
+        factory = MagicMock()
+
+        def _create(role, **kwargs):
+            agent = MagicMock()
+
+            async def _execute(task, on_status=None):
+                return _research_result(output=f"Results for {task.query}")
+
+            agent.execute = _execute
+            return agent
+
+        factory.create.side_effect = _create
+
+        orch = _orchestrator(factory=factory)
+        result = await orch.execute(AgentTask(query="test"))
+
+        # Both should complete — no unhandled exceptions
+        assert len(result.specialist_results) == 2
+        assert result.status == TaskStatus.SUCCESS

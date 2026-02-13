@@ -41,7 +41,6 @@ from code.shukketsu.llm.prompts.orchestrator import (
     SYNTHESIS_PROMPT,
 )
 from code.shukketsu.llm.structured import get_structured_output
-from code.shukketsu.resilience.errors import LLMUnavailableError, StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -101,7 +100,7 @@ class Orchestrator(BaseAgent):
         try:
             strategy_hints = task.context.get("strategy_hints", "") if task.context else ""
             plan = await self._decompose(task.query, strategy_hints=strategy_hints)
-        except (LLMUnavailableError, StructuredOutputError, ValueError, Exception) as exc:
+        except Exception as exc:
             logger.warning("Decomposition failed: %s", exc)
             return OrchestratorResult(
                 task_id=task.task_id,
@@ -251,11 +250,26 @@ class Orchestrator(BaseAgent):
         if subtask.agent_role in _KM_ROLES:
             extra_kwargs["knowledge_manager"] = self._km
 
-        agent = self._factory.create(
-            subtask.agent_role,
-            tool_registry=self.tool_registry,
-            **extra_kwargs,
-        )
+        try:
+            agent = self._factory.create(
+                subtask.agent_role,
+                tool_registry=self.tool_registry,
+                **extra_kwargs,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to create agent for subtask %d (%s): %s",
+                idx,
+                subtask.agent_role,
+                exc,
+            )
+            results[idx] = AgentResult(
+                task_id=typed_task.task_id,
+                agent_role=subtask.agent_role,
+                status=TaskStatus.FAILED,
+                output=f"Agent creation failed: {exc}",
+            )
+            return
 
         if on_status:
             await on_status(f"{subtask.agent_role}: {subtask.description[:50]}...")
@@ -296,7 +310,18 @@ class Orchestrator(BaseAgent):
                 coros = [
                     self._execute_single(idx, plan.subtasks[idx], results, skipped, task, on_status) for idx in level
                 ]
-                await asyncio.gather(*coros, return_exceptions=True)
+                gather_results = await asyncio.gather(*coros, return_exceptions=True)
+                for i, res in enumerate(gather_results):
+                    if isinstance(res, BaseException):
+                        idx = level[i]
+                        logger.error("Unhandled exception in subtask %d: %s", idx, res)
+                        if results[idx] is None:
+                            results[idx] = AgentResult(
+                                task_id=task.task_id,
+                                agent_role=plan.subtasks[idx].agent_role,
+                                status=TaskStatus.FAILED,
+                                output=f"Unexpected error: {res}",
+                            )
 
         return results, skipped
 
