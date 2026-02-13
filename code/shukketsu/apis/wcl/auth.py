@@ -49,9 +49,7 @@ class WCLAuth:
             raise WCLAuthError(f"HTTP error during token acquisition: {exc}") from exc
 
         if response.status_code != 200:
-            raise WCLAuthError(
-                f"WCL token request failed (HTTP {response.status_code}): {response.text}"
-            )
+            raise WCLAuthError(f"WCL token request failed (HTTP {response.status_code}): {response.text}")
 
         data = response.json()
         self._token = data["access_token"]
