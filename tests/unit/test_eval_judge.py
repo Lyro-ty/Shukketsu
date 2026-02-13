@@ -1,6 +1,6 @@
 """Tests for eval judge module — all LLM calls mocked."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,8 +10,11 @@ from code.shukketsu.evals.judge import (
     _FaithfulnessVerdict,
     _SingleVerdict,
     extract_claims,
+    extract_dps_from_answer,
+    judge_answer_relevancy,
     judge_domain_accuracy,
     judge_faithfulness,
+    judge_sim_accuracy,
 )
 from code.shukketsu.evals.metrics import ClaimFaithfulness, FaithfulnessJudgment
 
@@ -76,3 +79,48 @@ class TestJudgeDomainAccuracy:
         mock_llm.side_effect = Exception("Crash")
         result = await judge_domain_accuracy("answer", "truth", ["fact1"])
         assert result == 0.0
+
+
+class TestJudgeAnswerRelevancy:
+    @patch("code.shukketsu.evals.judge.get_structured_output", new_callable=AsyncMock)
+    async def test_returns_score(self, mock_llm: AsyncMock) -> None:
+        mock_llm.return_value = MagicMock(score=0.85, reasoning="Good")
+        score = await judge_answer_relevancy("What is hit cap?", "Hit cap is 9%.")
+        assert score == 0.85
+
+    @patch("code.shukketsu.evals.judge.get_structured_output", new_callable=AsyncMock)
+    async def test_returns_zero_on_failure(self, mock_llm: AsyncMock) -> None:
+        mock_llm.side_effect = Exception("LLM down")
+        score = await judge_answer_relevancy("What?", "Answer")
+        assert score == 0.0
+
+
+class TestExtractDpsFromAnswer:
+    def test_integer_dps(self) -> None:
+        assert extract_dps_from_answer("The result is 1234 DPS on Patchwerk.") == 1234.0
+
+    def test_comma_separated_dps(self) -> None:
+        assert extract_dps_from_answer("Expected output: 1,234.5 DPS") == 1234.5
+
+    def test_lowercase_dps(self) -> None:
+        assert extract_dps_from_answer("about 950 dps") == 950.0
+
+    def test_no_match_returns_none(self) -> None:
+        assert extract_dps_from_answer("The hit cap is 9%.") is None
+
+
+class TestJudgeSimAccuracy:
+    def test_within_range(self) -> None:
+        assert judge_sim_accuracy(1150.0, 1100.0, 1200.0) == 1.0
+
+    def test_at_boundary(self) -> None:
+        assert judge_sim_accuracy(1100.0, 1100.0, 1200.0) == 1.0
+
+    def test_outside_range_falloff(self) -> None:
+        # Range is 100, tolerance = 100 * 5% = 5. At distance 2.5, score = 0.5
+        score = judge_sim_accuracy(1097.5, 1100.0, 1200.0)
+        assert score == pytest.approx(0.5)
+
+    def test_far_outside_returns_zero(self) -> None:
+        score = judge_sim_accuracy(900.0, 1100.0, 1200.0)
+        assert score == 0.0
