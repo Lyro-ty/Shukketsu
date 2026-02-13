@@ -625,7 +625,7 @@ def compute_modifiers(allocation: TalentAllocation) -> TalentModifiers:
         else:
             kwargs[field] = total
 
-    return TalentModifiers(**kwargs)
+    return TalentModifiers.model_validate(kwargs)
 
 
 def get_spec_template(spec: RogueSpec) -> dict[str, int]:

@@ -188,7 +188,7 @@ async def judge_answer_relevancy(question: str, answer: str) -> float:
         return 0.0
 
 
-_DPS_PATTERN = re.compile(r"(\d[\d,]*\.?\d*)\s*(?:dps|DPS)")
+_DPS_PATTERN = re.compile(r"(\d[\d,]*\.?\d*)\s*dps", re.IGNORECASE)
 
 
 def extract_dps_from_answer(answer: str) -> float | None:

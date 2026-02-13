@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), 3 (Memory, Reflection, Performance), and 4 (DPS Simulation Engine) are complete (1,408 unit tests). Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, GB10 timeout tuning, and the **WCL API integration** (168 tests: OAuth2 auth, rate-limit-aware GraphQL client, Pydantic models, DB schema v5, ingest orchestrator, CLI). All other modules contain real implementation code — see Project Layout for the full listing.
+Phases 1-5 are complete (1,461 unit tests): Agent Core, Multi-Agent RAG, Memory/Performance, DPS Simulation Engine, and Evaluation/Observability. Additional integrations include batch ingest, WCL API (168 tests), and fast 7B model tier. All modules contain real implementation code — see Project Layout for the full listing.
 
 ## Development Workflow
 
@@ -30,6 +30,9 @@ python3 -m code.shukketsu.apis.wcl.ingest --report TNtKz3G1H9kVAQr4  # Deep-dive
 python3 -m code.shukketsu.apis.wcl.ingest --full                  # Full zone sweep
 python3 -m code.shukketsu.apis.wcl.ingest --rate-limit            # Check rate limit status
 python3 -m code.shukketsu.apis.wcl.ingest --stats                 # WCL database stats
+
+# Eval + Export
+python3 -m code.shukketsu.evals.export                   # Export training JSONL from positive traces
 
 # Tests — MUST use `python3 -m pytest` (bare `pytest` hits stdlib `code` module conflict)
 python3 -m pytest tests/unit/ -v                        # Unit tests (no external deps)
@@ -124,14 +127,15 @@ code/shukketsu/          # Main Python package (import as code.shukketsu)
   apis/wcl/              # Warcraft Logs v2 API: auth, client, queries, models, ingest, schema
   sim/                   # TBC Rogue DPS simulation engine: models, mechanics, abilities, talents, items, buffs, imports, rotation, combat, runner, validation
   db/                    # SQLite connection factory, schema.sql v5 (WAL, sqlite-vec, FTS5, graph, memory, WCL)
-  web/                   # FastAPI app, Jinja2 templates, HTMX, wiki_render.py
+  web/                   # FastAPI app, Jinja2 templates, HTMX (chat, wiki, sim, evals dashboard)
   trust/                 # Evidence-based source trust scoring with trust_events
   freshness/             # Content staleness checking and re-ingestion
   resilience/            # Circuit breakers, retries, error taxonomy
   observability/         # Langfuse tracing integration
   knowledge/             # KnowledgeManager: wiki article CRUD, frontmatter, review/approve
-  evals/                 # RAG quality (Ragas), trajectory analysis, domain accuracy, phase gate
+  evals/                 # Eval pipeline: dataset manager, runner, LLM judges, metrics, export CLI
   backup/                # SQLite online backup + integrity checks
+datasets/                # Eval question sets (eval_questions.json: 60 questions, 3 tiers)
 tests/                   # pytest: unit/ (pure logic), integration/ (needs services), e2e/
 knowledge/               # Git-tracked Markdown wiki articles
 data/                    # Git-lfs: database, backups; sources/manifest.yaml; scratch/ is gitignored

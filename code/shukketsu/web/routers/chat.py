@@ -177,7 +177,7 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
         if trace_id is not None and score is not None:
             try:
                 langfuse = get_client()
-                langfuse.score(
+                langfuse.create_score(
                     trace_id=trace_id,
                     name="user_feedback",
                     value=float(score),

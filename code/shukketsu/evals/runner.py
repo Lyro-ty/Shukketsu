@@ -10,8 +10,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langfuse import Langfuse
+from langfuse.model import CreateDatasetRunItemRequest
 
 from code.shukketsu import config
+from code.shukketsu.agents.base import BaseAgent
 from code.shukketsu.agents.tasks import AgentTask, ResearchTask
 from code.shukketsu.evals.dataset import EvalDatasetManager
 from code.shukketsu.evals.judge import (
@@ -46,9 +48,9 @@ class EvalRunner:
     ) -> None:
         self._dm = dataset_manager
         self._client = langfuse_client
-        self._agents: tuple | None = None
+        self._agents: tuple[BaseAgent, BaseAgent] | None = None
 
-    def _get_agents(self):  # type: ignore[no-untyped-def]
+    def _get_agents(self) -> tuple[BaseAgent, BaseAgent]:
         """Lazy-init agents (same pattern as chat handler)."""
         if self._agents is None:
             from code.shukketsu.agents.factory import AgentFactory
@@ -125,19 +127,30 @@ class EvalRunner:
                 await on_progress(i + 1, total)
 
         report = compute_phase_gate(results)
-        # Store report metadata on the run
-        self._client.update_dataset_run(
-            dataset_name=config.EVAL_DATASET_NAME,
-            run_name=run_name,
-            metadata={
-                "avg_faithfulness": report.avg_faithfulness,
-                "avg_answer_relevancy": report.avg_answer_relevancy,
-                "avg_trajectory_precision": report.avg_trajectory_precision,
-                "avg_domain_accuracy": report.avg_domain_accuracy,
-                "passed": report.passed,
-                "tier_breakdown": report.tier_breakdown,
-            },
-        )
+
+        # Store report summary as a score on the run's final trace
+        try:
+            self._client.create_score(
+                name="eval_run_summary",
+                value=1.0 if report.passed else 0.0,
+                comment=(
+                    f"faith={report.avg_faithfulness:.2f} "
+                    f"rel={report.avg_answer_relevancy:.2f} "
+                    f"traj={report.avg_trajectory_precision:.2f} "
+                    f"acc={report.avg_domain_accuracy:.2f}"
+                ),
+                metadata={
+                    "run_name": run_name,
+                    "avg_faithfulness": report.avg_faithfulness,
+                    "avg_answer_relevancy": report.avg_answer_relevancy,
+                    "avg_trajectory_precision": report.avg_trajectory_precision,
+                    "avg_domain_accuracy": report.avg_domain_accuracy,
+                    "passed": report.passed,
+                    "tier_breakdown": report.tier_breakdown,
+                },
+            )
+        except Exception:
+            logger.warning("Failed to record eval run summary score", exc_info=True)
 
         logger.info(
             "Eval run '%s' complete: %d questions, passed=%s",
@@ -158,9 +171,13 @@ class EvalRunner:
         key_facts = metadata.get("key_facts", [])
         sim_validation = metadata.get("sim_validation")
 
-        # Create a trace for this eval question
-        trace = self._client.trace(name="eval_question", metadata={"question_id": qid, "tier": item_tier})
-        trace_id = trace.id
+        # Create a trace for this eval question via span API
+        span = self._client.start_span(
+            name="eval_question",
+            metadata={"question_id": qid, "tier": item_tier},
+            input={"question": question},
+        )
+        trace_id = span.trace_id
 
         try:
             # Route through same path as chat
@@ -212,22 +229,27 @@ class EvalRunner:
                 # Blend sim accuracy into domain accuracy (50/50)
                 accuracy = (accuracy + sim_acc) / 2.0
 
+        # Close the span with output
+        span.update(output={"answer": answer})
+        span.end()
+
         # Record scores to Langfuse
         if trace_id:
-            for name, value in [
+            for score_name, score_value in [
                 ("faithfulness", faithfulness),
                 ("answer_relevancy", relevancy),
                 ("trajectory_precision", trajectory),
                 ("domain_accuracy", accuracy),
             ]:
-                self._client.score(trace_id=trace_id, name=name, value=value)
+                self._client.create_score(trace_id=trace_id, name=score_name, value=score_value)
 
             # Link trace to dataset run
-            self._client.create_dataset_run_item(
-                dataset_name=config.EVAL_DATASET_NAME,
-                run_name=run_name,
-                dataset_item_id=item["id"],
-                trace_id=trace_id,
+            self._client.api.dataset_run_items.create(
+                request=CreateDatasetRunItemRequest(
+                    runName=run_name,
+                    datasetItemId=item["id"],
+                    traceId=trace_id,
+                )
             )
 
         return EvalQuestionResult(

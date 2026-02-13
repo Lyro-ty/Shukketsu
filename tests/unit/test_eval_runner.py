@@ -36,10 +36,12 @@ def runner() -> EvalRunner:
     dm = MagicMock()
     dm.create_run.return_value = "test-run"
     client = MagicMock()
-    # Mock trace creation — returns object with .id
-    mock_trace = MagicMock()
-    mock_trace.id = "trace-auto"
-    client.trace.return_value = mock_trace
+    # Mock span creation — returns object with .trace_id
+    mock_span = MagicMock()
+    mock_span.trace_id = "trace-auto"
+    client.start_span.return_value = mock_span
+    # Mock low-level API for dataset run items
+    client.api.dataset_run_items.create.return_value = MagicMock()
     return EvalRunner(dataset_manager=dm, langfuse_client=client)
 
 
@@ -145,9 +147,9 @@ class TestRun:
         runner._dm.get_dataset_items.return_value = [_make_item()]
 
         await runner.run()
-        # Should have 4 scores (one per metric) + 1 run item link
-        assert runner._client.score.call_count == 4
-        runner._client.create_dataset_run_item.assert_called_once()
+        # Should have 4 per-question scores + 1 run summary score = 5 total
+        assert runner._client.create_score.call_count == 5
+        runner._client.api.dataset_run_items.create.assert_called_once()
 
     @patch("code.shukketsu.evals.runner.classify_query", new_callable=AsyncMock)
     @patch("code.shukketsu.evals.runner.judge_answer_relevancy", new_callable=AsyncMock)

@@ -25,7 +25,7 @@ class TrainingExporter:
 
     def export(
         self,
-        format: str = "sharegpt",
+        output_format: str = "sharegpt",
         min_feedback_score: float = 1.0,
         min_trajectory_precision: float = 0.7,
         output_path: Path | None = None,
@@ -33,7 +33,7 @@ class TrainingExporter:
         """Export positively-scored traces as JSONL.
 
         Args:
-            format: "sharegpt" or "function_calling".
+            output_format: "sharegpt" or "function_calling".
             min_feedback_score: Minimum user feedback score to include.
             min_trajectory_precision: Minimum trajectory precision to include.
             output_path: Where to write the file. Auto-generated if None.
@@ -44,7 +44,7 @@ class TrainingExporter:
         if output_path is None:
             config.EXPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
-            output_path = config.EXPORT_OUTPUT_DIR / f"training-{format}-{timestamp}.jsonl"
+            output_path = config.EXPORT_OUTPUT_DIR / f"training-{output_format}-{timestamp}.jsonl"
         else:
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -53,7 +53,7 @@ class TrainingExporter:
         count = 0
         with open(output_path, "w") as f:
             for trace in traces:
-                if format == "sharegpt":
+                if output_format == "sharegpt":
                     record = self._to_sharegpt(trace)
                 else:
                     record = self._to_function_calling(trace)
@@ -61,7 +61,7 @@ class TrainingExporter:
                     f.write(json.dumps(record) + "\n")
                     count += 1
 
-        logger.info("Exported %d traces to %s (format=%s)", count, output_path, format)
+        logger.info("Exported %d traces to %s (format=%s)", count, output_path, output_format)
         return output_path
 
     def _fetch_scored_traces(
@@ -71,8 +71,8 @@ class TrainingExporter:
     ) -> list[dict[str, Any]]:
         """Fetch traces with positive feedback from Langfuse."""
         try:
-            traces_response = self._client.fetch_traces(
-                tags=["chat"],
+            traces_response = self._client.api.trace.list(
+                tags="chat",
                 limit=500,
             )
             scored: list[dict[str, Any]] = []
@@ -167,7 +167,7 @@ def main() -> None:
     exporter = TrainingExporter(langfuse_client=client)
     output = args.output and Path(args.output)
     path = exporter.export(
-        format=args.format,
+        output_format=args.format,
         min_feedback_score=args.min_score,
         min_trajectory_precision=args.min_trajectory,
         output_path=output,

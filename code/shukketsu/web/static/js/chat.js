@@ -105,12 +105,25 @@ function handleMessage(msg) {
                 if (lastTraceId) {
                     const feedbackRow = document.createElement("div");
                     feedbackRow.className = "flex gap-2 mt-2 feedback-row";
-                    feedbackRow.innerHTML = `
-                        <button class="thumb-btn text-parchment-dim hover:text-green-400 transition-colors text-sm px-2 py-1 rounded border border-white/10 hover:border-green-400/50"
-                                onclick="sendFeedback(1, '${lastTraceId}', this.parentElement)">👍</button>
-                        <button class="thumb-btn text-parchment-dim hover:text-red-400 transition-colors text-sm px-2 py-1 rounded border border-white/10 hover:border-red-400/50"
-                                onclick="sendFeedback(0, '${lastTraceId}', this.parentElement)">👎</button>
-                    `;
+
+                    const upBtn = document.createElement("button");
+                    upBtn.className = "thumb-btn text-parchment-dim hover:text-green-400 transition-colors text-sm px-2 py-1 rounded border border-white/10 hover:border-green-400/50";
+                    upBtn.textContent = "👍";
+                    upBtn.dataset.traceId = lastTraceId;
+                    upBtn.addEventListener("click", function() {
+                        sendFeedback(1, this.dataset.traceId, this.parentElement);
+                    });
+
+                    const downBtn = document.createElement("button");
+                    downBtn.className = "thumb-btn text-parchment-dim hover:text-red-400 transition-colors text-sm px-2 py-1 rounded border border-white/10 hover:border-red-400/50";
+                    downBtn.textContent = "👎";
+                    downBtn.dataset.traceId = lastTraceId;
+                    downBtn.addEventListener("click", function() {
+                        sendFeedback(0, this.dataset.traceId, this.parentElement);
+                    });
+
+                    feedbackRow.appendChild(upBtn);
+                    feedbackRow.appendChild(downBtn);
                     currentAssistantEl.parentElement.appendChild(feedbackRow);
                 }
             }

@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from langfuse import Langfuse
 
 from code.shukketsu import config
 from code.shukketsu.evals.dataset import EvalDatasetManager
@@ -26,9 +27,10 @@ router = APIRouter(prefix="/evals", tags=["evals"])
 
 # In-memory run tracking (simple — one run at a time)
 _current_run: dict[str, Any] | None = None
+_background_task: asyncio.Task[None] | None = None
 
 
-def _get_langfuse():  # type: ignore[no-untyped-def]
+def _get_langfuse() -> Langfuse:
     """Get the Langfuse client singleton."""
     from code.shukketsu.observability.tracer import get_client
 
@@ -74,8 +76,9 @@ async def trigger_eval_run(
 
     _current_run = {"status": "starting", "progress": 0, "total": 0, "run_name": None}
 
-    # Launch eval in background
-    asyncio.create_task(_run_eval_background(tier))
+    # Launch eval in background (hold reference to prevent GC)
+    global _background_task  # noqa: PLW0603
+    _background_task = asyncio.create_task(_run_eval_background(tier))
 
     return _templates.TemplateResponse(
         request,

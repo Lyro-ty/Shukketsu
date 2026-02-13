@@ -128,7 +128,7 @@ class TestFeedbackMessage:
         mock_agents: MagicMock,
         mock_langfuse: MagicMock,
     ) -> None:
-        """Thumbs up should call langfuse.score()."""
+        """Thumbs up should call langfuse.create_score()."""
         mock_client = MagicMock()
         mock_langfuse.return_value = mock_client
 
@@ -142,8 +142,8 @@ class TestFeedbackMessage:
             ws.send_json({"type": "message", "content": ""})
             ws.receive_json()  # error (empty)
 
-        mock_client.score.assert_called_once()
-        call_kwargs = mock_client.score.call_args.kwargs
+        mock_client.create_score.assert_called_once()
+        call_kwargs = mock_client.create_score.call_args.kwargs
         assert call_kwargs["trace_id"] == "trace-xyz"
         assert call_kwargs["value"] == 1.0
 
@@ -163,5 +163,5 @@ class TestFeedbackMessage:
                 ws.send_json({"type": "message", "content": ""})
                 ws.receive_json()
 
-            call_kwargs = mock_client.score.call_args.kwargs
+            call_kwargs = mock_client.create_score.call_args.kwargs
             assert call_kwargs["value"] == 0.0

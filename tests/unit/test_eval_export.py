@@ -35,10 +35,10 @@ class TestShareGPTExport:
         client = MagicMock()
         resp = MagicMock()
         resp.data = [_mock_trace()]
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         exporter = TrainingExporter(langfuse_client=client)
-        path = exporter.export(format="sharegpt", output_path=tmp_path / "out.jsonl")
+        path = exporter.export(output_format="sharegpt", output_path=tmp_path / "out.jsonl")
 
         lines = path.read_text().strip().split("\n")
         assert len(lines) == 1
@@ -50,10 +50,10 @@ class TestShareGPTExport:
         client = MagicMock()
         resp = MagicMock()
         resp.data = [_mock_trace(output_text=None)]
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         exporter = TrainingExporter(langfuse_client=client)
-        path = exporter.export(format="sharegpt", output_path=tmp_path / "out.jsonl")
+        path = exporter.export(output_format="sharegpt", output_path=tmp_path / "out.jsonl")
 
         assert path.read_text().strip() == ""
 
@@ -65,10 +65,10 @@ class TestFunctionCallingExport:
         client = MagicMock()
         resp = MagicMock()
         resp.data = [_mock_trace()]
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         exporter = TrainingExporter(langfuse_client=client)
-        path = exporter.export(format="function_calling", output_path=tmp_path / "out.jsonl")
+        path = exporter.export(output_format="function_calling", output_path=tmp_path / "out.jsonl")
 
         lines = path.read_text().strip().split("\n")
         record = json.loads(lines[0])
@@ -83,11 +83,11 @@ class TestFiltering:
         client = MagicMock()
         resp = MagicMock()
         resp.data = [_mock_trace(feedback=0.0), _mock_trace(feedback=1.0)]
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(
-            format="sharegpt",
+            output_format="sharegpt",
             min_feedback_score=1.0,
             output_path=tmp_path / "out.jsonl",
         )
@@ -99,11 +99,11 @@ class TestFiltering:
         client = MagicMock()
         resp = MagicMock()
         resp.data = [_mock_trace(trajectory=0.3), _mock_trace(trajectory=0.9)]
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         exporter = TrainingExporter(langfuse_client=client)
         path = exporter.export(
-            format="sharegpt",
+            output_format="sharegpt",
             min_trajectory_precision=0.7,
             output_path=tmp_path / "out.jsonl",
         )
@@ -115,10 +115,10 @@ class TestFiltering:
         client = MagicMock()
         resp = MagicMock()
         resp.data = []
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         exporter = TrainingExporter(langfuse_client=client)
-        path = exporter.export(format="sharegpt", output_path=tmp_path / "out.jsonl")
+        path = exporter.export(output_format="sharegpt", output_path=tmp_path / "out.jsonl")
 
         assert path.read_text() == ""
 
@@ -126,9 +126,9 @@ class TestFiltering:
         client = MagicMock()
         resp = MagicMock()
         resp.data = [_mock_trace()]
-        client.fetch_traces.return_value = resp
+        client.api.trace.list.return_value = resp
 
         nested = tmp_path / "subdir" / "out.jsonl"
         exporter = TrainingExporter(langfuse_client=client)
-        path = exporter.export(format="sharegpt", output_path=nested)
+        path = exporter.export(output_format="sharegpt", output_path=nested)
         assert path.exists()
