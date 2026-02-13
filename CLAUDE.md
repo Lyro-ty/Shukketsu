@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), 3 (Memory, Reflection, Performance), and 4 (DPS Simulation Engine) are complete. Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, GB10 timeout tuning, and the **WCL API integration** (168 tests: OAuth2 auth, rate-limit-aware GraphQL client, Pydantic models, DB schema v5, ingest orchestrator, CLI). All other modules contain real implementation code — see Project Layout for the full listing.
+Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), 3 (Memory, Reflection, Performance), and 4 (DPS Simulation Engine) are complete (1,408 unit tests). Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, GB10 timeout tuning, and the **WCL API integration** (168 tests: OAuth2 auth, rate-limit-aware GraphQL client, Pydantic models, DB schema v5, ingest orchestrator, CLI). All other modules contain real implementation code — see Project Layout for the full listing.
 
 ## Development Workflow
 
@@ -67,7 +67,9 @@ All models are served via Ollama on port 11434 (llama.cpp has native Blackwell/G
 - **nomic-embed-text** via Ollama — 768-dim embeddings for RAG
 - **cross-encoder/ms-marco-MiniLM-L-6-v2** — sentence-transformers cross-encoder for search result reranking (CPU, lazy-loaded)
 
-All accessed via OpenAI-compatible HTTP APIs (`/v1`) using `instructor` + `openai` clients for structured output (Pydantic models). The 7B tier handles moderate queries that are too complex for a direct 4B answer but don't need full 70B reasoning.
+All accessed via Ollama's OpenAI-compatible HTTP API (`{OLLAMA_BASE_URL}/v1`) using `instructor` + `openai` clients for structured output (Pydantic models). The 7B tier handles moderate queries that are too complex for a direct 4B answer but don't need full 70B reasoning. Instructor clients use `max_retries=0` — retries are handled by our `@with_retry` decorator to avoid OpenAI client's 15-minute exponential backoff.
+
+**Important**: The Qwen3 router uses a custom Modelfile (`infra/Modelfile.qwen3-router`) that disables thinking mode. Qwen3 generates `<think>` tokens by default which consume the `max_tokens` budget through Ollama's `/v1` endpoint. Create the model with: `ollama create qwen3-router -f infra/Modelfile.qwen3-router`
 
 ### Multi-Agent System (no external framework)
 
@@ -83,8 +85,8 @@ The Orchestrator routes queries through Qwen 4B first (trivial → answered dire
 
 ### Storage
 
-Single SQLite file (`data/shukketsu.db`) with three extensions:
-- **sqlite-vec** for vector similarity search (cosine distance)
+Single SQLite file (`data/shukketsu.db`) with pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`. Three extensions:
+- **sqlite-vec** for vector similarity search (cosine distance, `distance_metric=cosine` in v0.1.7+)
 - **FTS5** for keyword search (BM25)
 - Results fused via Reciprocal Rank Fusion (RRF)
 
@@ -160,14 +162,38 @@ The following MCP servers are configured and should be used during development:
 
 All config is read from environment variables in `code/shukketsu/config.py`. API keys for Brave Search, Warcraft Logs, and Blizzard go in `variables.env`. Model URLs default to localhost (Ollama :11434, Langfuse :3000).
 
+Key runtime values (tuned for GB10):
+- `LLM_TIMEOUT_SECONDS = 300` — 70B structured output takes 2+ min on GB10
+- `OBSERVATION_MAX_CHARS = 2000` — truncate large tool observations to keep context manageable
+- `COMPACTION_THRESHOLD_TOKENS = 16000` — trigger scratchpad compaction above this
+- `BATCH_CONCURRENCY = 3` — parallel HTTP fetches during batch ingest
+- `RESEARCHER_MAX_ITERATIONS = 6` — balanced depth vs latency for GB10
+- Domain freshness intervals: warcraftlogs.com=24h, wowhead/icy-veins=720h, shadowpanther/tbcdb=2160h
+
+## Known Issues / Platform Gotchas
+
+These are hard-won lessons from the DGX Spark environment. Check this section before debugging mysterious failures:
+
+- **Cross-encoder reranker must use CPU**: The `cross-encoder/ms-marco-MiniLM-L-6-v2` model defaults to CUDA but sm_121 kernels aren't compiled. The reranker explicitly forces `device="cpu"` in `rag/reranker.py`. If adding new PyTorch models, always set `device="cpu"`.
+- **sqlite-vec CTE queries need `AND k = ?`**: sqlite-vec cannot see `LIMIT` inside CTEs. KNN queries in CTEs must use `WHERE embedding MATCH ? AND k = ?` instead of `LIMIT`. The `MATCH` clause returns a bytes blob via `struct.pack(f"{dim}f", *embedding)`.
+- **Langfuse Docker single-node**: Must set `CLICKHOUSE_CLUSTER_ENABLED: "false"` in docker-compose. Without it, ClickHouse migrations fail trying to create `ReplicatedMergeTree` tables (requires ZooKeeper/Keeper).
+- **trafilatura fails on JS-heavy sites**: Sites like Wowhead render content via JavaScript. Use the Playwright browser ingest mode (`--browser`) with `wait_until="domcontentloaded"` (not `networkidle` which times out).
+- **Qwen3 thinking tokens eat max_tokens**: Through Ollama's `/v1` endpoint, `<think>` tokens count against `max_tokens`. The router model uses a custom Modelfile that strips thinking. If adding new Qwen3 models, create a Modelfile without `<think>` in the template.
+- **asyncio cooperative scheduling**: Python asyncio is single-threaded with cooperative multitasking. There are NO race conditions between synchronous operations in async code (no preemptive context switches without `await`). Don't add unnecessary locks around synchronous state checks.
+- **Instructor `max_retries=0`**: Our `@with_retry` decorator handles retries externally. Setting `max_retries > 0` on the Instructor client triggers OpenAI's built-in exponential backoff (up to 15 min). Always use `max_retries=0` and wrap with `@with_retry` instead.
+- **`time.monotonic()` cannot go backward**: The rate limiter uses `time.monotonic()` precisely because it's guaranteed non-decreasing. Don't add clock-skew handling for monotonic timestamps.
+
 ## Testing
 
 Always use `python3 -m pytest` instead of bare `pytest` to avoid module import errors (Python's stdlib `code` module shadows the `code.shukketsu` package; `python3 -m pytest` adds CWD to `sys.path`).
 
 - `asyncio_mode = auto` in `pyproject.toml` — async tests run automatically
 - Markers: `@pytest.mark.integration`, `@pytest.mark.e2e`
-- `conftest.py` provides a `test_db` fixture via `db/connection.py` (WAL mode, sqlite-vec, foreign keys, full schema)
+- `conftest.py` provides two key fixtures:
+  - `test_db(tmp_path)` — fresh SQLite DB per test with full schema, WAL mode, sqlite-vec, foreign keys (same `get_connection()` + `init_db()` as production)
+  - `_reset_breakers()` (autouse) — resets all circuit breakers before/after each test to prevent state leakage between tests
 - Unit tests must have zero external dependencies (no network, no running services)
+- When running parallel sessions, check for orphaned pytest processes: `pkill -f pytest || true`
 
 ## Pre-Commit Checks
 
@@ -184,7 +210,7 @@ ruff check . --fix && ruff format . && python3 -m mypy . && python3 -m pytest
 
 ## Development Phases
 
-Phases 1-3 are complete. Post-Phase 3 work: batch ingest engine, 7B model tier, GB10 timeout tuning, WCL API integration. Planning docs live in `docs/plans/`:
+Phases 1-4 are complete (1,408 unit tests). Post-Phase 3 additions: batch ingest engine, 7B model tier, GB10 timeout tuning, WCL API integration (168 tests), Phase 4 DPS simulation (421 tests). Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -217,6 +243,7 @@ Phases 1-3 are complete. Post-Phase 3 work: batch ingest engine, 7B model tier, 
 | `2026-02-13-wcl-api-integration.md` | WCL API design doc (OAuth2, GraphQL, endpoints, schema, ingest modes) |
 | `2026-02-13-wcl-api-implementation.md` | WCL API implementation plan (10 tasks, 168 tests, complete) |
 | `2026-02-13-phase4-implementation.md` | Phase 4 implementation plan (12 steps, 421 sim tests, complete) |
+| `2026-02-13-phase5-eval-observability.md` | **Active plan** — Phase 5 design doc (Langfuse-primary eval, 60-question dataset, feedback, dashboard, export) |
 
 ### Phase 1: Agent Core — COMPLETE
 
@@ -241,7 +268,7 @@ The active implementation plan (`phase-2-multi-agent-rag.md`) builds on Phase 1:
 
 ### Phase 3: Memory, Reflection, and Performance (9 steps) — COMPLETE
 
-All 9 steps done. 778 tests at completion, now 813 with post-phase additions (batch ingest, manifest, 7B routing).
+All 9 steps done. 778 tests at completion, grew to 813 with post-phase additions (batch ingest, manifest, 7B routing).
 
 **Post-Phase 3 additions** (not part of a numbered phase):
 - Batch ingest engine (`ingest/batch.py`) with YAML manifest, concurrent/browser modes, entity extraction pass
@@ -267,7 +294,21 @@ Full discrete-event TBC 2.4.3 Rogue DPS simulation engine. 421 sim tests. 12 ste
 11. ~~Sim Web UI~~ — COMPLETE (FastAPI routes, Jinja2 templates, Chart.js, HTMX partials, gear table, stat weights)
 12. ~~Validation Profiles~~ — COMPLETE (9 canonical profiles, verified item IDs, DPS range validation)
 
+### Phase 5: Evaluation + Observability Polish (8 steps) — DESIGN COMPLETE
+
+Langfuse-primary evaluation pipeline with three-tier 60-question dataset, user feedback, lean dashboard, and fine-tuning export. Design doc: `2026-02-13-phase5-eval-observability.md`.
+
+1. Config + Metrics Foundation — PENDING
+2. Judge Extensions — PENDING
+3. Eval Dataset Content + Manager — PENDING
+4. Eval Runner — PENDING
+5. Chat Feedback — PENDING
+6. Dashboard UI — PENDING
+7. Fine-Tuning Export — PENDING
+8. Integration Wiring — PENDING
+
+**Phase gate**: Full 60-question eval runs end-to-end, scores visible in dashboard and Langfuse, user feedback attaches to traces, export CLI produces valid JSONL.
+
 ### Future Phases
 
-- **Phase 5**: Evaluation + observability polish (Ragas, trajectory eval, feedback)
 - **Phase 6**: UI polish + growth (talent trees, sim builder, charts, PvP)
