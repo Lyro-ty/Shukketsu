@@ -659,3 +659,61 @@ class TestMemoryIntegration:
         task = call_args[0][0] if call_args[0] else call_args.kwargs.get("task")
         # No memory_context should be set when recall returns empty
         assert not task.context.get("memory_context")
+
+
+class TestLangfuseResilience:
+    """Tests that Langfuse failures never block answer delivery."""
+
+    @patch("code.shukketsu.web.routers.chat.get_client")
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_langfuse_trace_update_failure_still_delivers_answer(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+        mock_langfuse: MagicMock,
+    ) -> None:
+        """If langfuse.update_current_trace() raises, the answer should still be delivered."""
+        mock_classify.return_value = _trivial_decision("Direct answer works.")
+
+        # Make update_current_trace raise but get_current_trace_id work
+        client_instance = MagicMock()
+        client_instance.update_current_trace.side_effect = RuntimeError("Langfuse is down")
+        client_instance.get_current_trace_id.return_value = None
+        mock_langfuse.return_value = client_instance
+
+        mock_agents.return_value = _mock_agents()
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "test"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+            assert done["content"] == "Direct answer works."
+
+    @patch("code.shukketsu.web.routers.chat.get_client")
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_langfuse_trace_id_failure_still_delivers_answer(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+        mock_langfuse: MagicMock,
+    ) -> None:
+        """If get_current_trace_id() raises, the answer should still be delivered with trace_id=None."""
+        mock_classify.return_value = _trivial_decision("Answer despite trace failure.")
+
+        client_instance = MagicMock()
+        client_instance.update_current_trace.return_value = None
+        client_instance.get_current_trace_id.side_effect = RuntimeError("Trace retrieval failed")
+        mock_langfuse.return_value = client_instance
+
+        mock_agents.return_value = _mock_agents()
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "test"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+            assert done["content"] == "Answer despite trace failure."
+            assert done["trace_id"] is None

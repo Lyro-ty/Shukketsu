@@ -133,6 +133,38 @@ class TestExtractSessionMemory:
         count = mem_db.execute("SELECT COUNT(*) FROM session_memories").fetchone()[0]
         assert count == 0
 
+    @patch("code.shukketsu.llm.structured.get_structured_output", new_callable=AsyncMock)
+    async def test_extract_embedding_failure_rolls_back(self, mock_llm: AsyncMock, mem_db: sqlite3.Connection) -> None:
+        """If embedding fails after session_memories INSERT, the row must be rolled back.
+
+        Without rollback, a subsequent commit (e.g. from record_strategy) would
+        persist the orphaned row that has no corresponding embedding.
+        """
+        from code.shukketsu.memory.manager import MemoryManager
+        from code.shukketsu.memory.models import MemoryExtraction
+
+        mock_llm.return_value = MemoryExtraction(
+            summary="test summary",
+            key_facts=[],
+            entities_mentioned=[],
+        )
+
+        # Embedding function that raises after the INSERT
+        async def _failing_embed(text: str) -> list[float]:
+            raise RuntimeError("Embedding service down")
+
+        mm = MemoryManager(conn=mem_db, embed_fn=_failing_embed)
+        await mm.extract_session_memory(query="test", answer="test", trajectory=[])
+
+        # The partial INSERT should have been rolled back
+        count = mem_db.execute("SELECT COUNT(*) FROM session_memories").fetchone()[0]
+        assert count == 0, "Orphaned session_memories row not rolled back"
+
+        # Verify a subsequent strategy recording doesn't accidentally commit the orphan
+        await mm.record_strategy(query="test", tools_used=["rag_search"], quality=0.5)
+        count = mem_db.execute("SELECT COUNT(*) FROM session_memories").fetchone()[0]
+        assert count == 0, "Strategy commit leaked orphaned session_memories row"
+
 
 class TestRecallRelevant:
     """Tests for recall_relevant."""

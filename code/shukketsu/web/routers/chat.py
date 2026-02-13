@@ -224,12 +224,15 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
     session.add_message("user", content)
 
     try:
-        langfuse = get_client()
-        langfuse.update_current_trace(
-            session_id=str(id(session)),
-            tags=["chat"],
-            input=content,
-        )
+        try:
+            langfuse = get_client()
+            langfuse.update_current_trace(
+                session_id=str(id(session)),
+                tags=["chat"],
+                input=content,
+            )
+        except Exception:
+            logger.warning("Langfuse trace update failed, continuing without tracing", exc_info=True)
 
         # Memory recall: fetch relevant context from previous sessions
         memory_context: str | None = None
@@ -317,7 +320,11 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                 if result.needs_human_review:
                     answer += "\n*Article pending review in Wiki*"
 
-        trace_id = get_client().get_current_trace_id()
+        try:
+            trace_id = get_client().get_current_trace_id()
+        except Exception:
+            logger.warning("Failed to get Langfuse trace ID", exc_info=True)
+            trace_id = None
         session.add_message("assistant", answer)
         await websocket.send_json({"type": "done", "content": answer, "trace_id": trace_id})
 

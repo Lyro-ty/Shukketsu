@@ -116,6 +116,7 @@ class MemoryManager:
             self._conn.commit()
 
         except Exception:
+            self._conn.rollback()
             logger.warning("Memory extraction failed", exc_info=True)
 
     async def recall_relevant(
