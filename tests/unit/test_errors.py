@@ -70,3 +70,25 @@ def test_circuit_open_error_has_model_unavailable_mode() -> None:
     assert err.failure_mode == FailureMode.MODEL_UNAVAILABLE
     assert err.breaker_name == "brave_search"
     assert "brave_search" in str(err)
+
+
+class TestPhase4Errors:
+    def test_wcl_bridge_error(self) -> None:
+        from code.shukketsu.resilience.errors import FailureMode, WCLBridgeError
+
+        err = WCLBridgeError("Missing weapon item 32837")
+        assert err.failure_mode == FailureMode.SIM_VALIDATION
+        assert "32837" in str(err)
+
+    def test_log_parse_error(self) -> None:
+        from code.shukketsu.resilience.errors import FailureMode, LogParseError
+
+        err = LogParseError("Invalid CLEU line format")
+        assert err.failure_mode == FailureMode.SIM_VALIDATION
+        assert "CLEU" in str(err)
+
+    def test_validation_pipeline_error(self) -> None:
+        from code.shukketsu.resilience.errors import FailureMode, ValidationPipelineError
+
+        err = ValidationPipelineError("No valid fights found")
+        assert err.failure_mode == FailureMode.SIM_VALIDATION

@@ -194,3 +194,24 @@ class ItemNotFoundError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.TOOL_EXECUTION_ERROR)
+
+
+class WCLBridgeError(ShukketsuError):
+    """Raised when WCL-to-SimConfig bridge cannot reconstruct a config."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
+
+
+class LogParseError(ShukketsuError):
+    """Raised when a combat log cannot be parsed."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
+
+
+class ValidationPipelineError(ShukketsuError):
+    """Raised when the validation pipeline fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.SIM_VALIDATION)
