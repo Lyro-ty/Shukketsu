@@ -138,7 +138,7 @@ class KnowledgeManager:
         post = frontmatter.Post(content, **meta.model_dump(mode="json"))
         full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
 
-        # Insert DB row
+        # Insert DB row — clean up file if DB write fails for any reason
         try:
             self._conn.execute(
                 """INSERT INTO articles
@@ -160,6 +160,10 @@ class KnowledgeManager:
             # Race condition: another process inserted between check and insert
             full_path.unlink(missing_ok=True)
             raise ValueError(f"Article already exists at path: {path}")
+        except Exception:
+            self._conn.rollback()
+            full_path.unlink(missing_ok=True)
+            raise
 
         logger.info("Created draft article: %s", path)
         return path
@@ -193,14 +197,22 @@ class KnowledgeManager:
         now = datetime.now(tz=meta.updated_at.tzinfo)
         meta_updated = meta.model_copy(update={"updated_at": now})
 
-        # Save original content so we can restore on DB failure
+        # Save original content so we can restore on any failure
         original_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
 
-        # Write file
-        post = frontmatter.Post(content, **meta_updated.model_dump(mode="json"))
-        full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+        # Write file then update DB — restore original on any failure
+        try:
+            post = frontmatter.Post(content, **meta_updated.model_dump(mode="json"))
+            full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+        except Exception:
+            # File write failed — restore original content if possible
+            if original_content is not None:
+                try:
+                    full_path.write_text(original_content, encoding="utf-8")
+                except Exception:
+                    logger.warning("Failed to restore original content for %s", path, exc_info=True)
+            raise
 
-        # Update DB row — restore file on failure
         try:
             self._conn.execute(
                 """UPDATE articles SET title = ?, confidence_score = ?, last_updated = ?
@@ -339,8 +351,17 @@ class KnowledgeManager:
         full_path = self._safe_path(path)
         original_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
 
-        post = frontmatter.Post(content, **updated.model_dump(mode="json", exclude_none=True))
-        full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+        try:
+            post = frontmatter.Post(content, **updated.model_dump(mode="json", exclude_none=True))
+            full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+        except Exception:
+            # File write failed — restore original content if possible
+            if original_content is not None:
+                try:
+                    full_path.write_text(original_content, encoding="utf-8")
+                except Exception:
+                    logger.warning("Failed to restore original content for %s", path, exc_info=True)
+            raise
 
         # Update DB — restore file on failure
         try:

@@ -3,6 +3,7 @@
 import sqlite3
 import time
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -201,6 +202,75 @@ class TestUpdateDraft:
         content = full_path.read_text(encoding="utf-8")
         assert "Original content" in content
         assert "New content" not in content
+
+
+class TestCreateDraftConsistency:
+    """Tests for create_draft file-DB consistency on errors."""
+
+    def test_db_error_cleans_up_file(self, km: KnowledgeManager, tmp_path, test_db: sqlite3.Connection) -> None:
+        """If DB INSERT fails (non-IntegrityError), the file should be cleaned up."""
+        meta = _sample_meta()
+        path = derive_path(meta.spec, meta.category, meta.title)
+        full_path = tmp_path / "knowledge" / path
+
+        # Close the DB connection to force a generic DB error
+        test_db.close()
+
+        with pytest.raises(Exception):
+            km.create_draft(meta, "Content")
+
+        # File should NOT exist (cleaned up after DB error)
+        assert not full_path.exists(), "Orphaned file left after DB error"
+
+
+class TestUpdateDraftConsistency:
+    """Tests for update_draft file-DB consistency on write errors."""
+
+    def test_file_write_failure_restores_original(self, km: KnowledgeManager, tmp_path) -> None:
+        """If file write fails, original content should be restored."""
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Original content")
+        full_path = tmp_path / "knowledge" / path
+
+        # Patch write_text to fail on the UPDATE call (second call)
+        original_write = full_path.__class__.write_text
+        call_count = [0]
+
+        def _failing_write(self_path, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] > 0 and str(self_path) == str(full_path):
+                raise OSError("Disk full")
+            return original_write(self_path, *args, **kwargs)
+
+        with patch.object(full_path.__class__, "write_text", _failing_write):
+            with pytest.raises(OSError, match="Disk full"):
+                km.update_draft(path, _sample_meta(confidence=0.9), "New content")
+
+        # File should still have original content (restored)
+        content = full_path.read_text(encoding="utf-8")
+        assert "Original content" in content
+
+
+class TestRejectArticleConsistency:
+    """Tests for reject_article file-DB consistency."""
+
+    def test_db_failure_restores_file(self, km: KnowledgeManager, tmp_path, test_db: sqlite3.Connection) -> None:
+        """If DB UPDATE fails during reject, original file should be restored."""
+        meta = _sample_meta()
+        path = km.create_draft(meta, "Content")
+        km.set_status(path, ArticleStatus.REVIEW)
+        full_path = tmp_path / "knowledge" / path
+        original_content = full_path.read_text(encoding="utf-8")
+
+        # Close DB to force failure
+        test_db.close()
+
+        with pytest.raises(Exception):
+            km.reject_article(path, "Bad article")
+
+        # File should still have the pre-rejection content
+        restored = full_path.read_text(encoding="utf-8")
+        assert restored == original_content
 
 
 class TestListArticles:
