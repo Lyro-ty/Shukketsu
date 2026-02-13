@@ -146,6 +146,10 @@ def get_check_interval(url: str) -> int:
     return DOMAIN_CHECK_INTERVALS.get(domain, DEFAULT_CHECK_INTERVAL_HOURS)
 
 
+# Batch ingest
+BATCH_CONCURRENCY = int(os.getenv("BATCH_CONCURRENCY", "3"))
+MANIFEST_PATH = Path(os.getenv("MANIFEST_PATH", "/project/data/sources/manifest.yaml"))
+
 # Backup
 BACKUP_KEEP_COUNT = int(os.getenv("BACKUP_KEEP_COUNT", "7"))
 
