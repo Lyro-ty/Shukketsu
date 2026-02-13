@@ -78,7 +78,14 @@ async def sim_run(request: Request) -> Response:
         import_text = str(form.get("import_text", ""))
         config = runner.build_config_from_import(import_text)
 
-        iterations = int(str(form.get("iterations", "1000")))
+        try:
+            iterations = int(str(form.get("iterations", "1000")))
+        except (ValueError, TypeError):
+            return HTMLResponse('<div class="text-red-400 p-4">Error: Invalid iterations value.</div>')
+        if iterations < 1 or iterations > 1_000_000:
+            return HTMLResponse(
+                '<div class="text-red-400 p-4">Error: Iterations must be between 1 and 1,000,000.</div>'
+            )
         config = config.model_copy(update={"iterations": iterations})
 
         result = await runner.sim_run(config)

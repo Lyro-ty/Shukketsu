@@ -82,7 +82,10 @@ class WCLClient:
             )
 
             if response.status_code == 429:
-                retry_after = float(response.headers.get("Retry-After", "60"))
+                try:
+                    retry_after = float(response.headers.get("Retry-After", "60"))
+                except (ValueError, TypeError):
+                    retry_after = 60.0
                 raise WCLRateLimitError(
                     f"WCL rate limited (429), retry after {retry_after}s",
                     points_reset_in=retry_after,
@@ -91,7 +94,10 @@ class WCLClient:
             if response.status_code != 200:
                 raise WCLQueryError(f"WCL API returned HTTP {response.status_code}: {response.text[:200]}")
 
-            result = response.json()
+            try:
+                result = response.json()
+            except ValueError as exc:
+                raise WCLQueryError(f"Malformed JSON response from WCL: {exc}") from exc
 
             if "errors" in result:
                 error_msgs = [e.get("message", "Unknown") for e in result["errors"]]

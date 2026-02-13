@@ -6,7 +6,7 @@ throughout the sim package.
 
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # --- Enums ---
 
@@ -258,11 +258,11 @@ class SimConfig(BaseModel):
     consumables: list[str] = []
     boss: BossConfig = BossConfig()
     fight_type: FightType = FightType.PATCHWERK
-    target_count: int = 1
-    fight_length: int = 300
-    iterations: int = 10000
+    target_count: int = Field(default=1, ge=1, le=20)
+    fight_length: int = Field(default=300, ge=10, le=1800)
+    iterations: int = Field(default=10000, ge=1, le=1_000_000)
     raid_preset: str = "full_25man"
-    latency_ms: int = 0
+    latency_ms: int = Field(default=0, ge=0, le=500)
 
 
 # --- Simulation Result (Output) ---

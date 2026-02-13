@@ -63,7 +63,10 @@ class Researcher(BaseAgent):
         if self.role is None:
             raise ValueError("Researcher requires a role. Use AgentFactory or set role in constructor.")
 
-        outcome = await self._run_loop(task.query, on_status=on_status, model_name=model_name)
+        memory_ctx = task.context.get("memory_context") if task.context else None
+        outcome = await self._run_loop(
+            task.query, on_status=on_status, memory_context=memory_ctx, model_name=model_name
+        )
 
         trajectory = [ToolCallRecord(tool_name=e["tool_name"], tool_input=e["tool_input"]) for e in outcome.scratchpad]
 

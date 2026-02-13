@@ -222,7 +222,6 @@ ABILITIES: dict[str, AbilityDef] = {
         bonus_per_combo_point=3000,
         flags={
             AbilityFlag.FINISHER,
-            AbilityFlag.OFF_GCD,
         },
     ),
     "expose_armor": AbilityDef(

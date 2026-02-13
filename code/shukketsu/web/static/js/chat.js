@@ -137,8 +137,10 @@ function handleMessage(msg) {
 
         case "status":
             if (msg.content !== "connected" && currentAssistantEl) {
-                currentAssistantEl.innerHTML =
-                    `<span class="text-parchment-dim text-sm loading-dots">${msg.content}</span>`;
+                const statusSpan = document.createElement("span");
+                statusSpan.className = "text-parchment-dim text-sm loading-dots";
+                statusSpan.textContent = msg.content;
+                currentAssistantEl.replaceChildren(statusSpan);
                 scrollToBottom();
             }
             break;

@@ -117,7 +117,7 @@ async def wiki_article(
         from code.shukketsu.freshness.checker import count_stale_sources
 
         source_urls = [s.url for s in meta.sources]
-        stale_source_count = count_stale_sources(km._conn, source_urls)
+        stale_source_count = count_stale_sources(km.get_db_connection(), source_urls)
 
     article_html = render_markdown(content)
     return _templates.TemplateResponse(

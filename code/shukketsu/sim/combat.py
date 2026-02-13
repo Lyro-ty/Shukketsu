@@ -511,8 +511,12 @@ class CombatSimulation:
                 state.damage_by_ability["blade_flurry_cleave"] += cleave_dmg
                 state.total_damage += cleave_dmg
 
-            # Combat Potency proc (OH hits only)
-            if self._modifiers.combat_potency_proc_chance > 0 and outcome in (HitOutcome.HIT, HitOutcome.CRIT):
+            # Combat Potency proc (OH successful hits only — includes glancing)
+            if self._modifiers.combat_potency_proc_chance > 0 and outcome in (
+                HitOutcome.HIT,
+                HitOutcome.CRIT,
+                HitOutcome.GLANCING,
+            ):
                 if rng.random() < self._modifiers.combat_potency_proc_chance:
                     gained = int(self._modifiers.combat_potency_energy)
                     state.energy = min(state.max_energy, state.energy + gained)
@@ -633,34 +637,6 @@ class CombatSimulation:
         if ability_name == "rupture":
             cp = max(1, state.combo_points)
 
-            # Rupture duration: 6 + 2*CP seconds
-            duration_ms = (6 + 2 * cp) * 1000
-            num_ticks = duration_ms // RUPTURE_TICK_INTERVAL_MS
-
-            # Damage per tick: base + CP bonus + AP coefficient
-            dpt = RUPTURE_BASE_DPT + RUPTURE_CP_DPT * cp + self._base_stats["attack_power"] * 0.04
-            dpt *= 1.0 + self._modifiers.rupture_damage_bonus_pct
-            dpt *= 1.0 + self._modifiers.murder_damage_pct
-
-            dot_state = DotState(
-                remaining_ticks=num_ticks,
-                tick_interval_ms=RUPTURE_TICK_INTERVAL_MS,
-                damage_per_tick=dpt,
-                next_tick_ms=state.current_time_ms + RUPTURE_TICK_INTERVAL_MS,
-                snapshot_ap=self._base_stats["attack_power"],
-            )
-            state.dot_timers["rupture"] = dot_state
-
-            # Schedule first tick
-            self._schedule(
-                SimEvent(
-                    timestamp_ms=dot_state.next_tick_ms,
-                    event_type=EventType.DOT_TICK,
-                    priority=2,
-                    data={"dot_name": "rupture"},
-                )
-            )
-
             outcome = resolve_yellow_hit(
                 self._miss_chance_yellow,
                 self._dodge_chance,
@@ -672,11 +648,38 @@ class CombatSimulation:
             state.casts_by_ability["rupture"] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                # Rupture missed/dodged - remove DOT, refund energy
-                del state.dot_timers["rupture"]
+                # Rupture missed/dodged — refund energy, no DOT applied
                 state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
+
+                # Rupture duration: 6 + 2*CP seconds
+                duration_ms = (6 + 2 * cp) * 1000
+                num_ticks = duration_ms // RUPTURE_TICK_INTERVAL_MS
+
+                # Damage per tick: base + CP bonus + AP coefficient
+                dpt = RUPTURE_BASE_DPT + RUPTURE_CP_DPT * cp + self._base_stats["attack_power"] * 0.04
+                dpt *= 1.0 + self._modifiers.rupture_damage_bonus_pct
+                dpt *= 1.0 + self._modifiers.murder_damage_pct
+
+                dot_state = DotState(
+                    remaining_ticks=num_ticks,
+                    tick_interval_ms=RUPTURE_TICK_INTERVAL_MS,
+                    damage_per_tick=dpt,
+                    next_tick_ms=state.current_time_ms + RUPTURE_TICK_INTERVAL_MS,
+                    snapshot_ap=self._base_stats["attack_power"],
+                )
+                state.dot_timers["rupture"] = dot_state
+
+                # Schedule first tick
+                self._schedule(
+                    SimEvent(
+                        timestamp_ms=dot_state.next_tick_ms,
+                        event_type=EventType.DOT_TICK,
+                        priority=2,
+                        data={"dot_name": "rupture"},
+                    )
+                )
 
             # Relentless Strikes
             self._check_relentless_strikes(cp, state, rng)
@@ -814,7 +817,7 @@ class CombatSimulation:
         if ability_name == "garrote":
             # Garrote is a DOT opener: 18s duration, ticks every 3s (6 ticks)
             num_ticks = ability_def.duration_ms // GARROTE_TICK_INTERVAL_MS
-            dpt = GARROTE_BASE_DPT + self._base_stats["attack_power"] * ability_def.ap_coefficient
+            dpt = GARROTE_BASE_DPT + self._base_stats["attack_power"] * ability_def.ap_coefficient / num_ticks
             dpt *= 1.0 + self._modifiers.murder_damage_pct
 
             outcome = resolve_yellow_hit(

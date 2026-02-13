@@ -170,7 +170,7 @@ class ReportDiver:
                     eid,
                     f.get("name", ""),
                     1 if f.get("kill") else 0,
-                    f.get("duration", 0) if f.get("duration") else 0,
+                    (f.get("endTime", 0) or 0) - (f.get("startTime", 0) or 0),
                     f.get("bossPercentage"),
                     f.get("averageItemLevel"),
                     f.get("size"),
@@ -513,6 +513,7 @@ async def _async_main(args: argparse.Namespace) -> None:
 
     conn = get_connection(config.DB_PATH)
     init_db(conn)
+    client: WCLClient | None = None
 
     try:
         auth = WCLAuth()
@@ -592,7 +593,8 @@ async def _async_main(args: argparse.Namespace) -> None:
 
         print("No action specified. Use --help for options.")
     finally:
-        await client.close()
+        if client is not None:
+            await client.close()
         conn.close()
 
 

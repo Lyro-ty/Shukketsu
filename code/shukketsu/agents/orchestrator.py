@@ -235,11 +235,13 @@ class Orchestrator(BaseAgent):
             return
 
         # Build typed task
+        memory_ctx = task.context.get("memory_context") if task.context else None
         try:
             typed_task = self._build_task(
                 subtask,
                 results,
                 task.trace_id,
+                memory_context=memory_ctx,
             )
         except (ValueError, KeyError) as exc:
             logger.warning(
@@ -572,13 +574,17 @@ class Orchestrator(BaseAgent):
         subtask: SubTask,
         results: list[AgentResult | None],
         trace_id: str,
+        memory_context: str | None = None,
     ) -> AgentTask:
         """Build a typed task from a SubTask and completed dependency results."""
         if subtask.agent_role == AgentRole.RESEARCHER:
+            ctx: dict[str, Any] = {"complexity": "complex"}
+            if memory_context:
+                ctx["memory_context"] = memory_context
             return ResearchTask(
                 query=subtask.description,
                 trace_id=trace_id,
-                context={"complexity": "complex"},
+                context=ctx,
             )
 
         if subtask.agent_role == AgentRole.WRITER:
