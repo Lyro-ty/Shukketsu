@@ -403,7 +403,7 @@ class TestSendStatusFormat:
         mock_classify.return_value = _moderate_decision()
         researcher, orchestrator = _mock_agents("Answer")
 
-        async def _capture_execute(task, on_status=None):  # type: ignore[no-untyped-def]
+        async def _capture_execute(task, on_status=None, **kwargs):  # type: ignore[no-untyped-def]
             if on_status:
                 await on_status("test string message")
             return MagicMock(output="Answer")
@@ -432,7 +432,7 @@ class TestSendStatusFormat:
         mock_classify.return_value = _moderate_decision()
         researcher, orchestrator = _mock_agents("Answer")
 
-        async def _capture_execute(task, on_status=None):  # type: ignore[no-untyped-def]
+        async def _capture_execute(task, on_status=None, **kwargs):  # type: ignore[no-untyped-def]
             if on_status:
                 await on_status({"type": "step", "agent": "researcher", "action": "tool_call", "tool": "rag_search"})
             return MagicMock(output="Answer")
