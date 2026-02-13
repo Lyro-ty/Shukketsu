@@ -20,6 +20,7 @@ class FailureMode(StrEnum):
     RATE_LIMITED = "rate_limited"
     HTTP_ERROR = "http_error"
     ACCESS_DENIED = "access_denied"
+    WCL_API = "wcl_api"
 
     # Data failures
     DB_ERROR = "db_error"
@@ -138,3 +139,25 @@ class GraphTraversalError(ShukketsuError):
 
     def __init__(self, message: str):
         super().__init__(message, FailureMode.DB_ERROR)
+
+
+class WCLAuthError(ShukketsuError):
+    """WCL OAuth2 authentication failure."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.WCL_API)
+
+
+class WCLRateLimitError(ShukketsuError):
+    """WCL API rate limit exceeded."""
+
+    def __init__(self, message: str, points_reset_in: float = 0):
+        super().__init__(message, FailureMode.WCL_API)
+        self.points_reset_in = points_reset_in
+
+
+class WCLQueryError(ShukketsuError):
+    """WCL GraphQL query error (invalid query, archived report, etc)."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureMode.WCL_API)

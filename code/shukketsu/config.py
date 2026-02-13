@@ -150,6 +150,20 @@ def get_check_interval(url: str) -> int:
 BATCH_CONCURRENCY = int(os.getenv("BATCH_CONCURRENCY", "3"))
 MANIFEST_PATH = Path(os.getenv("MANIFEST_PATH", "/project/data/sources/manifest.yaml"))
 
+# WCL API
+WCL_TOKEN_URL = "https://www.warcraftlogs.com/oauth/token"
+WCL_CLASSIC_ENDPOINT = "https://classic.warcraftlogs.com/api/v2/client"
+WCL_FRESH_ENDPOINT = "https://fresh.warcraftlogs.com/api/v2/client"
+WCL_RATE_LIMIT_BUDGET = 3600
+WCL_RATE_LIMIT_BUFFER = int(os.getenv("WCL_RATE_LIMIT_BUFFER", "600"))
+WCL_RATE_CHECK_INTERVAL = int(os.getenv("WCL_RATE_CHECK_INTERVAL", "10"))
+WCL_QUERY_TIMEOUT = float(os.getenv("WCL_QUERY_TIMEOUT", "30.0"))
+WCL_TRACKED_CHARACTERS: list[dict[str, str | int]] = [
+    {"wcl_id": 104956434, "name": "Lyroo", "server": "nightslayer", "region": "us", "endpoint": "fresh"},
+]
+CB_WCL_FAILURE_THRESHOLD = int(os.getenv("CB_WCL_FAILURE_THRESHOLD", "3"))
+CB_WCL_RECOVERY_TIMEOUT = float(os.getenv("CB_WCL_RECOVERY_TIMEOUT", "60"))
+
 # Backup
 BACKUP_KEEP_COUNT = int(os.getenv("BACKUP_KEEP_COUNT", "7"))
 
