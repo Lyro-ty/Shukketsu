@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), and 3 (Memory, Reflection, Performance) are complete (813 tests). Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, and GB10 timeout tuning. The `sim/` directory remains a stub (Phase 4). All other modules contain real implementation code — see Project Layout for the full listing.
+Phases 1 (Agent Core), 2 (Multi-Agent + Agentic RAG), and 3 (Memory, Reflection, Performance) are complete. Post-Phase 3 additions include a batch ingest engine, fast 7B model tier, GB10 timeout tuning, and the **WCL API integration** (168 tests: OAuth2 auth, rate-limit-aware GraphQL client, Pydantic models, DB schema v5, ingest orchestrator, CLI). All other modules contain real implementation code — see Project Layout for the full listing.
 
 ## Development Workflow
 
@@ -22,6 +22,14 @@ python3 -m uvicorn code.shukketsu.web.app:app --host 0.0.0.0 --port 9000
 python3 -m code.shukketsu.ingest.batch --manifest data/sources/manifest.yaml
 python3 -m code.shukketsu.ingest.batch --browser --priority 1    # Playwright for JS-rendered pages
 python3 -m code.shukketsu.ingest.batch --extract-only             # Entity extraction pass only
+
+# WCL API ingest
+python3 -m code.shukketsu.apis.wcl.ingest --sync-characters       # Sync Lyroo's latest reports
+python3 -m code.shukketsu.apis.wcl.ingest --rankings --zone 1052  # Top 100 Rogue rankings
+python3 -m code.shukketsu.apis.wcl.ingest --report TNtKz3G1H9kVAQr4  # Deep-dive a report
+python3 -m code.shukketsu.apis.wcl.ingest --full                  # Full zone sweep
+python3 -m code.shukketsu.apis.wcl.ingest --rate-limit            # Check rate limit status
+python3 -m code.shukketsu.apis.wcl.ingest --stats                 # WCL database stats
 
 # Tests — MUST use `python3 -m pytest` (bare `pytest` hits stdlib `code` module conflict)
 python3 -m pytest tests/unit/ -v                        # Unit tests (no external deps)
@@ -80,13 +88,23 @@ Single SQLite file (`data/shukketsu.db`) with three extensions:
 - **FTS5** for keyword search (BM25)
 - Results fused via Reciprocal Rank Fusion (RRF)
 
-The database also stores a **knowledge graph** (schema v4): `entity_types`, `entities` (deduplicated by canonical name + type), `relationships` (deduplicated by source + target + type), plus Phase 3 tables: `session_memories`, `strategy_memories`, `trust_events`. Entity names are normalized and resolved through an alias table for WoW abbreviations (e.g., DST → Dragonspine Trophy). Entity extraction is performed via Llama 70B structured output during ingest (best-effort, non-blocking).
+The database also stores a **knowledge graph** (schema v5): `entity_types`, `entities` (deduplicated by canonical name + type), `relationships` (deduplicated by source + target + type), Phase 3 tables: `session_memories`, `strategy_memories`, `trust_events`, and WCL tables (v5): `wcl_tracked_characters`, `wcl_rankings`, `wcl_reports`, `wcl_fights`, `wcl_combatants`, `wcl_damage`, `wcl_buffs`, `wcl_casts`, `wcl_fight_rankings`, `wcl_character_log`. Entity names are normalized and resolved through an alias table for WoW abbreviations (e.g., DST → Dragonspine Trophy). Entity extraction is performed via Llama 70B structured output during ingest (best-effort, non-blocking).
 
 Wiki articles are git-tracked Markdown files in `knowledge/` with YAML frontmatter (confidence scores, sources, tags).
 
 ### Key Data Flow
 
 User query → Qwen 4B router classifies complexity → trivial: direct answer → moderate: Researcher via 7B → complex: Orchestrator decomposes into sub-tasks → specialist agents execute ReAct loops with tools (parallel where independent) → results synthesized → Editor verifies → response returned via WebSocket chat. Memory recall injects relevant context from prior sessions; memory extraction stores key facts after each response.
+
+### Warcraft Logs API
+
+The `apis/wcl/` module provides a rate-limit-aware GraphQL client for the WCL v2 API:
+- **OAuth2 client credentials** via POST body params (not Basic Auth) — token cached ~360 days
+- **Two endpoints**: `fresh.warcraftlogs.com` (Classic Fresh, Lyroo's server) and `classic.warcraftlogs.com` (TBC Classic/Anniversary)
+- **Rate limiting**: 3,600 points/hour, auto-sleep when approaching budget, retry on 429
+- **Circuit breaker**: `wcl_breaker` in `resilience/circuit_breaker.py`
+- **Three ingest modes**: `RankingsIngestor` (top 100 per encounter), `ReportDiver` (deep-dive: gear, damage, buffs, casts, rankings), `CharacterSyncer` (Lyroo tracking)
+- **Tracked character**: Lyroo-Nightslayer (US), WCL ID 104956434, fresh endpoint
 
 ## Project Layout
 
@@ -101,8 +119,9 @@ code/shukketsu/          # Main Python package (import as code.shukketsu)
   ingest/                # pipeline.py (chunk+embed+extract), batch.py (concurrent/browser ingest), manifest.py
   scraping/              # Rate limiter, robots.txt compliance, httpx fetcher
   memory/                # Cross-session memory: models.py, manager.py (recall/extract/strategy)
+  apis/wcl/              # Warcraft Logs v2 API: auth, client, queries, models, ingest, schema
   sim/                   # TBC Rogue DPS simulation engine — STUB (Phase 4)
-  db/                    # SQLite connection factory, schema.sql v4 (WAL, sqlite-vec, FTS5, graph, memory)
+  db/                    # SQLite connection factory, schema.sql v5 (WAL, sqlite-vec, FTS5, graph, memory, WCL)
   web/                   # FastAPI app, Jinja2 templates, HTMX, wiki_render.py
   trust/                 # Evidence-based source trust scoring with trust_events
   freshness/             # Content staleness checking and re-ingestion
@@ -165,7 +184,7 @@ ruff check . --fix && ruff format . && python3 -m mypy . && python3 -m pytest
 
 ## Development Phases
 
-Phases 1-3 are complete (813 unit tests). Post-Phase 3 work: batch ingest engine, 7B model tier, GB10 timeout tuning. Planning docs live in `docs/plans/`:
+Phases 1-3 are complete. Post-Phase 3 work: batch ingest engine, 7B model tier, GB10 timeout tuning, WCL API integration. Planning docs live in `docs/plans/`:
 
 | Document | Purpose |
 |----------|---------|
@@ -195,6 +214,8 @@ Phases 1-3 are complete (813 unit tests). Post-Phase 3 work: batch ingest engine
 | `2026-02-12-phase3-steps2-5-implementation.md` | Steps 2-5 implementation plan (parallel, streaming, compaction, reflection, complete) |
 | `2026-02-12-phase3-steps6-9-implementation.md` | Steps 6-9 implementation plan (memory, integration, strategy, trust, complete) |
 | `phase-roadmap.md` | Lightweight outline of Phases 2-5 (detailed specs written per-phase) |
+| `2026-02-13-wcl-api-integration.md` | WCL API design doc (OAuth2, GraphQL, endpoints, schema, ingest modes) |
+| `2026-02-13-wcl-api-implementation.md` | WCL API implementation plan (10 tasks, 168 tests, complete) |
 
 ### Phase 1: Agent Core — COMPLETE
 
@@ -226,6 +247,7 @@ All 9 steps done. 778 tests at completion, now 813 with post-phase additions (ba
 - Fast 7B model tier (`FAST_MODEL = qwen2.5:7b`) for moderate-complexity queries
 - GB10 timeout tuning (`LLM_TIMEOUT_SECONDS = 300s`, `RESEARCHER_MAX_ITERATIONS = 6`)
 - Source manifest at `data/sources/manifest.yaml` with 20+ TBC Rogue content URLs
+- **WCL API integration** (`apis/wcl/`): OAuth2 auth, rate-limit-aware GraphQL client, 20 Pydantic models, DB schema v5 (10 tables), 3 ingest modes (rankings/deep-dive/character sync), CLI. 168 tests. Tracks Lyroo-Nightslayer (US) on fresh endpoint.
 
 ### Future Phases
 
