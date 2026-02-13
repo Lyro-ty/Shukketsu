@@ -672,11 +672,9 @@ class CombatSimulation:
             state.casts_by_ability["rupture"] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                # Rupture missed/dodged - remove DOT
+                # Rupture missed/dodged - remove DOT, refund energy
                 del state.dot_timers["rupture"]
-                # Partial energy refund on miss
-                if outcome == HitOutcome.MISS:
-                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+                state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
 
@@ -721,8 +719,8 @@ class CombatSimulation:
             state.casts_by_ability["eviscerate"] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                if outcome == HitOutcome.MISS:
-                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+                # Missed/dodged — refund energy
+                state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
                 self._apply_damage("eviscerate", base_dmg, outcome, state)
@@ -764,8 +762,8 @@ class CombatSimulation:
             state.casts_by_ability["envenom"] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                if outcome == HitOutcome.MISS:
-                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+                # Missed/dodged — refund energy
+                state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
                 # Envenom is nature damage — bypass armor
@@ -798,8 +796,8 @@ class CombatSimulation:
             state.casts_by_ability["expose_armor"] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                if outcome == HitOutcome.MISS:
-                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+                # Missed/dodged — refund energy
+                state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
                 # Apply EA debuff (duration scales with improved EA talent but simplified here)
@@ -831,8 +829,8 @@ class CombatSimulation:
             state.casts_by_ability["garrote"] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                if outcome == HitOutcome.MISS:
-                    state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
+                # Missed/dodged — refund energy
+                state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
                 self._grant_combo_points(ability_def.combo_points_generated, state)
@@ -896,10 +894,8 @@ class CombatSimulation:
             state.casts_by_ability[ability_name] += 1
 
             if outcome in (HitOutcome.MISS, HitOutcome.DODGE):
-                if outcome == HitOutcome.MISS:
-                    state.energy = min(state.max_energy, state.energy + int(energy_cost * ability_def.miss_refund_pct))
-                else:
-                    state.energy = max(0, state.energy - energy_cost)
+                # TBC: missed and dodged specials refund energy (miss_refund_pct, typically 80%)
+                state.energy = min(state.max_energy, state.energy + int(energy_cost * ability_def.miss_refund_pct))
             else:
                 state.energy = max(0, state.energy - energy_cost)
 
