@@ -209,14 +209,19 @@ class Orchestrator(BaseAgent):
         errors, and agent execution failures. On any failure, records a FAILED
         AgentResult or appends to skipped list.
         """
-        # Check failed dependencies
-        failed_deps = [d for d in subtask.depends_on if (r := results[d]) is not None and r.status == TaskStatus.FAILED]
-        if failed_deps:
+        # Check unresolved dependencies (failed or skipped)
+        unresolved_deps = [
+            d
+            for d in subtask.depends_on
+            if results[d] is None or results[d].status == TaskStatus.FAILED  # type: ignore[union-attr]
+        ]
+        if unresolved_deps:
             skipped.append(subtask.description)
             logger.info(
-                "Skipping subtask %d (%s): failed dependencies",
+                "Skipping subtask %d (%s): unresolved dependencies %s",
                 idx,
                 subtask.description,
+                unresolved_deps,
             )
             return
 
@@ -369,7 +374,8 @@ class Orchestrator(BaseAgent):
         # Aggregate evidence
         evidence = list(dict.fromkeys(e for r in completed for e in r.evidence))
 
-        assert self.role is not None  # Guaranteed by execute() guard
+        if self.role is None:
+            raise RuntimeError("Orchestrator role must be set before synthesizing")
         return OrchestratorResult(
             task_id=task.task_id,
             agent_role=self.role,

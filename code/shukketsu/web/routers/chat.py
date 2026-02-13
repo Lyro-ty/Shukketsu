@@ -95,7 +95,8 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent]:
             knowledge_manager=km,
         )
 
-    assert _orchestrator_instance is not None  # Set in same block as _researcher_instance
+    if _orchestrator_instance is None:
+        raise RuntimeError("Orchestrator instance not initialized")
     return _researcher_instance, _orchestrator_instance
 
 
@@ -188,7 +189,7 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
                     trace_id=trace_id,
                     name="user_feedback",
                     value=float(score),
-                    comment=f"thumbs {'up' if score else 'down'}",
+                    comment=f"thumbs {'up' if float(score) > 0 else 'down'}",
                 )
             except Exception:
                 logger.warning("Failed to record feedback", exc_info=True)

@@ -233,9 +233,9 @@ class CombatSimulation:
 
         # Resolve gear
         self._mh_item, self._oh_item = self._resolve_weapons()
-        # _resolve_weapons() validates these are not None
-        assert self._mh_item.weapon is not None, "MH weapon validated in _resolve_weapons"
-        assert self._oh_item.weapon is not None, "OH weapon validated in _resolve_weapons"
+        # _resolve_weapons() validates these are not None — re-check for type narrowing
+        if self._mh_item.weapon is None or self._oh_item.weapon is None:
+            raise RuntimeError("Weapons must have weapon stats (validated by _resolve_weapons)")
         self._mh_weapon = self._mh_item.weapon
         self._oh_weapon = self._oh_item.weapon
 
