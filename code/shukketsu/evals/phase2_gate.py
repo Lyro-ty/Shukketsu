@@ -57,63 +57,67 @@ async def run_phase_gate(
 
     conn = get_connection(db_path) if db_path else get_connection()
     init_db(conn)
-    embedder = get_embedder()
 
-    registry = ToolRegistry()
-    registry.register(RagSearchTool(conn=conn, embed_fn=embedder.embed_query))
-    registry.register(GraphSearchTool(conn=conn))
-
-    factory = AgentFactory()
-    km = KnowledgeManager(conn, config.WIKI_PATH)
-
-    researcher = factory.create(AgentRole.RESEARCHER, tool_registry=registry)
-    orchestrator = factory.create(
-        AgentRole.ORCHESTRATOR,
-        tool_registry=registry,
-        factory=factory,
-        knowledge_manager=km,
-    )
-
-    results: list[EvalQuestionResult] = []
-
-    for q in dataset:
-        try:
-            result = await _eval_question(q, researcher, orchestrator)
-            results.append(result)
-            logger.info(
-                "  %s  faith=%.2f  traj=%.2f  acc=%.2f  [%s]",
-                q["id"],
-                result.faithfulness,
-                result.trajectory_precision,
-                result.domain_accuracy,
-                q["complexity"],
-            )
-        except Exception as exc:
-            logger.warning("Question %s failed: %s", q["id"], exc)
-            results.append(
-                EvalQuestionResult(
-                    question_id=q["id"],
-                    faithfulness=0.0,
-                    trajectory_precision=0.0,
-                    domain_accuracy=0.0,
-                    claims=[],
-                    tool_calls=[],
-                )
-            )
-
-    report = compute_phase_gate(results)
-
-    # Soft wiki coverage check
     try:
-        articles = km.list_articles()
-        coverage: dict[str, int] = {}
-        for a in articles:
-            coverage[a.spec] = coverage.get(a.spec, 0) + 1
-        report = report.model_copy(update={"wiki_coverage": coverage})
-    except Exception:
-        logger.warning("Failed to compute wiki coverage", exc_info=True)
+        embedder = get_embedder()
 
-    return report
+        registry = ToolRegistry()
+        registry.register(RagSearchTool(conn=conn, embed_fn=embedder.embed_query))
+        registry.register(GraphSearchTool(conn=conn))
+
+        factory = AgentFactory()
+        km = KnowledgeManager(conn, config.WIKI_PATH)
+
+        researcher = factory.create(AgentRole.RESEARCHER, tool_registry=registry)
+        orchestrator = factory.create(
+            AgentRole.ORCHESTRATOR,
+            tool_registry=registry,
+            factory=factory,
+            knowledge_manager=km,
+        )
+
+        results: list[EvalQuestionResult] = []
+
+        for q in dataset:
+            try:
+                result = await _eval_question(q, researcher, orchestrator)
+                results.append(result)
+                logger.info(
+                    "  %s  faith=%.2f  traj=%.2f  acc=%.2f  [%s]",
+                    q["id"],
+                    result.faithfulness,
+                    result.trajectory_precision,
+                    result.domain_accuracy,
+                    q["complexity"],
+                )
+            except Exception as exc:
+                logger.warning("Question %s failed: %s", q["id"], exc)
+                results.append(
+                    EvalQuestionResult(
+                        question_id=q["id"],
+                        faithfulness=0.0,
+                        trajectory_precision=0.0,
+                        domain_accuracy=0.0,
+                        claims=[],
+                        tool_calls=[],
+                    )
+                )
+
+        report = compute_phase_gate(results)
+
+        # Soft wiki coverage check
+        try:
+            articles = km.list_articles()
+            coverage: dict[str, int] = {}
+            for a in articles:
+                coverage[a.spec] = coverage.get(a.spec, 0) + 1
+            report = report.model_copy(update={"wiki_coverage": coverage})
+        except Exception:
+            logger.warning("Failed to compute wiki coverage", exc_info=True)
+
+        return report
+    finally:
+        conn.close()
 
 
 async def _eval_question(

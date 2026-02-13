@@ -106,6 +106,8 @@ class MemoryManager:
                 ),
             )
             row_id = cursor.lastrowid
+            if row_id is None or row_id == 0:
+                raise RuntimeError("INSERT into session_memories returned no rowid")
 
             # Store embedding
             embedding = await self._embed_fn(query)

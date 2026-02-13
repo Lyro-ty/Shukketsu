@@ -514,90 +514,85 @@ async def _async_main(args: argparse.Namespace) -> None:
     conn = get_connection(config.DB_PATH)
     init_db(conn)
 
-    auth = WCLAuth()
-    client = WCLClient(auth)
-    endpoint: str = args.endpoint
+    try:
+        auth = WCLAuth()
+        client = WCLClient(auth)
+        endpoint: str = args.endpoint
 
-    if args.rate_limit:
-        rate_data = await client.check_rate_limit(endpoint)
-        print(f"Points spent: {rate_data.get('pointsSpentThisHour', 0)}/{rate_data.get('limitPerHour', 0)}")
-        print(f"Reset in: {rate_data.get('pointsResetIn', 0)}s")
-        conn.close()
-        return
-
-    if args.stats:
-        _print_stats(conn)
-        conn.close()
-        return
-
-    if args.sync_characters:
-        syncer = CharacterSyncer(client, conn)
-        diver = ReportDiver(client, conn)
-        for char_config in config.WCL_TRACKED_CHARACTERS:
-            new_codes = await syncer.sync(char_config)
-            char_endpoint = str(char_config.get("endpoint", endpoint))
-            for code in new_codes:
-                if not args.dry_run:
-                    await diver.dive(code, endpoint=char_endpoint)
-                else:
-                    print(f"  Would deep-dive report: {code}")
-        conn.close()
-        return
-
-    if args.report:
-        if args.dry_run:
-            print(f"Would deep-dive report: {args.report}")
-        else:
-            diver = ReportDiver(client, conn)
-            await diver.dive(args.report, endpoint=endpoint)
-        conn.close()
-        return
-
-    if args.rankings:
-        if not args.zone:
-            print("Error: --zone is required with --rankings")
-            conn.close()
+        if args.rate_limit:
+            rate_data = await client.check_rate_limit(endpoint)
+            print(f"Points spent: {rate_data.get('pointsSpentThisHour', 0)}/{rate_data.get('limitPerHour', 0)}")
+            print(f"Reset in: {rate_data.get('pointsResetIn', 0)}s")
             return
-        ingestor = RankingsIngestor(client, conn)
-        query, variables = build_zone_metadata_query(args.zone)
-        data = await client.query(query, variables, endpoint=endpoint)
-        zone = data.get("worldData", {}).get("zone", {})
-        encounters = zone.get("encounters", [])
-        if args.encounter:
-            encounters = [e for e in encounters if e.get("id") == args.encounter]
-        for enc in encounters:
-            if args.dry_run:
-                print(f"Would ingest rankings for: {enc.get('name')} ({enc.get('id')})")
-            else:
-                await ingestor.ingest_encounter(enc["id"], enc.get("name", ""), args.zone, endpoint)
-        conn.close()
-        return
 
-    if args.full:
-        ingestor = RankingsIngestor(client, conn)
-        diver = ReportDiver(client, conn)
-        zones = ACTIVE_TBC_ZONES if endpoint == "classic" else ACTIVE_FRESH_ZONES
-        for zone_id, zone_name in zones.items():
-            print(f"\nIngesting zone: {zone_name} ({zone_id})")
-            query, variables = build_zone_metadata_query(zone_id)
+        if args.stats:
+            _print_stats(conn)
+            return
+
+        if args.sync_characters:
+            syncer = CharacterSyncer(client, conn)
+            diver = ReportDiver(client, conn)
+            for char_config in config.WCL_TRACKED_CHARACTERS:
+                new_codes = await syncer.sync(char_config)
+                char_endpoint = str(char_config.get("endpoint", endpoint))
+                for code in new_codes:
+                    if not args.dry_run:
+                        await diver.dive(code, endpoint=char_endpoint)
+                    else:
+                        print(f"  Would deep-dive report: {code}")
+            return
+
+        if args.report:
+            if args.dry_run:
+                print(f"Would deep-dive report: {args.report}")
+            else:
+                diver = ReportDiver(client, conn)
+                await diver.dive(args.report, endpoint=endpoint)
+            return
+
+        if args.rankings:
+            if not args.zone:
+                print("Error: --zone is required with --rankings")
+                return
+            ingestor = RankingsIngestor(client, conn)
+            query, variables = build_zone_metadata_query(args.zone)
             data = await client.query(query, variables, endpoint=endpoint)
             zone = data.get("worldData", {}).get("zone", {})
             encounters = zone.get("encounters", [])
-            all_codes: set[str] = set()
+            if args.encounter:
+                encounters = [e for e in encounters if e.get("id") == args.encounter]
             for enc in encounters:
                 if args.dry_run:
-                    print(f"  Would ingest: {enc.get('name')}")
+                    print(f"Would ingest rankings for: {enc.get('name')} ({enc.get('id')})")
                 else:
-                    codes = await ingestor.ingest_encounter(enc["id"], enc.get("name", ""), zone_id, endpoint)
-                    all_codes.update(codes)
-            if not args.dry_run:
-                for code in all_codes:
-                    await diver.dive(code, endpoint=endpoint)
-        conn.close()
-        return
+                    await ingestor.ingest_encounter(enc["id"], enc.get("name", ""), args.zone, endpoint)
+            return
 
-    print("No action specified. Use --help for options.")
-    conn.close()
+        if args.full:
+            ingestor = RankingsIngestor(client, conn)
+            diver = ReportDiver(client, conn)
+            zones = ACTIVE_TBC_ZONES if endpoint == "classic" else ACTIVE_FRESH_ZONES
+            for zone_id, zone_name in zones.items():
+                print(f"\nIngesting zone: {zone_name} ({zone_id})")
+                query, variables = build_zone_metadata_query(zone_id)
+                data = await client.query(query, variables, endpoint=endpoint)
+                zone = data.get("worldData", {}).get("zone", {})
+                encounters = zone.get("encounters", [])
+                all_codes: set[str] = set()
+                for enc in encounters:
+                    if args.dry_run:
+                        print(f"  Would ingest: {enc.get('name')}")
+                    else:
+                        codes = await ingestor.ingest_encounter(enc["id"], enc.get("name", ""), zone_id, endpoint)
+                        all_codes.update(codes)
+                if not args.dry_run:
+                    for code in all_codes:
+                        await diver.dive(code, endpoint=endpoint)
+            return
+
+        print("No action specified. Use --help for options.")
+    finally:
+        conn.close()
 
 
 def main() -> None:

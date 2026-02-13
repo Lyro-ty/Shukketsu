@@ -473,18 +473,20 @@ async def _async_main(args: argparse.Namespace) -> None:
 
     pipeline = IngestPipeline(conn, embedder, graph_store=graph_store, extract_fn=extract_fn)
 
-    if args.browser:
-        batch_engine: BatchIngest | BrowserBatchIngest = BrowserBatchIngest(pipeline)
-    else:
-        rate_limiter = RateLimiter()
-        robots_checker = RobotsChecker()
-        fetcher = WebFetcher(rate_limiter, robots_checker)
-        batch_engine = BatchIngest(fetcher, pipeline)
+    try:
+        if args.browser:
+            batch_engine: BatchIngest | BrowserBatchIngest = BrowserBatchIngest(pipeline)
+        else:
+            rate_limiter = RateLimiter()
+            robots_checker = RobotsChecker()
+            fetcher = WebFetcher(rate_limiter, robots_checker)
+            batch_engine = BatchIngest(fetcher, pipeline)
 
-    report = await batch_engine.ingest_all(sources)
-    _print_report(report)
-    print_db_stats(conn)
-    conn.close()
+        report = await batch_engine.ingest_all(sources)
+        _print_report(report)
+        print_db_stats(conn)
+    finally:
+        conn.close()
 
 
 def main() -> None:

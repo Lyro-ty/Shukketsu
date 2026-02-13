@@ -80,7 +80,8 @@ class GraphStore:
             (name, type_id, canonical, props_json, source_chunk_id, confidence),
         )
         row = cursor.fetchone()
-        assert row is not None, "INSERT/UPDATE entities failed to return id"
+        if row is None:
+            raise RuntimeError("INSERT/UPDATE entities failed to return id")
         return int(row[0])
 
     def upsert_relationship(
@@ -112,7 +113,8 @@ class GraphStore:
             (source_entity_id, target_entity_id, relation_type.value, props_json, source_chunk_id, confidence),
         )
         row = cursor.fetchone()
-        assert row is not None, "INSERT/UPDATE relationships failed to return id"
+        if row is None:
+            raise RuntimeError("INSERT/UPDATE relationships failed to return id")
         return int(row[0])
 
     def get_entity_by_name(

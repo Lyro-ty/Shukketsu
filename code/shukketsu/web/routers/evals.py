@@ -27,7 +27,7 @@ router = APIRouter(prefix="/evals", tags=["evals"])
 
 # In-memory run tracking (simple — one run at a time)
 _current_run: dict[str, Any] | None = None
-_background_task: asyncio.Task[None] | None = None
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _get_langfuse() -> Langfuse:
@@ -76,9 +76,10 @@ async def trigger_eval_run(
 
     _current_run = {"status": "starting", "progress": 0, "total": 0, "run_name": None}
 
-    # Launch eval in background (hold reference to prevent GC)
-    global _background_task  # noqa: PLW0603
-    _background_task = asyncio.create_task(_run_eval_background(tier))
+    # Launch eval in background (set holds reference to prevent GC)
+    task = asyncio.create_task(_run_eval_background(tier))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return _templates.TemplateResponse(
         request,
