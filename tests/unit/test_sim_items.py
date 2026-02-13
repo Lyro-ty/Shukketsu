@@ -218,3 +218,57 @@ class TestGems:
     def test_get_gem_returns_none_for_unknown(self, db: ItemDatabase) -> None:
         """Unknown gem IDs should return None."""
         assert db.get_gem(999999) is None
+
+
+class TestItemDBExpansion:
+    """Tests for expanded item database (100+ items)."""
+
+    def test_item_count_minimum(self) -> None:
+        from code.shukketsu.sim.items import ItemDatabase
+
+        db = ItemDatabase()
+        assert len(db._items) >= 100
+
+    def test_p1_sword_latros(self) -> None:
+        from code.shukketsu.sim.items import ItemDatabase
+
+        db = ItemDatabase()
+        item = db.get_item(28189)  # Latro's Shifting Sword
+        assert item is not None
+        assert item.weapon is not None
+        assert item.weapon.weapon_type.value == "sword"
+
+    def test_p5_warglaive_mh(self) -> None:
+        from code.shukketsu.sim.items import ItemDatabase
+
+        db = ItemDatabase()
+        item = db.get_item(32837)  # Warglaive of Azzinoth MH
+        assert item is not None
+
+    def test_dst_trinket(self) -> None:
+        from code.shukketsu.sim.items import ItemDatabase
+
+        db = ItemDatabase()
+        item = db.get_item(28830)  # Dragonspine Trophy
+        assert item is not None
+        assert item.proc is not None
+
+    def test_t6_slayer_set_exists(self) -> None:
+        from code.shukketsu.sim.items import ItemDatabase
+
+        db = ItemDatabase()
+        slayer_items = [i for i in db._items.values() if i.set_id == "slayer"]
+        assert len(slayer_items) >= 4
+
+    def test_all_raid_weapon_types_present(self) -> None:
+        """At least one weapon of each combat-relevant type."""
+        from code.shukketsu.sim.items import ItemDatabase
+        from code.shukketsu.sim.models import GearSlot
+
+        db = ItemDatabase()
+        mh_weapons = db.items_for_slot(GearSlot.MAIN_HAND)
+        weapon_types = {w.weapon.weapon_type.value for w in mh_weapons if w.weapon}
+        assert "sword" in weapon_types
+        assert "dagger" in weapon_types
+        assert "fist" in weapon_types
+        assert "mace" in weapon_types
