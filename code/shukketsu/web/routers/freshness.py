@@ -28,7 +28,11 @@ def _get_conn() -> sqlite3.Connection:
 @router.post("/check")
 async def freshness_check(conn: sqlite3.Connection = Depends(_get_conn)) -> dict:
     """Run freshness sweep. Returns summary of results."""
-    results = await run_freshness_sweep(conn)
+    try:
+        results = await run_freshness_sweep(conn)
+    except Exception:
+        logger.exception("Freshness sweep failed")
+        raise HTTPException(status_code=500, detail="Freshness sweep failed")
     return {
         "checked": len(results),
         "changed": sum(1 for r in results if r.changed),
@@ -40,7 +44,11 @@ async def freshness_check(conn: sqlite3.Connection = Depends(_get_conn)) -> dict
 @router.get("/stale")
 async def list_stale_sources(conn: sqlite3.Connection = Depends(_get_conn)) -> dict:
     """List all currently stale sources (is_stale = 1)."""
-    rows = conn.execute("SELECT id, url, change_count, last_checked FROM sources WHERE is_stale = 1").fetchall()
+    try:
+        rows = conn.execute("SELECT id, url, change_count, last_checked FROM sources WHERE is_stale = 1").fetchall()
+    except Exception:
+        logger.exception("Failed to query stale sources")
+        raise HTTPException(status_code=500, detail="Failed to query stale sources")
     return {
         "stale_sources": [
             {

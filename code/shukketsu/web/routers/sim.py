@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -96,17 +96,25 @@ async def sim_run(request: Request) -> Response:
 @router.post("/api/sim/run")
 async def api_sim_run(config: SimConfig) -> dict[str, Any]:
     """JSON API for running a simulation."""
-    runner = SimRunner()
-    result = await runner.sim_run(config)
-    return result.model_dump()
+    try:
+        runner = SimRunner()
+        result = await runner.sim_run(config)
+        return result.model_dump()
+    except Exception:
+        logger.exception("Simulation API run failed")
+        raise HTTPException(status_code=500, detail="Simulation run failed")
 
 
 @router.post("/api/sim/compare")
 async def api_sim_compare(body: CompareRequest) -> dict[str, Any]:
     """JSON API for comparing two configurations."""
-    runner = SimRunner()
-    result = await runner.sim_compare(body.config_a, body.config_b)
-    return result.model_dump()
+    try:
+        runner = SimRunner()
+        result = await runner.sim_compare(body.config_a, body.config_b)
+        return result.model_dump()
+    except Exception:
+        logger.exception("Simulation comparison failed")
+        raise HTTPException(status_code=500, detail="Simulation comparison failed")
 
 
 @router.get("/api/sim/presets")

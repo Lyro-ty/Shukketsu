@@ -72,7 +72,10 @@ class WebSearchTool(Tool):
         if response.status_code >= 400:
             return f"Error: Web search failed with HTTP {response.status_code}."
 
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            return "Error: Web search returned invalid response."
         results = data.get("web", {}).get("results", [])
 
         if not results:

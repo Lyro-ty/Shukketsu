@@ -154,10 +154,17 @@ async def chat_ws(websocket: WebSocket) -> None:
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except ValueError:
+                # Invalid JSON from client
+                await websocket.send_json({"type": "error", "content": "Invalid JSON message."})
+                continue
             await _handle_message(websocket, session, data)
     except WebSocketDisconnect:
         logger.info("Chat WebSocket disconnected")
+    except Exception:
+        logger.warning("Chat WebSocket error", exc_info=True)
 
 
 async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict[str, str]) -> None:
