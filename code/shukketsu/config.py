@@ -159,13 +159,25 @@ WCL_RATE_LIMIT_BUFFER = int(os.getenv("WCL_RATE_LIMIT_BUFFER", "600"))
 WCL_RATE_CHECK_INTERVAL = int(os.getenv("WCL_RATE_CHECK_INTERVAL", "10"))
 WCL_QUERY_TIMEOUT = float(os.getenv("WCL_QUERY_TIMEOUT", "30.0"))
 WCL_TRACKED_CHARACTERS: list[dict[str, str | int]] = [
-    {"wcl_id": 104956434, "name": "Lyroo", "server": "nightslayer", "region": "us", "endpoint": "fresh"},
+    {"wcl_id": 104956434, "name": "Lyroo", "server": "nightslayer", "region": "us", "endpoint": "fresh", "race": "orc"},
 ]
 CB_WCL_FAILURE_THRESHOLD = int(os.getenv("CB_WCL_FAILURE_THRESHOLD", "3"))
 CB_WCL_RECOVERY_TIMEOUT = float(os.getenv("CB_WCL_RECOVERY_TIMEOUT", "60"))
 
 # Backup
 BACKUP_KEEP_COUNT = int(os.getenv("BACKUP_KEEP_COUNT", "7"))
+
+# Validation pipeline
+VALIDATION_CONCURRENCY = int(os.getenv("VALIDATION_CONCURRENCY", "4"))
+VALIDATION_ITERATIONS = int(os.getenv("VALIDATION_ITERATIONS", "5000"))
+VALIDATION_DPS_THRESHOLD = float(os.getenv("VALIDATION_DPS_THRESHOLD", "5.0"))
+VALIDATION_DPS_WARN_THRESHOLD = float(os.getenv("VALIDATION_DPS_WARN_THRESHOLD", "10.0"))
+VALIDATION_ABILITY_THRESHOLD = float(os.getenv("VALIDATION_ABILITY_THRESHOLD", "15.0"))
+VALIDATION_BUFF_THRESHOLD = float(os.getenv("VALIDATION_BUFF_THRESHOLD", "5.0"))
+VALIDATION_PROC_THRESHOLD = float(os.getenv("VALIDATION_PROC_THRESHOLD", "20.0"))
+
+# Log upload
+LOG_UPLOAD_MAX_SIZE_MB = int(os.getenv("LOG_UPLOAD_MAX_SIZE_MB", "100"))
 
 # Eval
 EVAL_DATASET_NAME = "shukketsu-eval-v1"

@@ -33,6 +33,27 @@ def test_wcl_circuit_breaker_config() -> None:
     assert config.CB_WCL_RECOVERY_TIMEOUT == 60.0
 
 
+def test_validation_config_constants() -> None:
+    from code.shukketsu import config
+
+    assert hasattr(config, "VALIDATION_CONCURRENCY")
+    assert config.VALIDATION_CONCURRENCY == 4
+    assert hasattr(config, "VALIDATION_ITERATIONS")
+    assert config.VALIDATION_ITERATIONS == 5000
+    assert hasattr(config, "VALIDATION_DPS_THRESHOLD")
+    assert config.VALIDATION_DPS_THRESHOLD == 5.0
+    assert hasattr(config, "LOG_UPLOAD_MAX_SIZE_MB")
+    assert config.LOG_UPLOAD_MAX_SIZE_MB == 100
+
+
+def test_lyroo_has_race() -> None:
+    from code.shukketsu import config
+
+    lyroo = config.WCL_TRACKED_CHARACTERS[0]
+    assert "race" in lyroo
+    assert lyroo["race"] == "orc"
+
+
 def test_wcl_error_types_exist() -> None:
     from code.shukketsu.resilience.errors import (
         FailureMode,
