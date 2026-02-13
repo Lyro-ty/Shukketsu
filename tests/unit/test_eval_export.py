@@ -92,6 +92,41 @@ class TestFunctionCallingExport:
         assert "messages" in record
         assert record["messages"][0]["role"] == "system"
 
+    def test_tool_calls_include_id_and_type(self, tmp_path: Path) -> None:
+        """Function-calling format must include id, type fields per OpenAI spec."""
+        trace = _mock_full_trace()
+        # Add a tool observation
+        tool_obs = MagicMock()
+        tool_obs.type = "tool"
+        tool_obs.name = "rag_search"
+        tool_obs.input = {"query": "hit cap"}
+        tool_obs.output = "The hit cap is 9%"
+        trace.observations = [tool_obs]
+
+        client = MagicMock()
+        _setup_client(client, [trace])
+
+        exporter = TrainingExporter(langfuse_client=client)
+        path = exporter.export(output_format="function_calling", output_path=tmp_path / "out.jsonl")
+
+        record = json.loads(path.read_text().strip())
+        messages = record["messages"]
+
+        # Find the assistant tool_call message
+        tool_call_msgs = [m for m in messages if m.get("tool_calls")]
+        assert len(tool_call_msgs) == 1
+
+        tc = tool_call_msgs[0]["tool_calls"][0]
+        assert "id" in tc, "tool_call must have an id field"
+        assert tc["type"] == "function"
+        assert tc["function"]["name"] == "rag_search"
+
+        # Find the tool response message
+        tool_response_msgs = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_response_msgs) == 1
+        assert tool_response_msgs[0]["tool_call_id"] == tc["id"]
+        assert tool_response_msgs[0]["content"] == "The hit cap is 9%"
+
 
 class TestFiltering:
     """Tests for score-based trace filtering."""

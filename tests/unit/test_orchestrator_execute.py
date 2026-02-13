@@ -331,6 +331,37 @@ class TestKnowledgeManagerGuard:
         assert len(result.skipped_tasks) == 1
         assert "write" in result.skipped_tasks[0].lower()
 
+    @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)
+    async def test_skipped_dependency_cascades(self, mock_llm: AsyncMock) -> None:
+        """If Writer is skipped (no KM), Editor depending on it is also skipped."""
+        plan = _plan(
+            subtasks=[
+                SubTask(agent_role=AgentRole.RESEARCHER, description="research"),
+                SubTask(
+                    agent_role=AgentRole.WRITER,
+                    description="write article",
+                    depends_on=[0],
+                    task_params={"spec": "combat", "category": "gear"},
+                ),
+                SubTask(
+                    agent_role=AgentRole.EDITOR,
+                    description="edit article",
+                    depends_on=[1],
+                ),
+            ]
+        )
+        mock_llm.return_value = plan
+
+        factory = _mock_factory({AgentRole.RESEARCHER: _research_result()})
+        orch = _orchestrator(factory=factory, km=None)  # No KM → Writer skipped → Editor skipped
+        result = await orch.execute(AgentTask(query="test"))
+
+        # Writer AND Editor should both be skipped
+        assert len(result.skipped_tasks) >= 2
+        skipped_lower = [s.lower() for s in result.skipped_tasks]
+        assert any("write" in s for s in skipped_lower)
+        assert any("edit" in s for s in skipped_lower)
+
 
 class TestErrorHandling:
     @patch("code.shukketsu.agents.orchestrator.get_structured_output", new_callable=AsyncMock)

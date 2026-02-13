@@ -165,3 +165,23 @@ class TestFeedbackMessage:
 
             call_kwargs = mock_client.create_score.call_args.kwargs
             assert call_kwargs["value"] == 0.0
+
+    @patch("code.shukketsu.web.routers.chat._get_agents", return_value=_mock_agents())
+    def test_thumbs_down_comment_correct_for_string_score(self, mock_get: MagicMock) -> None:
+        """Score '0' (string) should produce 'thumbs down', not 'thumbs up'."""
+        with patch("code.shukketsu.web.routers.chat.get_client") as mock_langfuse:
+            mock_client = MagicMock()
+            mock_langfuse.return_value = mock_client
+
+            from fastapi.testclient import TestClient
+
+            client = TestClient(_get_app())
+            with client.websocket_connect("/ws/chat") as ws:
+                ws.receive_json()  # connected
+                # JSON sends "0" as int, but test the actual logic
+                ws.send_json({"type": "feedback", "score": "0", "trace_id": "trace-xyz"})
+                ws.send_json({"type": "message", "content": ""})
+                ws.receive_json()
+
+            call_kwargs = mock_client.create_score.call_args.kwargs
+            assert call_kwargs["comment"] == "thumbs down"

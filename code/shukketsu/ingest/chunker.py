@@ -180,16 +180,16 @@ def chunk_text(
             content = overlap_text + " " + content
         overlapped.append(content)
 
-    # Build Chunk objects with sequential indices
+    # Build Chunk objects with sequential indices (counter avoids gaps if content is empty)
     chunks: list[Chunk] = []
-    for i, content in enumerate(overlapped):
+    for content in overlapped:
         content = content.strip()
         if not content:
             continue
         chunks.append(
             Chunk(
                 content=content,
-                chunk_index=i,
+                chunk_index=len(chunks),
                 char_count=len(content),
                 token_estimate=_estimate_tokens(content),
             )

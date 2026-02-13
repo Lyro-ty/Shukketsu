@@ -129,28 +129,37 @@ class TrainingExporter:
             {"role": "user", "content": str(input_text)},
         ]
 
-        # Extract tool calls from observations
-        for obs in trace.get("observations", []):
-            if hasattr(obs, "type") and obs.type == "tool":
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "tool_calls": [
-                            {
-                                "function": {
-                                    "name": obs.name or "unknown",
-                                    "arguments": json.dumps(obs.input or {}),
-                                }
-                            }
-                        ],
-                    }
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "content": str(obs.output or ""),
-                    }
-                )
+        # Extract tool calls from observations (OpenAI function-calling format)
+        for i, obs in enumerate(trace.get("observations", [])):
+            obs_type = obs.type if hasattr(obs, "type") else obs.get("type") if isinstance(obs, dict) else None
+            if obs_type != "tool":
+                continue
+            obs_name = obs.name if hasattr(obs, "name") else obs.get("name") if isinstance(obs, dict) else "unknown"
+            obs_input = obs.input if hasattr(obs, "input") else obs.get("input") if isinstance(obs, dict) else {}
+            obs_output = obs.output if hasattr(obs, "output") else obs.get("output") if isinstance(obs, dict) else ""
+            call_id = f"call_{i}"
+            messages.append(
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": obs_name or "unknown",
+                                "arguments": json.dumps(obs_input or {}),
+                            },
+                        }
+                    ],
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": str(obs_output or ""),
+                }
+            )
 
         messages.append({"role": "assistant", "content": str(output_text)})
         return {"messages": messages}

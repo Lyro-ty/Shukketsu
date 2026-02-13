@@ -128,29 +128,32 @@ class EvalRunner:
 
         report = compute_phase_gate(results)
 
-        # Store report summary as a score on the run's final trace
-        try:
-            self._client.create_score(
-                name="eval_run_summary",
-                value=1.0 if report.passed else 0.0,
-                comment=(
-                    f"faith={report.avg_faithfulness:.2f} "
-                    f"rel={report.avg_answer_relevancy:.2f} "
-                    f"traj={report.avg_trajectory_precision:.2f} "
-                    f"acc={report.avg_domain_accuracy:.2f}"
-                ),
-                metadata={
-                    "run_name": run_name,
-                    "avg_faithfulness": report.avg_faithfulness,
-                    "avg_answer_relevancy": report.avg_answer_relevancy,
-                    "avg_trajectory_precision": report.avg_trajectory_precision,
-                    "avg_domain_accuracy": report.avg_domain_accuracy,
-                    "passed": report.passed,
-                    "tier_breakdown": report.tier_breakdown,
-                },
-            )
-        except Exception:
-            logger.warning("Failed to record eval run summary score", exc_info=True)
+        # Store report summary as a score on the run's last trace
+        last_trace_id = results[-1].trace_id if results else None
+        if last_trace_id:
+            try:
+                self._client.create_score(
+                    trace_id=last_trace_id,
+                    name="eval_run_summary",
+                    value=1.0 if report.passed else 0.0,
+                    comment=(
+                        f"faith={report.avg_faithfulness:.2f} "
+                        f"rel={report.avg_answer_relevancy:.2f} "
+                        f"traj={report.avg_trajectory_precision:.2f} "
+                        f"acc={report.avg_domain_accuracy:.2f}"
+                    ),
+                    metadata={
+                        "run_name": run_name,
+                        "avg_faithfulness": report.avg_faithfulness,
+                        "avg_answer_relevancy": report.avg_answer_relevancy,
+                        "avg_trajectory_precision": report.avg_trajectory_precision,
+                        "avg_domain_accuracy": report.avg_domain_accuracy,
+                        "passed": report.passed,
+                        "tier_breakdown": report.tier_breakdown,
+                    },
+                )
+            except Exception:
+                logger.warning("Failed to record eval run summary score", exc_info=True)
 
         logger.info(
             "Eval run '%s' complete: %d questions, passed=%s",
@@ -179,6 +182,7 @@ class EvalRunner:
         )
         trace_id = span.trace_id
 
+        evidence: list[str] = []
         try:
             # Route through same path as chat
             decision = await classify_query(question)
@@ -198,10 +202,12 @@ class EvalRunner:
                 )
                 answer = result.output
                 tool_calls = [t.tool_name for t in result.trajectory]
+                evidence = result.evidence
             else:
                 result = await orchestrator.execute(AgentTask(query=question, context={}))
                 answer = result.output
                 tool_calls = [t.tool_name for t in result.trajectory]
+                evidence = result.evidence
 
         except Exception as exc:
             logger.warning("Eval question %s failed: %s", qid, exc)
@@ -209,8 +215,11 @@ class EvalRunner:
             tool_calls = []
 
         # --- Judging ---
+        # Faithfulness judges claims against retrieved evidence (not ground truth).
+        # Falls back to ground_truth if no evidence was retrieved (e.g. trivial queries).
         claims_text = await extract_claims(answer)
-        claim_results = await judge_faithfulness(claims_text, [ground_truth])
+        faithfulness_evidence = evidence if evidence else [ground_truth]
+        claim_results = await judge_faithfulness(claims_text, faithfulness_evidence)
         faithfulness = compute_faithfulness(claim_results)
         relevancy_raw = await judge_answer_relevancy(question, answer)
         relevancy = compute_answer_relevancy(relevancy_raw)
@@ -261,4 +270,5 @@ class EvalRunner:
             claims=claim_results,
             tool_calls=tool_calls,
             tier=item_tier,
+            trace_id=trace_id,
         )

@@ -53,6 +53,7 @@ class EvalQuestionResult(BaseModel):
     claims: list[ClaimFaithfulness]
     tool_calls: list[str]
     tier: str = ""
+    trace_id: str | None = None
 
 
 class PhaseGateReport(BaseModel):
