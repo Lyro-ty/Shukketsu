@@ -78,10 +78,8 @@ class WebFetcher:
         try:
             client = self._get_client()
             response = await client.get(url)
-        except httpx.TimeoutException as exc:
-            raise ScrapingError(f"Timed out fetching {url}: {exc}") from exc
-        except httpx.ConnectError as exc:
-            raise ScrapingError(f"Connection error fetching {url}: {exc}") from exc
+        except httpx.TransportError as exc:
+            raise ScrapingError(f"Transport error fetching {url}: {exc}") from exc
 
         # 4. Check status
         if response.status_code >= 400:

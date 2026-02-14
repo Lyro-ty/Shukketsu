@@ -84,6 +84,7 @@ async def check_source_freshness(
     source: StaleSource,
     conn: sqlite3.Connection,
     timeout: int | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> FreshnessResult:
     """Check a single source for content changes.
 
@@ -98,105 +99,108 @@ async def check_source_freshness(
         timeout = config.FRESHNESS_HTTP_TIMEOUT
     now = datetime.now(UTC).isoformat()
 
-    try:
-        async with httpx.AsyncClient(
+    owns_client = client is None
+    if owns_client:
+        client = httpx.AsyncClient(
             timeout=timeout,
             headers={"User-Agent": config.SCRAPING_USER_AGENT},
             follow_redirects=True,
-        ) as client:
-            # Step 1: HEAD request
-            head_resp = await client.head(source.url)
+        )
 
-            if head_resp.status_code >= 400:
-                try:
-                    record_trust_event(
-                        conn,
-                        source.id,
-                        "dead_url",
-                        TRUST_DELTAS["dead_url"],
-                        details=f"HTTP {head_resp.status_code} for {source.url}",
-                    )
-                except Exception:
-                    logger.warning("Failed to record dead_url trust event", exc_info=True)
-                try:
-                    conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
-                    logger.warning("Failed to update last_checked for dead URL", exc_info=True)
-                return FreshnessResult(
-                    source_id=source.id,
-                    url=source.url,
-                    changed=False,
-                    old_hash=source.content_hash,
-                    new_hash=None,
-                    checked_at=now,
-                    head_only=True,
-                    error=f"Source returned HTTP {head_resp.status_code}",
+    try:
+        # Step 1: HEAD request
+        head_resp = await client.head(source.url)
+
+        if head_resp.status_code >= 400:
+            try:
+                record_trust_event(
+                    conn,
+                    source.id,
+                    "dead_url",
+                    TRUST_DELTAS["dead_url"],
+                    details=f"HTTP {head_resp.status_code} for {source.url}",
                 )
-
-            # Step 2: Check Last-Modified
-            last_modified_str = head_resp.headers.get("Last-Modified")
-            if last_modified_str:
-                try:
-                    last_modified = parsedate_to_datetime(last_modified_str)
-                    row = conn.execute("SELECT last_checked FROM sources WHERE id = ?", (source.id,)).fetchone()
-                    if row and row["last_checked"]:
-                        last_checked_dt = datetime.fromisoformat(row["last_checked"])
-                        if last_modified.astimezone(UTC) < last_checked_dt.astimezone(UTC):
-                            try:
-                                conn.execute(
-                                    "UPDATE sources SET last_checked = ? WHERE id = ?",
-                                    (now, source.id),
-                                )
-                                conn.commit()
-                            except Exception:
-                                conn.rollback()
-                                raise
-                            return FreshnessResult(
-                                source_id=source.id,
-                                url=source.url,
-                                changed=False,
-                                old_hash=source.content_hash,
-                                new_hash=source.content_hash,
-                                checked_at=now,
-                                head_only=True,
-                            )
-                except (ValueError, TypeError):
-                    pass  # Malformed header -- fall through to full fetch
-
-            # Step 3: Full GET fetch + extract text (matches ingest pipeline hashing)
-            get_resp = await client.get(source.url)
-            # trafilatura.extract is CPU-bound — run in executor to avoid blocking the event loop
-            loop = asyncio.get_running_loop()
-            extracted = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    trafilatura.extract,
-                    get_resp.text,
-                    output_format="markdown",
-                    include_links=False,
-                    include_comments=False,
-                ),
+            except Exception:
+                logger.warning("Failed to record dead_url trust event", exc_info=True)
+            try:
+                conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                logger.warning("Failed to update last_checked for dead URL", exc_info=True)
+            return FreshnessResult(
+                source_id=source.id,
+                url=source.url,
+                changed=False,
+                old_hash=source.content_hash,
+                new_hash=None,
+                checked_at=now,
+                head_only=True,
+                error=f"Source returned HTTP {head_resp.status_code}",
             )
-            if not extracted or not extracted.strip():
-                try:
-                    conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
-                    raise
-                return FreshnessResult(
-                    source_id=source.id,
-                    url=source.url,
-                    changed=False,
-                    old_hash=source.content_hash,
-                    new_hash=None,
-                    checked_at=now,
-                    head_only=False,
-                    error="Content extraction returned empty — skipping hash comparison",
-                )
-            new_hash = hashlib.sha256(extracted.encode()).hexdigest()
+
+        # Step 2: Check Last-Modified
+        last_modified_str = head_resp.headers.get("Last-Modified")
+        if last_modified_str:
+            try:
+                last_modified = parsedate_to_datetime(last_modified_str)
+                row = conn.execute("SELECT last_checked FROM sources WHERE id = ?", (source.id,)).fetchone()
+                if row and row["last_checked"]:
+                    last_checked_dt = datetime.fromisoformat(row["last_checked"])
+                    if last_modified.astimezone(UTC) < last_checked_dt.astimezone(UTC):
+                        try:
+                            conn.execute(
+                                "UPDATE sources SET last_checked = ? WHERE id = ?",
+                                (now, source.id),
+                            )
+                            conn.commit()
+                        except Exception:
+                            conn.rollback()
+                            raise
+                        return FreshnessResult(
+                            source_id=source.id,
+                            url=source.url,
+                            changed=False,
+                            old_hash=source.content_hash,
+                            new_hash=source.content_hash,
+                            checked_at=now,
+                            head_only=True,
+                        )
+            except (ValueError, TypeError):
+                pass  # Malformed header -- fall through to full fetch
+
+        # Step 3: Full GET fetch + extract text (matches ingest pipeline hashing)
+        get_resp = await client.get(source.url)
+        # trafilatura.extract is CPU-bound — run in executor to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        extracted = await loop.run_in_executor(
+            None,
+            functools.partial(
+                trafilatura.extract,
+                get_resp.text,
+                output_format="markdown",
+                include_links=False,
+                include_comments=False,
+            ),
+        )
+        if not extracted or not extracted.strip():
+            try:
+                conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            return FreshnessResult(
+                source_id=source.id,
+                url=source.url,
+                changed=False,
+                old_hash=source.content_hash,
+                new_hash=None,
+                checked_at=now,
+                head_only=False,
+                error="Content extraction returned empty — skipping hash comparison",
+            )
+        new_hash = hashlib.sha256(extracted.encode()).hexdigest()
 
     except Exception as exc:
         logger.warning("Freshness check failed for source %d (%s): %s", source.id, source.url, exc)
@@ -210,6 +214,9 @@ async def check_source_freshness(
             head_only=False,
             error=str(exc),
         )
+    finally:
+        if owns_client:
+            await client.aclose()
 
     # Step 4: Compare hashes
     if new_hash == source.content_hash:
@@ -260,23 +267,33 @@ async def run_freshness_sweep(
     conn: sqlite3.Connection,
     timeout: int | None = None,
 ) -> list[FreshnessResult]:
-    """Find all stale sources and check each. Returns results for all checked sources."""
+    """Find all stale sources and check each. Shares one httpx client across sources."""
+    if timeout is None:
+        timeout = config.FRESHNESS_HTTP_TIMEOUT
     stale = find_stale_sources(conn)
     results = []
-    for source in stale:
-        try:
-            result = await check_source_freshness(source, conn, timeout=timeout)
-        except Exception as exc:
-            logger.warning("Freshness sweep: source %d (%s) crashed: %s", source.id, source.url, exc)
-            result = FreshnessResult(
-                source_id=source.id,
-                url=source.url,
-                changed=False,
-                old_hash=source.content_hash,
-                new_hash=None,
-                checked_at=datetime.now(UTC).isoformat(),
-                head_only=False,
-                error=str(exc),
-            )
-        results.append(result)
+    client = httpx.AsyncClient(
+        timeout=timeout,
+        headers={"User-Agent": config.SCRAPING_USER_AGENT},
+        follow_redirects=True,
+    )
+    try:
+        for source in stale:
+            try:
+                result = await check_source_freshness(source, conn, timeout=timeout, client=client)
+            except Exception as exc:
+                logger.warning("Freshness sweep: source %d (%s) crashed: %s", source.id, source.url, exc)
+                result = FreshnessResult(
+                    source_id=source.id,
+                    url=source.url,
+                    changed=False,
+                    old_hash=source.content_hash,
+                    new_hash=None,
+                    checked_at=datetime.now(UTC).isoformat(),
+                    head_only=False,
+                    error=str(exc),
+                )
+            results.append(result)
+    finally:
+        await client.aclose()
     return results

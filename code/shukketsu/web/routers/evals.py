@@ -107,7 +107,7 @@ async def _run_eval_background(tier: str | None) -> None:
         try:
             report = await runner.run(tier=tier, on_progress=_on_progress)
         finally:
-            runner.close()
+            await runner.close()
 
         if _current_run is not None:
             _current_run["status"] = "complete"
@@ -120,6 +120,10 @@ async def _run_eval_background(tier: str | None) -> None:
                 "tier_breakdown": report.tier_breakdown,
                 "question_count": len(report.question_results),
             }
+    except asyncio.CancelledError:
+        logger.info("Eval run cancelled")
+        if _current_run is not None:
+            _current_run["status"] = "failed"
     except Exception:
         logger.exception("Eval run failed")
         if _current_run is not None:

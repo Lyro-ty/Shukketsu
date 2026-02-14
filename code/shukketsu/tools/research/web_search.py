@@ -35,6 +35,21 @@ class WebSearchTool(Tool):
         "count": {"type": "integer", "description": "Number of results (default 5)", "optional": True},
     }
 
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the shared HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=10.0)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the shared HTTP client."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
     async def execute(self, tool_input: dict[str, Any]) -> str:
         """Execute a web search via Brave Search API."""
         query = tool_input.get("query", "").strip()
@@ -49,20 +64,18 @@ class WebSearchTool(Tool):
         logger.info("Web search: %r (count=%d)", query, count)
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await brave_breaker.call(
-                    client.get,
-                    _BRAVE_SEARCH_URL,
-                    params={"q": query, "count": count},
-                    headers={
-                        "Accept": "application/json",
-                        "Accept-Encoding": "gzip",
-                        "X-Subscription-Token": config.BRAVE_SEARCH_API_KEY,
-                    },
-                )
-        except httpx.TimeoutException:
-            return "Error: Web search timed out. Try again later."
-        except httpx.ConnectError:
+            client = self._get_client()
+            response = await brave_breaker.call(
+                client.get,
+                _BRAVE_SEARCH_URL,
+                params={"q": query, "count": count},
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                    "X-Subscription-Token": config.BRAVE_SEARCH_API_KEY,
+                },
+            )
+        except httpx.TransportError:
             return "Error: Could not connect to Brave Search API."
         except CircuitOpenError:
             return "Error: Web search is temporarily unavailable. Try answering from the knowledge base."

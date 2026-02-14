@@ -76,18 +76,26 @@ class IngestPipeline:
         content_hash = hashlib.sha256(text.encode()).hexdigest() if text.strip() else ""
 
         # Check for existing source with the same URL
-        existing = self._conn.execute("SELECT id, content_hash FROM sources WHERE url = ?", (url,)).fetchone()
+        existing = self._conn.execute(
+            "SELECT id, content_hash, chunk_count FROM sources WHERE url = ?", (url,)
+        ).fetchone()
 
         if existing:
             if existing["content_hash"] == content_hash:
-                chunk_count = self._conn.execute(
-                    "SELECT chunk_count FROM sources WHERE id = ?", (existing["id"],)
-                ).fetchone()["chunk_count"]
                 return IngestResult(
                     source_id=existing["id"],
-                    chunk_count=chunk_count,
+                    chunk_count=existing["chunk_count"],
                     already_existed=True,
                 )
+
+        # Guard: refuse to re-ingest empty text for an existing source (would wipe all chunks)
+        if existing and not text.strip():
+            logger.warning("Skipping empty text re-ingest for existing source %s (url=%s)", existing["id"], url)
+            return IngestResult(
+                source_id=existing["id"],
+                chunk_count=existing["chunk_count"],
+                already_existed=True,
+            )
 
         # Embed BEFORE touching the database (this is the most likely failure point)
         if text.strip():
@@ -192,8 +200,11 @@ class IngestPipeline:
         total_entities = 0
         total_relationships = 0
 
-        # Accumulate entity IDs across all chunks so cross-chunk relationships resolve
-        entity_id_map: dict[str, int] = {}
+        # Accumulate entity IDs across all chunks so cross-chunk relationships resolve.
+        # Keyed by (name, type) to avoid collision when different types share a name.
+        # A secondary name-only map enables relationship lookup (rel.source/target are names).
+        entity_id_by_key: dict[tuple[str, str], int] = {}
+        entity_id_by_name: dict[str, int] = {}
 
         async with self._extract_lock:
             try:
@@ -211,12 +222,13 @@ class IngestPipeline:
                             properties=entity.properties or None,
                             source_chunk_id=chunk_id,
                         )
-                        entity_id_map[entity.name] = eid
+                        entity_id_by_key[(entity.name, entity.entity_type)] = eid
+                        entity_id_by_name[entity.name] = eid
                         total_entities += 1
 
                     for rel in extraction.relationships:
-                        src_id = entity_id_map.get(rel.source)
-                        tgt_id = entity_id_map.get(rel.target)
+                        src_id = entity_id_by_name.get(rel.source)
+                        tgt_id = entity_id_by_name.get(rel.target)
                         if src_id is None or tgt_id is None:
                             logger.debug(
                                 "Skipping relationship %s->%s: entity not found in any chunk",

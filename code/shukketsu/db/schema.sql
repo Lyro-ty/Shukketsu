@@ -8,11 +8,11 @@
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER NOT NULL,
+    version INTEGER NOT NULL UNIQUE,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT INTO schema_version (version) VALUES (7);
+INSERT OR IGNORE INTO schema_version (version) VALUES (7);
 
 -- ============================================================
 -- Ingested Content
@@ -252,7 +252,7 @@ CREATE TABLE IF NOT EXISTS wcl_reports (
 -- Fight metadata within reports
 CREATE TABLE IF NOT EXISTS wcl_fights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_code TEXT NOT NULL REFERENCES wcl_reports(code),
+    report_code TEXT NOT NULL REFERENCES wcl_reports(code) ON DELETE CASCADE,
     fight_id INTEGER NOT NULL,
     encounter_id INTEGER NOT NULL,
     encounter_name TEXT NOT NULL,
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS wcl_fights (
 -- CombatantInfo per player per fight
 CREATE TABLE IF NOT EXISTS wcl_combatants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_code TEXT NOT NULL REFERENCES wcl_reports(code),
+    report_code TEXT NOT NULL REFERENCES wcl_reports(code) ON DELETE CASCADE,
     fight_id INTEGER NOT NULL,
     source_id INTEGER NOT NULL,
     player_name TEXT,
@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS wcl_combatants (
 -- Damage breakdown per player per fight
 CREATE TABLE IF NOT EXISTS wcl_damage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_code TEXT NOT NULL REFERENCES wcl_reports(code),
+    report_code TEXT NOT NULL REFERENCES wcl_reports(code) ON DELETE CASCADE,
     fight_id INTEGER NOT NULL,
     player_name TEXT NOT NULL,
     player_type TEXT,
@@ -303,7 +303,7 @@ CREATE TABLE IF NOT EXISTS wcl_damage (
 -- Buff uptimes per player per fight
 CREATE TABLE IF NOT EXISTS wcl_buffs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_code TEXT NOT NULL REFERENCES wcl_reports(code),
+    report_code TEXT NOT NULL REFERENCES wcl_reports(code) ON DELETE CASCADE,
     fight_id INTEGER NOT NULL,
     buff_name TEXT NOT NULL,
     buff_guid INTEGER NOT NULL,
@@ -316,7 +316,7 @@ CREATE TABLE IF NOT EXISTS wcl_buffs (
 -- Cast counts per player per fight
 CREATE TABLE IF NOT EXISTS wcl_casts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_code TEXT NOT NULL REFERENCES wcl_reports(code),
+    report_code TEXT NOT NULL REFERENCES wcl_reports(code) ON DELETE CASCADE,
     fight_id INTEGER NOT NULL,
     player_name TEXT NOT NULL,
     ability_name TEXT NOT NULL,
@@ -327,7 +327,7 @@ CREATE TABLE IF NOT EXISTS wcl_casts (
 -- Per-fight rankings (percentiles)
 CREATE TABLE IF NOT EXISTS wcl_fight_rankings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    report_code TEXT NOT NULL REFERENCES wcl_reports(code),
+    report_code TEXT NOT NULL REFERENCES wcl_reports(code) ON DELETE CASCADE,
     fight_id INTEGER NOT NULL,
     encounter_id INTEGER NOT NULL,
     player_name TEXT NOT NULL,

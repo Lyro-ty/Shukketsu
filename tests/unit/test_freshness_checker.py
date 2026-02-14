@@ -347,7 +347,7 @@ class TestRunFreshnessSweep:
 
         call_count = 0
 
-        async def _mock_check(source, conn, timeout=None):
+        async def _mock_check(source, conn, timeout=None, client=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

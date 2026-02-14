@@ -106,6 +106,9 @@ GARROTE_BASE_DPT: float = 119.0
 EXPOSE_ARMOR_DURATION_MS: int = 30000
 """Duration of Expose Armor debuff in milliseconds."""
 
+FIND_WEAKNESS_DURATION_MS: int = 10000
+"""Duration of Find Weakness debuff in milliseconds (10 seconds)."""
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -650,6 +653,9 @@ class CombatSimulation:
             state.combo_points = 0
             state.casts_by_ability["slice_and_dice"] += 1
 
+            # Find Weakness: activate debuff on every finishing move
+            self._activate_find_weakness(state)
+
             # Relentless Strikes energy refund
             self._check_relentless_strikes(cp, state, rng)
 
@@ -711,6 +717,9 @@ class CombatSimulation:
                     )
                 )
 
+                # Find Weakness: activate debuff on finishing move hit
+                self._activate_find_weakness(state)
+
             # Relentless Strikes
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0
@@ -758,6 +767,8 @@ class CombatSimulation:
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
                 self._apply_damage("eviscerate", base_dmg, outcome, state, applies_lethality=False)
+                # Find Weakness: activate debuff on finishing move hit
+                self._activate_find_weakness(state)
 
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0
@@ -805,8 +816,13 @@ class CombatSimulation:
                 damage = base_dmg
                 if outcome == HitOutcome.CRIT:
                     damage *= self._spell_crit_mult
+                # Find Weakness applies to all damage including nature
+                if self._modifiers.find_weakness_damage_pct > 0 and state.is_buff_active("find_weakness"):
+                    damage *= 1.0 + self._modifiers.find_weakness_damage_pct
                 state.damage_by_ability["envenom"] += damage
                 state.total_damage += damage
+                # Find Weakness: activate debuff on finishing move hit
+                self._activate_find_weakness(state)
 
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0
@@ -838,6 +854,8 @@ class CombatSimulation:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
                 # Apply EA debuff (duration scales with improved EA talent but simplified here)
                 self._activate_buff("expose_armor", EXPOSE_ARMOR_DURATION_MS, state)
+                # Find Weakness: activate debuff on finishing move hit
+                self._activate_find_weakness(state)
 
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0
@@ -950,6 +968,10 @@ class CombatSimulation:
 
                 has_lethality = AbilityFlag.APPLIES_LETHALITY in ability_def.flags
 
+                # +50% damage when target has Deadly Poison (core Mutilate mechanic)
+                dp_active = state.proc_counts.get("deadly_poison", 0) > 0
+                poison_mult = 1.5 if dp_active else 1.0
+
                 # MH damage
                 if mh_hit:
                     mh_dmg = calc_weapon_damage(
@@ -963,6 +985,7 @@ class CombatSimulation:
                     )
                     mh_dmg *= ability_def.weapon_multiplier
                     mh_dmg += ability_def.flat_damage
+                    mh_dmg *= poison_mult
                     mh_dmg *= dmg_mult
                     self._apply_damage("mutilate", mh_dmg, mh_outcome, state, applies_lethality=has_lethality)
                     self._check_procs("mutilate", mh_outcome, state, rng)
@@ -981,6 +1004,7 @@ class CombatSimulation:
                     )
                     oh_dmg *= ability_def.weapon_multiplier
                     oh_dmg += ability_def.flat_damage
+                    oh_dmg *= poison_mult
                     oh_bonus = 1.0 + self._modifiers.dw_spec_oh_bonus_pct
                     oh_dmg *= OH_DAMAGE_MULTIPLIER * oh_bonus
                     oh_dmg *= dmg_mult
@@ -1045,8 +1069,8 @@ class CombatSimulation:
                 dmg_mult = 1.0
                 if ability_name in ("sinister_strike", "backstab"):
                     dmg_mult *= 1.0 + self._modifiers.aggression_damage_pct
-                # Surprise Attacks: +10% to SS, BS, Hemorrhage (TBC 2.4.3)
-                if ability_name in ("sinister_strike", "backstab", "hemorrhage"):
+                # Surprise Attacks: +10% to SS, BS (TBC 2.4.3 tooltip: SS, BS, Shiv, Gouge)
+                if ability_name in ("sinister_strike", "backstab"):
                     dmg_mult *= 1.0 + self._modifiers.surprise_attacks_damage_pct
                 dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
 
@@ -1159,6 +1183,10 @@ class CombatSimulation:
             damage *= self._crit_mult_lethality if applies_lethality else self._crit_mult
         elif outcome == HitOutcome.GLANCING:
             damage *= calc_glancing_reduction()
+
+        # Find Weakness: all damage increased by 2/4/6% for 10s after a finisher
+        if self._modifiers.find_weakness_damage_pct > 0 and state.is_buff_active("find_weakness"):
+            damage *= 1.0 + self._modifiers.find_weakness_damage_pct
 
         state.damage_by_ability[ability_name] += damage
         state.total_damage += damage
@@ -1644,6 +1672,15 @@ class CombatSimulation:
                 data={"buff_name": name},
             )
         )
+
+    def _activate_find_weakness(self, state: CombatState) -> None:
+        """Activate Find Weakness debuff if the talent is taken.
+
+        Find Weakness increases all damage dealt to the target by 2/4/6%
+        for 10 seconds after any finishing move. Refreshes on each finisher.
+        """
+        if self._modifiers.find_weakness_damage_pct > 0:
+            self._activate_buff("find_weakness", FIND_WEAKNESS_DURATION_MS, state)
 
     def _grant_combo_points(self, amount: int, state: CombatState) -> None:
         """Grant combo points, tracking overcap.

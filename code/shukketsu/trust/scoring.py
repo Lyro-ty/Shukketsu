@@ -17,7 +17,9 @@ SOURCE_TRUST = {
     "game_data": 1.0,
     "simulation": 0.9,
     "combat_logs": 0.85,
-    "expert_guide": 0.75,
+    "guide": 0.75,  # manifest source_type for curated guides
+    "expert_guide": 0.75,  # alias for backward compatibility
+    "web": 0.5,  # WebIngestTool default source_type
     "archived_theory": 0.7,
     "community": 0.5,
     "unknown": 0.3,

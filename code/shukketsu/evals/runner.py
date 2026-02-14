@@ -5,6 +5,7 @@ Qwen 4B classifies complexity → appropriate agent handles the query →
 LLM judges score the result → scores recorded to Langfuse.
 """
 
+import asyncio
 import logging
 import sqlite3
 from collections.abc import Awaitable, Callable
@@ -51,6 +52,8 @@ class EvalRunner:
         self._client = langfuse_client
         self._agents: tuple[BaseAgent, BaseAgent, BaseAgent] | None = None
         self._conn: sqlite3.Connection | None = None
+        self._fetcher: Any = None  # WebFetcher, lazy-init
+        self._web_search: Any = None  # WebSearchTool, lazy-init
 
     def _get_agents(self) -> tuple[BaseAgent, BaseAgent, BaseAgent]:
         """Lazy-init agents (same pattern as chat handler)."""
@@ -79,8 +82,11 @@ class EvalRunner:
             registry.register(RagSearchTool(conn=conn, embed_fn=embedder.embed_query))
             registry.register(GraphSearchTool(conn=conn))
             fetcher = WebFetcher(rate_limiter=RateLimiter(), robots_checker=RobotsChecker())
+            self._fetcher = fetcher
             pipeline = IngestPipeline(conn=conn, embedder=embedder)
-            registry.register(WebSearchTool())
+            web_search = WebSearchTool()
+            self._web_search = web_search
+            registry.register(web_search)
             registry.register(WebIngestTool(fetcher=fetcher, pipeline=pipeline))
 
             factory = AgentFactory()
@@ -110,8 +116,14 @@ class EvalRunner:
             self._agents = (researcher, orchestrator, analyst)
         return self._agents
 
-    def close(self) -> None:
-        """Close the DB connection created by _get_agents."""
+    async def close(self) -> None:
+        """Close resources created by _get_agents."""
+        if self._fetcher is not None:
+            await self._fetcher.close()
+            self._fetcher = None
+        if self._web_search is not None:
+            await self._web_search.close()
+            self._web_search = None
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -228,6 +240,8 @@ class EvalRunner:
                 tool_calls = [t.tool_name for t in result.trajectory]
                 evidence = result.evidence
 
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.warning("Eval question %s failed: %s", qid, exc)
             answer = f"ERROR: {exc}"
