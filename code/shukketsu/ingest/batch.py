@@ -311,6 +311,8 @@ async def extract_entities_pass(
     total_entities = 0
     total_relationships = 0
 
+    entity_id_map: dict[str, int] = {}
+
     for row in rows:
         chunk_id = row["id"]
         content = row["content"]
@@ -320,8 +322,6 @@ async def extract_entities_pass(
         except Exception as exc:
             logger.warning("Extraction failed for chunk %d: %s", chunk_id, exc)
             continue
-
-        entity_id_map: dict[str, int] = {}
         for entity in extraction.entities:
             eid = graph_store.upsert_entity(
                 entity.name,

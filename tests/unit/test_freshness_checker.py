@@ -166,7 +166,10 @@ class TestCheckSourceFreshness:
         head_resp = httpx.Response(200, headers={})
         get_resp = httpx.Response(200, text="new content")
 
-        with patch("code.shukketsu.freshness.checker.httpx.AsyncClient") as mock_client_cls:
+        with (
+            patch("code.shukketsu.freshness.checker.httpx.AsyncClient") as mock_client_cls,
+            patch("code.shukketsu.freshness.checker.trafilatura.extract", return_value="new content"),
+        ):
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -222,7 +225,10 @@ class TestCheckSourceFreshness:
         head_resp = httpx.Response(200, headers={})
         get_resp = httpx.Response(200, text="totally new content")
 
-        with patch("code.shukketsu.freshness.checker.httpx.AsyncClient") as mock_client_cls:
+        with (
+            patch("code.shukketsu.freshness.checker.httpx.AsyncClient") as mock_client_cls,
+            patch("code.shukketsu.freshness.checker.trafilatura.extract", return_value="totally new content"),
+        ):
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)

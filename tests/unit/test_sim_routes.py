@@ -125,8 +125,8 @@ class TestApiPresets:
     async def test_contains_expected_presets(self, client: AsyncClient) -> None:
         response = await client.get("/api/sim/presets")
         data = response.json()
-        assert "self_only" in data
-        assert "full_10man" in data
+        assert "solo" in data
+        assert "karazhan_10man" in data
 
 
 class TestApiItems:

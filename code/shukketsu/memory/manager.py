@@ -98,32 +98,35 @@ class MemoryManager:
 
             # Hold lock for all DB writes to prevent interleaved transactions
             async with self._write_lock:
-                cursor = self._conn.execute(
-                    """INSERT INTO session_memories
-                       (query, answer_summary, key_facts_json, entities_mentioned,
-                        retrieval_quality, session_id)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        query,
-                        extraction.summary,
-                        json.dumps(extraction.key_facts),
-                        json.dumps(extraction.entities_mentioned),
-                        0.5,  # Default quality; updated on feedback
-                        session_id,
-                    ),
-                )
-                row_id = cursor.lastrowid
-                if row_id is None or row_id == 0:
-                    raise RuntimeError("INSERT into session_memories returned no rowid")
+                try:
+                    cursor = self._conn.execute(
+                        """INSERT INTO session_memories
+                           (query, answer_summary, key_facts_json, entities_mentioned,
+                            retrieval_quality, session_id)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (
+                            query,
+                            extraction.summary,
+                            json.dumps(extraction.key_facts),
+                            json.dumps(extraction.entities_mentioned),
+                            0.5,  # Default quality; updated on feedback
+                            session_id,
+                        ),
+                    )
+                    row_id = cursor.lastrowid
+                    if row_id is None or row_id == 0:
+                        raise RuntimeError("INSERT into session_memories returned no rowid")
 
-                self._conn.execute(
-                    "INSERT INTO session_memories_vec (rowid, embedding) VALUES (?, ?)",
-                    (row_id, blob),
-                )
-                self._conn.commit()
+                    self._conn.execute(
+                        "INSERT INTO session_memories_vec (rowid, embedding) VALUES (?, ?)",
+                        (row_id, blob),
+                    )
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
 
         except Exception:
-            self._conn.rollback()
             logger.warning("Memory extraction failed", exc_info=True)
 
     async def recall_relevant(

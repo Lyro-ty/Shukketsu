@@ -141,6 +141,7 @@ class DotState(BaseModel):
     damage_per_tick: float
     next_tick_ms: int
     snapshot_ap: float
+    ignores_armor: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +669,7 @@ class CombatSimulation:
                     damage_per_tick=dpt,
                     next_tick_ms=state.current_time_ms + RUPTURE_TICK_INTERVAL_MS,
                     snapshot_ap=self._base_stats["attack_power"],
+                    ignores_armor=True,
                 )
                 state.dot_timers["rupture"] = dot_state
 
@@ -844,6 +846,7 @@ class CombatSimulation:
                     damage_per_tick=dpt,
                     next_tick_ms=state.current_time_ms + GARROTE_TICK_INTERVAL_MS,
                     snapshot_ap=self._base_stats["attack_power"],
+                    ignores_armor=True,
                 )
                 state.dot_timers["garrote"] = dot_state
 
@@ -952,8 +955,8 @@ class CombatSimulation:
         if dot is None:
             return
 
-        # Apply damage (DOT ticks always hit, apply armor reduction for physical)
-        damage = dot.damage_per_tick * self._armor_mult
+        # Apply damage (DOT ticks always hit; bleeds like Rupture/Garrote bypass armor)
+        damage = dot.damage_per_tick if dot.ignores_armor else dot.damage_per_tick * self._armor_mult
         state.damage_by_ability[dot_name] += damage
         state.total_damage += damage
         state.outcome_counts[dot_name]["tick"] += 1
@@ -1452,6 +1455,10 @@ class CombatSimulation:
 
     def _compute_armor_mult(self) -> float:
         """Compute armor damage reduction multiplier for the target boss.
+
+        Note: This is computed once at init and not recalculated mid-fight.
+        Dynamic armor debuffs like Expose Armor are not supported because
+        this would require event-driven recalculation of _armor_mult.
 
         Returns:
             Damage multiplier from armor (e.g. 0.65 means 35% reduction).

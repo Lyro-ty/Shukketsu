@@ -230,4 +230,6 @@ async def api_sim_items(slot: str) -> list[dict[str, Any]]:
 
 def _get_presets() -> list[str]:
     """Return available buff preset names."""
-    return ["full_25man", "full_10man", "self_only"]
+    from code.shukketsu.sim.buffs import RAID_PRESETS
+
+    return list(RAID_PRESETS.keys())

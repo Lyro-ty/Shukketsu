@@ -99,12 +99,10 @@ async def wiki_article(
     try:
         meta, content = km.read_article(path)
     except FileNotFoundError:
-        return HTMLResponse(
-            _templates.TemplateResponse(
-                request,
-                "wiki/browser.html",
-                {"articles": [], "spec": None, "status": None, "q": None},
-            ).body,
+        return _templates.TemplateResponse(
+            request,
+            "wiki/browser.html",
+            {"articles": [], "spec": None, "status": None, "q": None},
             status_code=404,
         )
     # Read authoritative status from DB (set_status only updates DB, not frontmatter)

@@ -118,6 +118,12 @@ async def check_source_freshness(
                     )
                 except Exception:
                     logger.warning("Failed to record dead_url trust event", exc_info=True)
+                try:
+                    conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    logger.warning("Failed to update last_checked for dead URL", exc_info=True)
                 return FreshnessResult(
                     source_id=source.id,
                     url=source.url,
@@ -138,11 +144,15 @@ async def check_source_freshness(
                     if row and row["last_checked"]:
                         last_checked_dt = datetime.fromisoformat(row["last_checked"])
                         if last_modified.astimezone(UTC) < last_checked_dt.astimezone(UTC):
-                            conn.execute(
-                                "UPDATE sources SET last_checked = ? WHERE id = ?",
-                                (now, source.id),
-                            )
-                            conn.commit()
+                            try:
+                                conn.execute(
+                                    "UPDATE sources SET last_checked = ? WHERE id = ?",
+                                    (now, source.id),
+                                )
+                                conn.commit()
+                            except Exception:
+                                conn.rollback()
+                                raise
                             return FreshnessResult(
                                 source_id=source.id,
                                 url=source.url,
@@ -169,8 +179,24 @@ async def check_source_freshness(
                     include_comments=False,
                 ),
             )
-            hash_input = extracted if extracted and extracted.strip() else get_resp.text
-            new_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+            if not extracted or not extracted.strip():
+                try:
+                    conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                return FreshnessResult(
+                    source_id=source.id,
+                    url=source.url,
+                    changed=False,
+                    old_hash=source.content_hash,
+                    new_hash=None,
+                    checked_at=now,
+                    head_only=False,
+                    error="Content extraction returned empty — skipping hash comparison",
+                )
+            new_hash = hashlib.sha256(extracted.encode()).hexdigest()
 
     except Exception as exc:
         logger.warning("Freshness check failed for source %d (%s): %s", source.id, source.url, exc)
@@ -187,8 +213,12 @@ async def check_source_freshness(
 
     # Step 4: Compare hashes
     if new_hash == source.content_hash:
-        conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
-        conn.commit()
+        try:
+            conn.execute("UPDATE sources SET last_checked = ? WHERE id = ?", (now, source.id))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         return FreshnessResult(
             source_id=source.id,
             url=source.url,
@@ -200,17 +230,21 @@ async def check_source_freshness(
         )
 
     # Step 5: Content changed
-    conn.execute(
-        """UPDATE sources
-           SET content_hash_previous = content_hash,
-               content_hash = ?,
-               change_count = change_count + 1,
-               is_stale = 1,
-               last_checked = ?
-           WHERE id = ?""",
-        (new_hash, now, source.id),
-    )
-    conn.commit()
+    try:
+        conn.execute(
+            """UPDATE sources
+               SET content_hash_previous = content_hash,
+                   content_hash = ?,
+                   change_count = change_count + 1,
+                   is_stale = 1,
+                   last_checked = ?
+               WHERE id = ?""",
+            (new_hash, now, source.id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return FreshnessResult(
         source_id=source.id,
         url=source.url,

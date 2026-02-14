@@ -207,10 +207,9 @@ class RotationEngine:
             return self._build_action(ctx)
 
         # --- Priority 2: Expose Armor ---
-        if self._expose_armor and ctx.ea_remaining_ms <= 0:
-            if ctx.combo_points >= 1:
-                return RotationAction(ability_name="expose_armor", target="boss")
-            return self._build_action(ctx)
+        # NOTE: Expose Armor is not supported in the sim engine because
+        # _armor_mult is computed once at init and never recalculated.
+        # The expose_armor config flag is accepted but ignored.
 
         # --- Priority 3: SND refresh buffer ---
         snd_buffer_ms = _SND_REFRESH_BASE_MS - ctx.combo_points * _SND_REFRESH_PER_CP_MS

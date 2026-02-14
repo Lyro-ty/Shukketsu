@@ -137,19 +137,23 @@ class ValidationPipeline:
 
     def _store_report(self, report: ValidationReport) -> None:
         """Store report in validation_runs table."""
-        self._conn.execute(
-            """INSERT INTO validation_runs
-               (character_name, run_type, total_fights, included_fights,
-                overall_dps_drift_pct, overall_status, report_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                report.character_name,
-                "wcl",
-                report.total_fights,
-                report.included_fights,
-                report.overall_dps_drift_pct,
-                report.overall_status,
-                report.model_dump_json(),
-            ),
-        )
-        self._conn.commit()
+        try:
+            self._conn.execute(
+                """INSERT INTO validation_runs
+                   (character_name, run_type, total_fights, included_fights,
+                    overall_dps_drift_pct, overall_status, report_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    report.character_name,
+                    "wcl",
+                    report.total_fights,
+                    report.included_fights,
+                    report.overall_dps_drift_pct,
+                    report.overall_status,
+                    report.model_dump_json(),
+                ),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            logger.warning("Failed to store validation report", exc_info=True)

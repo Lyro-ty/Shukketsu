@@ -11,7 +11,7 @@ import re
 from langfuse import observe
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
-from code.shukketsu.agents.tasks import AgentRole, AgentTask, AnalysisResult, ToolCallRecord
+from code.shukketsu.agents.tasks import AgentTask, AnalysisResult, ToolCallRecord
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,10 @@ class Analyst(BaseAgent):
         if self.role is None:
             raise ValueError("Analyst requires a role. Use AgentFactory or set role in constructor.")
 
-        outcome = await self._run_loop(task.query, on_status=on_status, model_name=model_name)
+        memory_ctx = task.context.get("memory_context") if task.context else None
+        outcome = await self._run_loop(
+            task.query, on_status=on_status, memory_context=memory_ctx, model_name=model_name
+        )
 
         trajectory = [
             ToolCallRecord(tool_name=entry["tool_name"], tool_input=entry["tool_input"]) for entry in outcome.scratchpad
@@ -72,7 +75,7 @@ class Analyst(BaseAgent):
 
         return AnalysisResult(
             task_id=task.task_id,
-            agent_role=AgentRole.ANALYST,
+            agent_role=self.role,
             status=outcome.status,
             output=outcome.output,
             trajectory=trajectory,

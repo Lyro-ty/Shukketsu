@@ -114,7 +114,7 @@ class KnowledgeManager:
             ValueError: If the path escapes the knowledge directory.
         """
         full_path = (self._knowledge_dir / path).resolve()
-        if not str(full_path).startswith(str(self._knowledge_dir.resolve())):
+        if not full_path.is_relative_to(self._knowledge_dir.resolve()):
             raise ValueError(f"Invalid article path: {path}")
         return full_path
 

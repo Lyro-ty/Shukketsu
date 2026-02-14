@@ -94,11 +94,14 @@ async def get_structured_output[T: BaseModel](
     if model is None:
         model = config.REASONING_MODEL if backend == ModelBackend.REASONING else config.ROUTER_MODEL
 
-    langfuse = get_client()
-    langfuse.update_current_generation(
-        model=model,
-        model_parameters={"temperature": str(temperature), "max_tokens": str(max_tokens)},
-    )
+    try:
+        langfuse = get_client()
+        langfuse.update_current_generation(
+            model=model,
+            model_parameters={"temperature": str(temperature), "max_tokens": str(max_tokens)},
+        )
+    except Exception:
+        logger.debug("Langfuse generation update skipped", exc_info=True)
 
     client = _get_client(backend)
 

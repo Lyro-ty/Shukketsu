@@ -125,13 +125,16 @@ class ReportDiver:
             return
 
         # Fetch all data types
-        await self._fetch_combatant_info(report_code, fight_ids, endpoint)
-        await self._fetch_damage(report_code, fight_ids, endpoint)
-        await self._fetch_buffs(report_code, fight_ids, endpoint)
-        await self._fetch_casts(report_code, fight_ids, endpoint)
-        await self._fetch_rankings(report_code, endpoint)
-
-        self._conn.commit()
+        try:
+            await self._fetch_combatant_info(report_code, fight_ids, endpoint)
+            await self._fetch_damage(report_code, fight_ids, endpoint)
+            await self._fetch_buffs(report_code, fight_ids, endpoint)
+            await self._fetch_casts(report_code, fight_ids, endpoint)
+            await self._fetch_rankings(report_code, endpoint)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         logger.info("Deep-dive complete for report %s (%d fights)", report_code, len(fight_ids))
 
     async def _fetch_fights(self, code: str, endpoint: str) -> list[int]:

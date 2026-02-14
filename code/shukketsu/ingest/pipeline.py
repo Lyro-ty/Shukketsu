@@ -90,6 +90,8 @@ class IngestPipeline:
         if text.strip():
             chunks = chunk_text(text)
             embeddings = await self._embedder.embed_texts([c.content for c in chunks])
+            if len(embeddings) != len(chunks):
+                raise RuntimeError(f"Embedding count mismatch: {len(embeddings)} embeddings for {len(chunks)} chunks")
         else:
             chunks = []
             embeddings = []

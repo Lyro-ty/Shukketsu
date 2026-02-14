@@ -208,6 +208,34 @@ class WCLBridge:
         strength -= 110.0
         stamina -= 100.0
 
+        # Subtract detected raid buff stat contributions to avoid double-counting.
+        # The sim re-applies these buffs via resolve_buffs(), so we must remove
+        # their contribution from the WCL post-buff totals.
+        from code.shukketsu.sim.buffs import RAID_BUFFS
+
+        for buff_id in buffs:
+            buff_def = RAID_BUFFS.get(buff_id)
+            if buff_def is None:
+                continue
+            for stat_name, value in buff_def.stats.items():
+                if stat_name == "agility":
+                    agi -= value
+                elif stat_name == "strength":
+                    strength -= value
+                elif stat_name == "stamina":
+                    stamina -= value
+                elif stat_name == "attack_power":
+                    # AP is computed from agi+str in the sim, but WCL reports
+                    # it separately. We don't subtract AP buffs from gear stats
+                    # because gear stats don't include an AP field here.
+                    pass
+                elif stat_name == "haste_rating":
+                    haste_rating -= value
+                elif stat_name == "hit_rating":
+                    hit_rating -= value
+                elif stat_name == "crit_rating":
+                    crit_rating -= value
+
         # Clamp to zero
         agi = max(0.0, agi)
         strength = max(0.0, strength)

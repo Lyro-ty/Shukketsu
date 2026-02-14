@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from code.shukketsu import config
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
 from code.shukketsu.agents.tasks import (
     AgentResult,
@@ -127,7 +128,20 @@ class Orchestrator(BaseAgent):
         if on_status:
             await on_status(f"executing {len(plan.subtasks)} sub-tasks...")
 
-        results, skipped = await self._dispatch(plan, task, on_status)
+        try:
+            results, skipped = await asyncio.wait_for(
+                self._dispatch(plan, task, on_status),
+                timeout=config.ORCHESTRATOR_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning("Orchestrator dispatch timed out after %ds", config.ORCHESTRATOR_TIMEOUT_SECONDS)
+            return OrchestratorResult(
+                task_id=task.task_id,
+                agent_role=self.role,
+                status=TaskStatus.PARTIAL,
+                output="The task timed out before all subtasks could complete.",
+                plan=plan,
+            )
 
         # Build trajectory from dispatched subtasks
         trajectory: list[ToolCallRecord] = []
