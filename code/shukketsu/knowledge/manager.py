@@ -8,12 +8,12 @@ the DB row is for querying and status tracking.
 import logging
 import re
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
 import frontmatter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,13 @@ class SourceRef(BaseModel):
 
     url: str
     trust: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url_protocol(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(f"URL must start with http:// or https://, got: {v[:50]}")
+        return v
 
 
 class ClaimRef(BaseModel):
@@ -194,7 +201,7 @@ class KnowledgeManager:
 
         full_path = self._safe_path(path)
 
-        now = datetime.now(tz=meta.updated_at.tzinfo)
+        now = datetime.now(UTC)
         meta_updated = meta.model_copy(update={"updated_at": now})
 
         # Save original content so we can restore on any failure
@@ -287,8 +294,6 @@ class KnowledgeManager:
         if valid_transitions.get(current) != new_status:
             raise ValueError(f"Invalid status transition: {current} -> {new_status}")
 
-        from datetime import UTC
-
         now = datetime.now(UTC)
 
         # Update frontmatter file
@@ -372,7 +377,7 @@ class KnowledgeManager:
             update={
                 "status": ArticleStatus.DRAFT,
                 "rejection_reason": reason if reason else None,
-                "updated_at": datetime.now(tz=meta.updated_at.tzinfo),
+                "updated_at": datetime.now(UTC),
             }
         )
 

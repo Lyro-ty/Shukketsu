@@ -104,7 +104,10 @@ async def _run_eval_background(tier: str | None) -> None:
                 _current_run["progress"] = completed
                 _current_run["total"] = total
 
-        report = await runner.run(tier=tier, on_progress=_on_progress)
+        try:
+            report = await runner.run(tier=tier, on_progress=_on_progress)
+        finally:
+            runner.close()
 
         if _current_run is not None:
             _current_run["status"] = "complete"

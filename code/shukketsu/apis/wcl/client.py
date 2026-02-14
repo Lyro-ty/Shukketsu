@@ -31,7 +31,7 @@ class WCLClient:
     async def _get_http(self) -> httpx.AsyncClient:
         """Return a shared httpx client, creating it lazily."""
         if self._http is None or self._http.is_closed:
-            self._http = httpx.AsyncClient()
+            self._http = httpx.AsyncClient(timeout=httpx.Timeout(timeout=config.WCL_QUERY_TIMEOUT, connect=10.0))
         return self._http
 
     async def close(self) -> None:

@@ -85,7 +85,10 @@ class MemoryManager:
                 },
             ]
 
-            extraction: MemoryExtraction = await get_structured_output(
+            from code.shukketsu.resilience.circuit_breaker import ollama_router_breaker
+
+            extraction: MemoryExtraction = await ollama_router_breaker.call(
+                get_structured_output,
                 response_model=MemoryExtraction,
                 messages=messages,
                 backend=ModelBackend.ROUTER,

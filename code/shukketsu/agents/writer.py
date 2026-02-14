@@ -30,6 +30,7 @@ from code.shukketsu.knowledge.manager import (
 )
 from code.shukketsu.llm.prompts.writer import EXTRACTION_PROMPT, WRITER_SYSTEM_PROMPT
 from code.shukketsu.llm.structured import get_structured_output
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
 from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,8 @@ logger = logging.getLogger(__name__)
 class GeneratedArticle(BaseModel):
     """Schema for the article generation pass."""
 
-    title: str
-    content: str
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=10)
 
 
 class ArticleExtraction(BaseModel):
@@ -228,7 +229,9 @@ class Writer(BaseAgent):
             },
         ]
 
-        result: GeneratedArticle = await get_structured_output(response_model=GeneratedArticle, messages=messages)
+        result: GeneratedArticle = await reasoning_breaker.call(
+            get_structured_output, response_model=GeneratedArticle, messages=messages
+        )
         return result
 
     async def _extract_claims(self, content: str) -> ArticleExtraction:
@@ -238,5 +241,7 @@ class Writer(BaseAgent):
             {"role": "user", "content": content},
         ]
 
-        result: ArticleExtraction = await get_structured_output(response_model=ArticleExtraction, messages=messages)
+        result: ArticleExtraction = await reasoning_breaker.call(
+            get_structured_output, response_model=ArticleExtraction, messages=messages
+        )
         return result

@@ -44,7 +44,6 @@ from code.shukketsu.llm.prompts.orchestrator import (
 )
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
-from code.shukketsu.resilience.errors import CircuitOpenError
 from code.shukketsu.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -461,7 +460,7 @@ class Orchestrator(BaseAgent):
                 messages=messages,
             )
             return result.response
-        except (CircuitOpenError, Exception) as exc:
+        except Exception as exc:
             logger.warning(
                 "Synthesis LLM call failed, falling back to raw findings: %s",
                 exc,

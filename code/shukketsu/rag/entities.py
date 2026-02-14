@@ -13,7 +13,13 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from code.shukketsu.llm.structured import ModelBackend, get_structured_output
-from code.shukketsu.resilience.errors import EntityExtractionError, LLMUnavailableError, StructuredOutputError
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
+from code.shukketsu.resilience.errors import (
+    CircuitOpenError,
+    EntityExtractionError,
+    LLMUnavailableError,
+    StructuredOutputError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +255,8 @@ async def extract_entities_from_chunk(chunk_text: str) -> ChunkExtraction:
     """
     messages = build_extraction_messages(chunk_text)
     try:
-        result: ChunkExtraction = await get_structured_output(
+        result: ChunkExtraction = await reasoning_breaker.call(
+            get_structured_output,
             ChunkExtraction,
             messages,
             backend=ModelBackend.REASONING,
@@ -257,5 +264,5 @@ async def extract_entities_from_chunk(chunk_text: str) -> ChunkExtraction:
             max_tokens=2048,
         )
         return result
-    except (StructuredOutputError, LLMUnavailableError) as exc:
+    except (StructuredOutputError, LLMUnavailableError, CircuitOpenError) as exc:
         raise EntityExtractionError(f"Failed to extract entities: {exc}") from exc

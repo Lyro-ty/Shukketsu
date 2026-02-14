@@ -14,7 +14,9 @@ SPELL_ID_TO_ABILITY: Final[dict[int, str]] = {
     # Builders
     1752: "sinister_strike",
     11294: "sinister_strike",
+    26862: "sinister_strike",  # Rank 10 (TBC max)
     53: "backstab",
+    26863: "backstab",  # Rank 10 (TBC max)
     34413: "mutilate",
     16511: "hemorrhage",
     5938: "shiv",
@@ -26,7 +28,9 @@ SPELL_ID_TO_ABILITY: Final[dict[int, str]] = {
     8647: "expose_armor",
     # Openers
     11297: "ambush",
+    27441: "ambush",  # Rank 7 (TBC max)
     11290: "garrote",
+    26884: "garrote",  # Rank 8 (TBC max)
     1833: "cheap_shot",
     # Cooldowns
     13877: "blade_flurry",

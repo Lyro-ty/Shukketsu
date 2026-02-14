@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from code.shukketsu import config
 from code.shukketsu.evals.metrics import ClaimFaithfulness, FaithfulnessJudgment
 from code.shukketsu.llm.structured import ModelBackend, get_structured_output
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,8 @@ async def extract_claims(answer: str) -> list[str]:
     Returns empty list on failure (conservative -- faithfulness = 1.0).
     """
     try:
-        result: _ClaimExtraction = await get_structured_output(
+        result: _ClaimExtraction = await reasoning_breaker.call(
+            get_structured_output,
             response_model=_ClaimExtraction,
             messages=[
                 {"role": "system", "content": _CLAIM_EXTRACTION_PROMPT},
@@ -108,7 +110,8 @@ async def judge_faithfulness(
     claims_text = "\n".join(f"- {c}" for c in claims)
 
     try:
-        result: _FaithfulnessVerdict = await get_structured_output(
+        result: _FaithfulnessVerdict = await reasoning_breaker.call(
+            get_structured_output,
             response_model=_FaithfulnessVerdict,
             messages=[
                 {"role": "system", "content": _FAITHFULNESS_PROMPT},
@@ -144,7 +147,8 @@ async def judge_domain_accuracy(
     facts_text = "\n".join(f"- {f}" for f in key_facts)
 
     try:
-        result: _AccuracyScore = await get_structured_output(
+        result: _AccuracyScore = await reasoning_breaker.call(
+            get_structured_output,
             response_model=_AccuracyScore,
             messages=[
                 {"role": "system", "content": _ACCURACY_PROMPT},
@@ -171,7 +175,8 @@ async def judge_answer_relevancy(question: str, answer: str) -> float:
     Returns 0.0 on failure (conservative — flags for review).
     """
     try:
-        result: _RelevancyScore = await get_structured_output(
+        result: _RelevancyScore = await reasoning_breaker.call(
+            get_structured_output,
             response_model=_RelevancyScore,
             messages=[
                 {"role": "system", "content": _RELEVANCY_PROMPT},

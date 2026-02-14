@@ -138,14 +138,14 @@ async def validate_page(request: Request) -> Response:
         for row in cursor.fetchall():
             runs.append(
                 {
-                    "id": row[0],
-                    "character_name": row[1],
-                    "run_type": row[2],
-                    "total_fights": row[3],
-                    "included_fights": row[4],
-                    "overall_dps_drift_pct": row[5],
-                    "overall_status": row[6],
-                    "created_at": row[7],
+                    "id": row["id"],
+                    "character_name": row["character_name"],
+                    "run_type": row["run_type"],
+                    "total_fights": row["total_fights"],
+                    "included_fights": row["included_fights"],
+                    "overall_dps_drift_pct": row["overall_dps_drift_pct"],
+                    "overall_status": row["overall_status"],
+                    "created_at": row["created_at"],
                 }
             )
     except sqlite3.Error:

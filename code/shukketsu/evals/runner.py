@@ -6,6 +6,7 @@ LLM judges score the result → scores recorded to Langfuse.
 """
 
 import logging
+import sqlite3
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -49,6 +50,7 @@ class EvalRunner:
         self._dm = dataset_manager
         self._client = langfuse_client
         self._agents: tuple[BaseAgent, BaseAgent, BaseAgent] | None = None
+        self._conn: sqlite3.Connection | None = None
 
     def _get_agents(self) -> tuple[BaseAgent, BaseAgent, BaseAgent]:
         """Lazy-init agents (same pattern as chat handler)."""
@@ -69,6 +71,7 @@ class EvalRunner:
             from code.shukketsu.tools.research.web_search import WebSearchTool
 
             conn = get_connection()
+            self._conn = conn
             init_db(conn)
             embedder = get_embedder()
 
@@ -106,6 +109,12 @@ class EvalRunner:
             analyst = factory.create(AgentRole.ANALYST, tool_registry=analyst_registry)
             self._agents = (researcher, orchestrator, analyst)
         return self._agents
+
+    def close(self) -> None:
+        """Close the DB connection created by _get_agents."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     async def run(
         self,

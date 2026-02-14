@@ -408,20 +408,19 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             except Exception:
                 logger.warning("Memory extraction failed", exc_info=True)
 
-            try:
-                mm = _get_memory_manager()
-                # Estimate strategy quality from result trajectory:
-                # base 0.5, +0.1 per useful tool call (max 1.0), -0.2 if trivial answer
-                strategy_quality = min(1.0, 0.5 + 0.1 * len(tools_used))
-                if not trajectory:
-                    strategy_quality = 0.3
-                await mm.record_strategy(
-                    query=content,
-                    tools_used=tools_used,
-                    quality=strategy_quality,
-                )
-            except Exception:
-                logger.warning("Strategy recording failed", exc_info=True)
+            if trajectory:
+                try:
+                    mm = _get_memory_manager()
+                    # Estimate strategy quality from result trajectory:
+                    # base 0.5, +0.1 per useful tool call (max 1.0)
+                    strategy_quality = min(1.0, 0.5 + 0.1 * len(tools_used))
+                    await mm.record_strategy(
+                        query=content,
+                        tools_used=tools_used,
+                        quality=strategy_quality,
+                    )
+                except Exception:
+                    logger.warning("Strategy recording failed", exc_info=True)
     except ShukketsuError as exc:
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()
