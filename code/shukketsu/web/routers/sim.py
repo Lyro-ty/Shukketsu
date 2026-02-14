@@ -156,6 +156,11 @@ async def validate_page(request: Request) -> Response:
 @router.post("/sim/validate/run", response_class=HTMLResponse)
 async def validate_run(request: Request, character_name: str = Form(...)) -> Response:
     """Trigger a validation run and return the report partial."""
+    if len(character_name) > 50 or not character_name.replace("-", "").replace("'", "").isalnum():
+        return HTMLResponse(
+            '<div class="text-red-400 p-4">Error: Invalid character name. '
+            "Use letters, numbers, hyphens, and apostrophes only (max 50 characters).</div>"
+        )
     try:
         conn = _get_db()
         pipeline = ValidationPipeline(conn)

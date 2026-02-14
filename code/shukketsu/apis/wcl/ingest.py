@@ -185,6 +185,25 @@ class ReportDiver:
                 ),
             )
 
+        # Update report metadata now that we have fight timing data
+        if fights:
+            start_times = [f.get("startTime", 0) for f in fights if f.get("startTime")]
+            end_times = [f.get("endTime", 0) for f in fights if f.get("endTime")]
+            if start_times and end_times:
+                self._conn.execute(
+                    "UPDATE wcl_reports SET start_time = ?, end_time = ? WHERE code = ?",
+                    (min(start_times), max(end_times), code),
+                )
+            title = report.get("title", "")
+            zone_id = report.get("zone", {}).get("id") if report.get("zone") else None
+            zone_name = report.get("zone", {}).get("name", "") if report.get("zone") else ""
+            if title or zone_id:
+                self._conn.execute(
+                    "UPDATE wcl_reports SET title = COALESCE(?, title), "
+                    "zone_id = COALESCE(?, zone_id), zone_name = COALESCE(?, zone_name) WHERE code = ?",
+                    (title or None, zone_id, zone_name or None, code),
+                )
+
         # Build actor map for player_name resolution in _fetch_combatant_info
         actors = report.get("masterData", {}).get("actors", [])
         self._actor_map = {a["id"]: a["name"] for a in actors if a.get("id") and a.get("name")}
@@ -426,8 +445,9 @@ class CharacterSyncer:
             """SELECT c.fight_id, c.gear_json, c.report_code
                FROM wcl_combatants c
                JOIN wcl_character_log cl ON cl.report_code = c.report_code
+               JOIN wcl_reports r ON r.code = c.report_code
                WHERE cl.character_wcl_id = ?
-               ORDER BY c.report_code, c.fight_id""",
+               ORDER BY COALESCE(r.start_time, 0), c.fight_id""",
             (wcl_id,),
         ).fetchall()
 

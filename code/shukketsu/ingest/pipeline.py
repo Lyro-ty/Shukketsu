@@ -13,6 +13,8 @@ from code.shukketsu.ingest.chunker import chunk_text
 from code.shukketsu.ingest.embedder import Embedder
 from code.shukketsu.rag.entities import ChunkExtraction
 from code.shukketsu.rag.graph import GraphStore
+from code.shukketsu.resilience.circuit_breaker import ollama_embed_breaker
+from code.shukketsu.resilience.errors import CircuitOpenError, EmbeddingError
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +91,10 @@ class IngestPipeline:
         # Embed BEFORE touching the database (this is the most likely failure point)
         if text.strip():
             chunks = chunk_text(text)
-            embeddings = await self._embedder.embed_texts([c.content for c in chunks])
+            try:
+                embeddings = await ollama_embed_breaker.call(self._embedder.embed_texts, [c.content for c in chunks])
+            except CircuitOpenError:
+                raise EmbeddingError("Embedding circuit breaker open — Ollama may be down") from None
             if len(embeddings) != len(chunks):
                 raise RuntimeError(f"Embedding count mismatch: {len(embeddings)} embeddings for {len(chunks)} chunks")
         else:

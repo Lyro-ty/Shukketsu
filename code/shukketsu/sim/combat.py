@@ -27,6 +27,7 @@ from code.shukketsu.sim.mechanics import (
     ENERGY_PER_TICK,
     ENERGY_TICK_MS,
     MELEE_CRIT_MULTIPLIER,
+    SPELL_CRIT_MULTIPLIER,
     VIGOR_BONUS_ENERGY,
     calc_armor_reduction,
     calc_crit_chance,
@@ -278,6 +279,12 @@ class CombatSimulation:
             MELEE_CRIT_MULTIPLIER,
             primary_mod=self._modifiers.crit_damage_primary_mod,
             secondary_mod=self._modifiers.lethality_secondary_mod,
+        )
+        # Envenom is nature damage — uses spell crit multiplier (1.5x base)
+        self._spell_crit_mult = calc_crit_multiplier(
+            SPELL_CRIT_MULTIPLIER,
+            primary_mod=self._modifiers.crit_damage_primary_mod,
+            secondary_mod=0.0,
         )
 
         # Pre-compute normalized speeds for abilities
@@ -670,7 +677,6 @@ class CombatSimulation:
                 dpt = RUPTURE_BASE_DPT + RUPTURE_CP_DPT * cp + self._base_stats["attack_power"] * 0.04
                 dpt *= 1.0 + self._modifiers.rupture_damage_bonus_pct
                 dpt *= 1.0 + self._modifiers.murder_damage_pct
-                dpt *= 1.0 + self._modifiers.surprise_attacks_damage_pct
 
                 dot_state = DotState(
                     remaining_ticks=num_ticks,
@@ -713,7 +719,6 @@ class CombatSimulation:
             dmg_mult *= 1.0 + self._modifiers.evis_damage_bonus_pct
             dmg_mult *= 1.0 + self._modifiers.aggression_damage_pct
             dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
-            dmg_mult *= 1.0 + self._modifiers.surprise_attacks_damage_pct
             base_dmg *= dmg_mult
 
             # Cold Blood check
@@ -758,7 +763,6 @@ class CombatSimulation:
             dmg_mult = 1.0
             dmg_mult *= 1.0 + self._modifiers.vile_poisons_pct
             dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
-            dmg_mult *= 1.0 + self._modifiers.surprise_attacks_damage_pct
             base_dmg *= dmg_mult
 
             # Cold Blood check
@@ -784,10 +788,10 @@ class CombatSimulation:
                 state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
-                # Envenom is nature damage — bypass armor
+                # Envenom is nature damage — bypass armor, use spell crit multiplier
                 damage = base_dmg
                 if outcome == HitOutcome.CRIT:
-                    damage *= self._crit_mult
+                    damage *= self._spell_crit_mult
                 state.damage_by_ability["envenom"] += damage
                 state.total_damage += damage
 
@@ -931,6 +935,8 @@ class CombatSimulation:
                 dmg_mult = 1.0
                 dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
 
+                has_lethality = AbilityFlag.APPLIES_LETHALITY in ability_def.flags
+
                 # MH damage
                 if mh_hit:
                     mh_dmg = calc_weapon_damage(
@@ -945,7 +951,6 @@ class CombatSimulation:
                     mh_dmg *= ability_def.weapon_multiplier
                     mh_dmg += ability_def.flat_damage
                     mh_dmg *= dmg_mult
-                    has_lethality = AbilityFlag.APPLIES_LETHALITY in ability_def.flags
                     self._apply_damage("mutilate", mh_dmg, mh_outcome, state, applies_lethality=has_lethality)
                     self._check_procs("mutilate", mh_outcome, state, rng)
                     self._apply_poison("mh", state, rng)
@@ -1027,6 +1032,9 @@ class CombatSimulation:
                 dmg_mult = 1.0
                 if ability_name in ("sinister_strike", "backstab"):
                     dmg_mult *= 1.0 + self._modifiers.aggression_damage_pct
+                # Surprise Attacks: +10% to SS, BS, Hemorrhage (TBC 2.4.3)
+                if ability_name in ("sinister_strike", "backstab", "hemorrhage"):
+                    dmg_mult *= 1.0 + self._modifiers.surprise_attacks_damage_pct
                 dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
 
                 base_dmg *= dmg_mult

@@ -270,8 +270,7 @@ class Editor(BaseAgent):
         if "rag_search" not in self.tool_registry:
             return ""
         try:
-            tool = self.tool_registry.get("rag_search")
-            return await tool.execute({"query": query})
+            return await self.tool_registry.execute("rag_search", {"query": query})
         except Exception as exc:
             logger.warning("RAG search failed: %s", exc)
             return ""
@@ -281,11 +280,10 @@ class Editor(BaseAgent):
         if "graph_search" not in self.tool_registry:
             return ""
 
-        tool = self.tool_registry.get("graph_search")
         parts: list[str] = []
         for entity in entities:
             try:
-                result = await tool.execute({"entity": entity})
+                result = await self.tool_registry.execute("graph_search", {"entity": entity})
                 parts.append(result)
             except Exception as exc:
                 logger.warning("Graph search failed for '%s': %s", entity, exc)

@@ -27,15 +27,19 @@ class GraphStore:
     def seed_entity_types(self) -> None:
         """Populate the entity_types table from the EntityType enum.
 
-        Idempotent — uses INSERT OR IGNORE.
+        Idempotent — uses INSERT OR IGNORE. Commits on success, rolls back on failure.
         """
-        for et in EntityType:
-            display = et.value.replace("_", " ").title()
-            self._conn.execute(
-                "INSERT OR IGNORE INTO entity_types (name, display_name) VALUES (?, ?)",
-                (et.value, display),
-            )
-        self._conn.commit()
+        try:
+            for et in EntityType:
+                display = et.value.replace("_", " ").title()
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO entity_types (name, display_name) VALUES (?, ?)",
+                    (et.value, display),
+                )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def get_entity_type_id(self, entity_type: EntityType) -> int:
         """Look up the DB ID for an entity type.
@@ -61,6 +65,8 @@ class GraphStore:
 
         If an entity with the same canonical_name + entity_type exists,
         updates it (keeps higher confidence). Otherwise inserts a new row.
+
+        Note: Caller is responsible for committing the transaction.
 
         Returns:
             The entity ID (existing or newly created).
@@ -95,6 +101,8 @@ class GraphStore:
         confidence: float = 0.5,
     ) -> int:
         """Insert or update a relationship, deduplicating by (src, tgt, type).
+
+        Note: Caller is responsible for committing the transaction.
 
         Returns:
             The relationship ID (existing or newly created).

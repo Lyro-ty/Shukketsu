@@ -90,6 +90,20 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             conn.close()
 
     yield
+
+    # Close singleton DB connections from routers on shutdown
+    from code.shukketsu.web.routers import freshness, sim
+
+    for conn_obj in [
+        getattr(sim, "_db_conn", None),
+        getattr(freshness, "_conn_instance", None),
+    ]:
+        if conn_obj is not None:
+            try:
+                conn_obj.close()
+            except Exception:
+                logger.debug("Error closing DB connection on shutdown", exc_info=True)
+
     flush_traces()
 
 

@@ -32,7 +32,7 @@ from code.shukketsu.evals.metrics import (
     compute_phase_gate,
     compute_trajectory_precision,
 )
-from code.shukketsu.routing.models import TaskComplexity
+from code.shukketsu.routing.models import TaskCategory, TaskComplexity
 from code.shukketsu.routing.router import classify_query
 
 logger = logging.getLogger(__name__)
@@ -48,9 +48,9 @@ class EvalRunner:
     ) -> None:
         self._dm = dataset_manager
         self._client = langfuse_client
-        self._agents: tuple[BaseAgent, BaseAgent] | None = None
+        self._agents: tuple[BaseAgent, BaseAgent, BaseAgent] | None = None
 
-    def _get_agents(self) -> tuple[BaseAgent, BaseAgent]:
+    def _get_agents(self) -> tuple[BaseAgent, BaseAgent, BaseAgent]:
         """Lazy-init agents (same pattern as chat handler)."""
         if self._agents is None:
             from code.shukketsu.agents.factory import AgentFactory
@@ -101,7 +101,8 @@ class EvalRunner:
                 factory=factory,
                 knowledge_manager=km,
             )
-            self._agents = (researcher, orchestrator)
+            analyst = factory.create(AgentRole.ANALYST, tool_registry=registry)
+            self._agents = (researcher, orchestrator, analyst)
         return self._agents
 
     async def run(
@@ -186,7 +187,7 @@ class EvalRunner:
         try:
             # Route through same path as chat
             decision = await classify_query(question)
-            researcher, orchestrator = self._get_agents()
+            researcher, orchestrator, analyst = self._get_agents()
 
             if (
                 decision.complexity == TaskComplexity.TRIVIAL
@@ -195,6 +196,13 @@ class EvalRunner:
             ):
                 answer = decision.direct_answer
                 tool_calls: list[str] = []
+            elif decision.category == TaskCategory.ANALYSIS:
+                from code.shukketsu.agents.tasks import AnalysisTask
+
+                result = await analyst.execute(AnalysisTask(query=question, context={}))
+                answer = result.output
+                tool_calls = [t.tool_name for t in result.trajectory]
+                evidence = result.evidence
             elif decision.complexity == TaskComplexity.MODERATE:
                 result = await researcher.execute(
                     ResearchTask(query=question, context={}),

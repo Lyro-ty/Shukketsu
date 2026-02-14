@@ -75,6 +75,11 @@ CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE OF content ON chunks
     INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
 END;
 
+-- Keep chunks_vec in sync when chunks are deleted (cascade or direct)
+CREATE TRIGGER IF NOT EXISTS chunks_vec_delete AFTER DELETE ON chunks BEGIN
+    DELETE FROM chunks_vec WHERE rowid = old.id;
+END;
+
 -- ============================================================
 -- Knowledge Management
 -- ============================================================
