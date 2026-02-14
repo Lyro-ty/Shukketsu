@@ -133,7 +133,7 @@ async def validate_page(request: Request) -> Response:
                 )
         finally:
             conn.close()
-    except sqlite3.OperationalError:
+    except sqlite3.Error:
         logger.warning("Could not load validation runs", exc_info=True)
     return _templates.TemplateResponse(request, "sim/validate/index.html", {"runs": runs})
 
@@ -165,7 +165,7 @@ async def validate_report(request: Request, run_id: int) -> Response:
             row = conn.execute("SELECT report_json FROM validation_runs WHERE id = ?", (run_id,)).fetchone()
         finally:
             conn.close()
-    except sqlite3.OperationalError:
+    except sqlite3.Error:
         logger.warning("Could not load validation report %d", run_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Database error")
     if row is None:

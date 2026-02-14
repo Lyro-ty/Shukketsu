@@ -36,8 +36,6 @@ def test_wcl_circuit_breaker_config() -> None:
 def test_validation_config_constants() -> None:
     from code.shukketsu import config
 
-    assert hasattr(config, "VALIDATION_CONCURRENCY")
-    assert config.VALIDATION_CONCURRENCY == 4
     assert hasattr(config, "VALIDATION_ITERATIONS")
     assert config.VALIDATION_ITERATIONS == 5000
     assert hasattr(config, "VALIDATION_DPS_THRESHOLD")

@@ -4,7 +4,6 @@ Provides HTML pages for uploading CLEU combat log files and parsing
 them into fight metrics via the CLEUParser.
 """
 
-import html
 import logging
 from pathlib import Path
 
@@ -63,7 +62,10 @@ async def logs_upload(
             return _templates.TemplateResponse(
                 request,
                 "logs/error.html",
-                {"error": f"File too large ({len(content) / 1024 / 1024:.1f} MB). Maximum is 50 MB."},
+                {
+                    "error": f"File too large ({len(content) / 1024 / 1024:.1f} MB). "
+                    f"Maximum is {config.LOG_UPLOAD_MAX_SIZE_MB} MB.",
+                },
             )
 
         if len(content) == 0:
@@ -82,7 +84,7 @@ async def logs_upload(
             return _templates.TemplateResponse(
                 request,
                 "logs/error.html",
-                {"error": f"No encounters found for character '{html.escape(character_name)}'."},
+                {"error": f"No encounters found for character '{character_name}'."},
             )
 
         return _templates.TemplateResponse(
@@ -101,5 +103,5 @@ async def logs_upload(
         return _templates.TemplateResponse(
             request,
             "logs/error.html",
-            {"error": f"Parse error: {html.escape(str(exc))}"},
+            {"error": f"Parse error: {str(exc)}"},
         )
