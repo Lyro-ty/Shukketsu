@@ -11,6 +11,8 @@ from code.shukketsu.agents.guardrails import LoopDetector
 from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskStatus, ToolCallRecord
 from code.shukketsu.llm.schemas import ActionType, AgentStep
 from code.shukketsu.llm.structured import get_structured_output
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
+from code.shukketsu.resilience.errors import CircuitOpenError, StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -91,7 +93,6 @@ class BaseAgent:
 
         Raises:
             LLMUnavailableError: If the LLM backend is unreachable.
-            StructuredOutputError: If structured output validation fails.
         """
         outcome = await self._run_loop(query, on_status=on_status, memory_context=memory_context, model_name=model_name)
         return outcome.output
@@ -167,11 +168,20 @@ class BaseAgent:
             logger.info("Agent iteration %d/%d", iteration + 1, self.max_iterations)
             if on_status:
                 await on_status(f"thinking ({iteration + 1}/{self.max_iterations})...")
-            step: AgentStep = await get_structured_output(
-                response_model=AgentStep,
-                messages=messages,
-                model=model_name,
-            )
+            try:
+                step: AgentStep = await reasoning_breaker.call(
+                    get_structured_output,
+                    response_model=AgentStep,
+                    messages=messages,
+                    model=model_name,
+                )
+            except (StructuredOutputError, CircuitOpenError) as exc:
+                logger.warning("LLM failure in ReAct loop: %s", exc)
+                return _RunOutcome(
+                    output=self._synthesize_partial_answer(scratchpad),
+                    status=TaskStatus.PARTIAL,
+                    scratchpad=scratchpad,
+                )
 
             if step.action == ActionType.FINAL_ANSWER:
                 logger.info("Agent reached final answer after %d iteration(s)", iteration + 1)

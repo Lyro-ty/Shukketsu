@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from code.shukketsu import config
 from code.shukketsu.agents.base import BaseAgent
 from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskStatus
 from code.shukketsu.llm.schemas import ActionType, AgentStep, ToolCall
@@ -120,11 +121,12 @@ class TestBaseAgentRun:
             await agent.run("test")
 
     @patch("code.shukketsu.agents.base.get_structured_output")
-    async def test_propagates_structured_output_error(self, mock_llm: AsyncMock) -> None:
+    async def test_structured_output_error_returns_graceful_failure(self, mock_llm: AsyncMock) -> None:
+        """StructuredOutputError should return graceful failure, not crash."""
         mock_llm.side_effect = StructuredOutputError("Validation failed")
         agent = BaseAgent(tool_registry=_registry())
-        with pytest.raises(StructuredOutputError, match="Validation failed"):
-            await agent.run("test")
+        result = await agent.run("test")
+        assert result == config.AGENT_GRACEFUL_FAILURE
 
 
 class TestBuildMessages:
