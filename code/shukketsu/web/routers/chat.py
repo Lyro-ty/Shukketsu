@@ -302,8 +302,11 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         elif decision.category == TaskCategory.ANALYSIS:
             await websocket.send_json({"type": "status", "content": "analyzing..."})
             _, _, analyst = _get_agents()
+            analysis_ctx: dict[str, str] = {}
+            if memory_context:
+                analysis_ctx["memory_context"] = memory_context
             result = await analyst.execute(
-                AnalysisTask(query=content),
+                AnalysisTask(query=content, context=analysis_ctx),
                 on_status=_send_status,
             )
             answer = result.output

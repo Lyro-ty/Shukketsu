@@ -258,7 +258,7 @@ class TestLogsUploadParserError:
             files={"file": ("WoWCombatLog.txt", b"bad data", "text/plain")},
         )
         assert response.status_code == 200
-        assert "Parse error" in response.text
+        assert "Failed to parse combat log" in response.text
 
 
 # ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ class TestValidatePlan:
         """Well-formed plan with correct dependencies returns no errors."""
         plan = _plan(
             _sub(AgentRole.RESEARCHER, "find trinkets"),
-            _sub(AgentRole.WRITER, "write guide", depends_on=[0]),
+            _sub(AgentRole.WRITER, "write guide", depends_on=[0], task_params={"spec": "combat"}),
             _sub(AgentRole.EDITOR, "verify", depends_on=[1]),
         )
         assert self._validate(plan) == []

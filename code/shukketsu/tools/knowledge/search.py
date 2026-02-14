@@ -79,7 +79,7 @@ class RagSearchTool(Tool):
             """SELECT c.id, c.content, s.title, s.url, s.trust_score
                FROM chunks_fts f
                JOIN chunks c ON c.id = f.rowid
-               JOIN sources s ON s.id = c.source_id
+               JOIN sources s ON s.id = c.source_id AND s.is_stale = 0
                WHERE chunks_fts MATCH ?
                ORDER BY rank
                LIMIT ?""",

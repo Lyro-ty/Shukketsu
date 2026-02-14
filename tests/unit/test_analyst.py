@@ -97,6 +97,12 @@ class TestAnalystAgent:
     def test_extract_dps_colon_with_space(self) -> None:
         assert Analyst._extract_dps("DPS 1234.5") == 1234.5
 
+    def test_extract_dps_json_mean_dps(self) -> None:
+        assert Analyst._extract_dps('"mean_dps": 1523.4') == 1523.4
+
+    def test_extract_dps_average_pattern(self) -> None:
+        assert Analyst._extract_dps("Average DPS: 1800.2") == 1800.2
+
     def test_extract_dps_no_match(self) -> None:
         assert Analyst._extract_dps("No numbers here") is None
 

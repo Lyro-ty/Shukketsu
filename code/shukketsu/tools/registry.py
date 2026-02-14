@@ -75,5 +75,9 @@ class ToolRegistry:
     def __len__(self) -> int:
         return len(self._tools)
 
+    def has(self, name: str) -> bool:
+        """Check if a tool is registered by name."""
+        return name in self._tools
+
     def __contains__(self, name: str) -> bool:
         return name in self._tools

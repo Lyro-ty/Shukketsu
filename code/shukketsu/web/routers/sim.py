@@ -17,7 +17,6 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.responses import Response
 
-from code.shukketsu.db.connection import get_connection, init_db
 from code.shukketsu.sim.comparator import ValidationReport
 from code.shukketsu.sim.models import GearSlot, SimConfig
 from code.shukketsu.sim.runner import SimRunner
@@ -29,6 +28,19 @@ _WEB_DIR = Path(__file__).parent.parent
 _templates = Jinja2Templates(directory=_WEB_DIR / "templates")
 
 router = APIRouter(tags=["sim"])
+
+_db_conn: sqlite3.Connection | None = None
+
+
+def _get_db() -> sqlite3.Connection:
+    """Get or create the singleton DB connection for sim/validation routes."""
+    global _db_conn  # noqa: PLW0603
+    if _db_conn is None:
+        from code.shukketsu.db.connection import get_connection, init_db
+
+        _db_conn = get_connection()
+        init_db(_db_conn)
+    return _db_conn
 
 
 # ---------------------------------------------------------------------------
@@ -110,29 +122,25 @@ async def validate_page(request: Request) -> Response:
     """Render validation dashboard with history of past runs."""
     runs: list[dict[str, Any]] = []
     try:
-        conn = get_connection()
-        try:
-            init_db(conn)
-            cursor = conn.execute(
-                """SELECT id, character_name, run_type, total_fights, included_fights,
-                          overall_dps_drift_pct, overall_status, created_at
-                   FROM validation_runs ORDER BY created_at DESC LIMIT 20"""
+        conn = _get_db()
+        cursor = conn.execute(
+            """SELECT id, character_name, run_type, total_fights, included_fights,
+                      overall_dps_drift_pct, overall_status, created_at
+               FROM validation_runs ORDER BY created_at DESC LIMIT 20"""
+        )
+        for row in cursor.fetchall():
+            runs.append(
+                {
+                    "id": row[0],
+                    "character_name": row[1],
+                    "run_type": row[2],
+                    "total_fights": row[3],
+                    "included_fights": row[4],
+                    "overall_dps_drift_pct": row[5],
+                    "overall_status": row[6],
+                    "created_at": row[7],
+                }
             )
-            for row in cursor.fetchall():
-                runs.append(
-                    {
-                        "id": row[0],
-                        "character_name": row[1],
-                        "run_type": row[2],
-                        "total_fights": row[3],
-                        "included_fights": row[4],
-                        "overall_dps_drift_pct": row[5],
-                        "overall_status": row[6],
-                        "created_at": row[7],
-                    }
-                )
-        finally:
-            conn.close()
     except sqlite3.Error:
         logger.warning("Could not load validation runs", exc_info=True)
     return _templates.TemplateResponse(request, "sim/validate/index.html", {"runs": runs})
@@ -142,14 +150,10 @@ async def validate_page(request: Request) -> Response:
 async def validate_run(request: Request, character_name: str = Form(...)) -> Response:
     """Trigger a validation run and return the report partial."""
     try:
-        conn = get_connection()
-        try:
-            init_db(conn)
-            pipeline = ValidationPipeline(conn)
-            report = await pipeline.run_validation(character_name)
-            return _templates.TemplateResponse(request, "sim/validate/partials/report.html", {"report": report})
-        finally:
-            conn.close()
+        conn = _get_db()
+        pipeline = ValidationPipeline(conn)
+        report = await pipeline.run_validation(character_name)
+        return _templates.TemplateResponse(request, "sim/validate/partials/report.html", {"report": report})
     except Exception as exc:
         logger.exception("Validation run failed")
         return HTMLResponse(f'<div class="text-red-400 p-4">Error: {html.escape(str(exc))}</div>')
@@ -159,12 +163,8 @@ async def validate_run(request: Request, character_name: str = Form(...)) -> Res
 async def validate_report(request: Request, run_id: int) -> Response:
     """Render a stored validation report."""
     try:
-        conn = get_connection()
-        try:
-            init_db(conn)
-            row = conn.execute("SELECT report_json FROM validation_runs WHERE id = ?", (run_id,)).fetchone()
-        finally:
-            conn.close()
+        conn = _get_db()
+        row = conn.execute("SELECT report_json FROM validation_runs WHERE id = ?", (run_id,)).fetchone()
     except sqlite3.Error:
         logger.warning("Could not load validation report %d", run_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Database error")

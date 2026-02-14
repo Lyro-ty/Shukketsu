@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 StatusCallback = Callable[[str | dict[str, Any]], Awaitable[None]]
 
-_REACT_INSTRUCTIONS = """You have access to the following tools:
+_REACT_BASE = """You have access to the following tools:
 
 {tool_descriptions}
 
@@ -25,8 +25,10 @@ When you need information to answer the question, use a tool by responding with 
 When you have enough information to answer, respond with action "final_answer".
 Always think step by step about what you need to do.
 If a tool returns no results or an error, try a DIFFERENT tool or different query — never repeat the same tool call.
-If rag_search finds nothing, try web_search. If web_search finds relevant pages, use web_ingest to store them.
 Once you have useful information from any source, provide your final_answer — do not keep searching."""
+
+_REACT_RAG_HINT = """
+If rag_search finds nothing, try web_search. If web_search finds relevant pages, use web_ingest to store them."""
 
 
 class _RunOutcome(NamedTuple):
@@ -286,7 +288,11 @@ class BaseAgent:
             memory_context: Optional context from recalled session memories.
         """
         tool_descriptions = self.tool_registry.get_tool_descriptions()
-        system_content = self._system_prompt + "\n\n" + _REACT_INSTRUCTIONS.format(tool_descriptions=tool_descriptions)
+        react_text = _REACT_BASE.format(tool_descriptions=tool_descriptions)
+        # Only include RAG/web search hints when those tools are registered
+        if self.tool_registry.has("rag_search"):
+            react_text += _REACT_RAG_HINT
+        system_content = self._system_prompt + "\n\n" + react_text
 
         if memory_context:
             system_content += "\n\n## Relevant Context from Previous Sessions\n\n" + memory_context

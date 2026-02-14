@@ -91,7 +91,6 @@ class Researcher(BaseAgent):
                 query=task.query,
                 output=outcome.output,
                 scratchpad=outcome.scratchpad,
-                model_name=model_name,
             )
         except Exception as exc:
             logger.warning("Structuring pass failed, returning basic result: %s", exc)
@@ -151,14 +150,12 @@ class Researcher(BaseAgent):
         query: str,
         output: str,
         scratchpad: list[dict[str, Any]],
-        *,
-        model_name: str | None = None,
     ) -> StructuredFindings:
         """Run the structuring pass to convert free-text into typed findings.
 
         Takes the agent's free-text output and tool observations,
         returns structured findings with evidence and confidence.
-        Uses the same model as the ReAct loop when a model override is set.
+        Always uses the default 70B model for reliable structured output.
         """
         observations_text = self._format_scratchpad(scratchpad)
 

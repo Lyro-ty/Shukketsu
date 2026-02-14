@@ -56,6 +56,15 @@ def _complex_decision() -> RoutingDecision:
     )
 
 
+def _analysis_decision() -> RoutingDecision:
+    return RoutingDecision(
+        complexity=TaskComplexity.COMPLEX,
+        category=TaskCategory.ANALYSIS,
+        needs_tools=True,
+        suggested_agent="analyst",
+    )
+
+
 def _drain_status(ws) -> dict:
     """Drain status messages, return the first non-status message."""
     while True:
@@ -755,6 +764,100 @@ class TestMemoryIntegration:
         task = call_args[0][0] if call_args[0] else call_args.kwargs.get("task")
         # No memory_context should be set when recall returns empty
         assert not task.context.get("memory_context")
+
+
+class TestAnalysisRouting:
+    """Tests for ANALYSIS category routing to the Analyst agent."""
+
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_analysis_routes_to_analyst(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+    ) -> None:
+        """ANALYSIS category routes to Analyst.execute()."""
+        mock_classify.return_value = _analysis_decision()
+        researcher, orchestrator, analyst = _mock_agents("DPS: 1500")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "What is my DPS?"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+            assert done["content"] == "DPS: 1500"
+
+        analyst.execute.assert_called_once()
+        researcher.execute.assert_not_called()
+        orchestrator.execute.assert_not_called()
+
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_analysis_sends_analyzing_status(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+    ) -> None:
+        """ANALYSIS path should send 'analyzing...' status."""
+        mock_classify.return_value = _analysis_decision()
+        mock_agents.return_value = _mock_agents("DPS result")
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Sim my character"})
+            routing = ws.receive_json()
+            assert routing == {"type": "status", "content": "routing..."}
+            analyzing = ws.receive_json()
+            assert analyzing == {"type": "status", "content": "analyzing..."}
+
+    @patch("code.shukketsu.web.routers.chat.config.MEMORY_ENABLED", True)
+    @patch("code.shukketsu.web.routers.chat._get_memory_manager")
+    @patch("code.shukketsu.web.routers.chat._get_agents")
+    @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
+    def test_analysis_injects_memory_context(
+        self,
+        mock_classify: AsyncMock,
+        mock_agents: MagicMock,
+        mock_get_mm: MagicMock,
+    ) -> None:
+        """ANALYSIS path should inject memory_context when available."""
+        from code.shukketsu.memory.models import SessionMemory
+
+        mock_classify.return_value = _analysis_decision()
+        researcher, orchestrator, analyst = _mock_agents("DPS: 1500")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
+
+        memory = SessionMemory(
+            id=1,
+            query="my sim setup",
+            answer_summary="Assassination with T6 gear",
+            key_facts=["T6 gear"],
+            entities_mentioned=["Assassination"],
+            retrieval_quality=0.8,
+            created_at="2026-02-12T00:00:00+00:00",
+            score=0.9,
+        )
+        mm = MagicMock()
+        mm.recall_relevant = AsyncMock(return_value=[memory])
+        mm.extract_session_memory = AsyncMock()
+        mm.record_strategy = AsyncMock()
+        mock_get_mm.return_value = mm
+
+        client = TestClient(_get_app())
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()  # connected
+            ws.send_json({"type": "message", "content": "Sim my character"})
+            done = _drain_status(ws)
+            assert done["type"] == "done"
+
+        analyst.execute.assert_called_once()
+        call_args = analyst.execute.call_args
+        task = call_args[0][0] if call_args[0] else call_args.kwargs.get("task")
+        assert task.context.get("memory_context") is not None
+        assert "T6 gear" in task.context["memory_context"]
 
 
 class TestLangfuseResilience:

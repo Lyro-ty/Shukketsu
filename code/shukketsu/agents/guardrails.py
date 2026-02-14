@@ -59,7 +59,11 @@ class LoopDetector:
         """Create a hashable key from a scratchpad entry's tool call."""
         tool_name = entry.get("tool_name", "")
         tool_input = entry.get("tool_input", {})
-        return f"{tool_name}:{json.dumps(tool_input, sort_keys=True)}"
+        try:
+            input_str = json.dumps(tool_input, sort_keys=True)
+        except (TypeError, ValueError):
+            input_str = str(tool_input)
+        return f"{tool_name}:{input_str}"
 
     def _check_consecutive(self, scratchpad: list[dict]) -> str | None:
         """Check for N consecutive identical tool calls."""

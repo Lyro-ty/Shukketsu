@@ -109,10 +109,10 @@ async def logs_upload(
             "logs/error.html",
             {"error": "File does not appear to be a valid text combat log."},
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("Log upload failed")
         return _templates.TemplateResponse(
             request,
             "logs/error.html",
-            {"error": f"Parse error: {str(exc)}"},
+            {"error": "Failed to parse combat log. Please check the file format and try again."},
         )

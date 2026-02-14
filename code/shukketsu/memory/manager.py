@@ -237,6 +237,10 @@ class MemoryManager:
                 self._conn.commit()
 
         except Exception:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             logger.warning("Strategy recording failed", exc_info=True)
 
     async def recall_strategies(

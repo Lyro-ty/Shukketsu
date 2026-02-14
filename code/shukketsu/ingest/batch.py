@@ -485,6 +485,7 @@ async def _async_main(args: argparse.Namespace) -> None:
 
     pipeline = IngestPipeline(conn, embedder, graph_store=graph_store, extract_fn=extract_fn)
 
+    fetcher: WebFetcher | None = None
     try:
         if args.browser:
             batch_engine: BatchIngest | BrowserBatchIngest = BrowserBatchIngest(pipeline)
@@ -498,6 +499,8 @@ async def _async_main(args: argparse.Namespace) -> None:
         _print_report(report)
         print_db_stats(conn)
     finally:
+        if fetcher is not None:
+            await fetcher.close()
         conn.close()
 
 

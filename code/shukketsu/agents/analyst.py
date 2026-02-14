@@ -15,10 +15,12 @@ from code.shukketsu.agents.tasks import AgentRole, AgentTask, AnalysisResult, To
 
 logger = logging.getLogger(__name__)
 
-# Patterns for extracting DPS numbers from agent output
+# Patterns for extracting DPS numbers from agent output (ordered most-specific first)
 _DPS_PATTERNS = [
-    re.compile(r"(?:mean\s+)?DPS[:\s]+(\d+(?:\.\d+)?)", re.IGNORECASE),
-    re.compile(r"(\d+(?:\.\d+)?)\s+DPS", re.IGNORECASE),
+    re.compile(r"\"?mean[_\s]?dps\"?\s*[:=]\s*(\d+(?:\.\d+)?)", re.IGNORECASE),  # JSON/structured: "mean_dps": 1523.4
+    re.compile(r"(?:mean|average|avg)\s+DPS[:\s]+(\d+(?:\.\d+)?)", re.IGNORECASE),  # mean DPS: 1523.4
+    re.compile(r"DPS[:\s]+(\d+(?:\.\d+)?)", re.IGNORECASE),  # DPS: 1234
+    re.compile(r"(\d+(?:\.\d+)?)\s+(?:mean\s+)?DPS\b", re.IGNORECASE),  # 1234.5 DPS / 1234.5 mean DPS
 ]
 
 
@@ -60,6 +62,13 @@ class Analyst(BaseAgent):
         ]
 
         dps_mean = self._extract_dps(outcome.output)
+        # Fall back to scratchpad observations if output extraction failed
+        if dps_mean is None:
+            for entry in reversed(outcome.scratchpad):
+                obs = str(entry.get("observation", ""))
+                dps_mean = self._extract_dps(obs)
+                if dps_mean is not None:
+                    break
 
         return AnalysisResult(
             task_id=task.task_id,

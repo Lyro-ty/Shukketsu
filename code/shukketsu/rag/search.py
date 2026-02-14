@@ -31,7 +31,7 @@ SELECT
     c.chunk_index,
     s.title AS source_title,
     s.url AS source_url,
-    MAX(0.0, MIN(1.0,
+    MAX(0.1, MIN(1.0,
         s.trust_score + COALESCE(
             (SELECT SUM(delta) FROM trust_events te WHERE te.source_id = s.id), 0.0
         )
@@ -56,7 +56,7 @@ SELECT
     c.chunk_index,
     s.title AS source_title,
     s.url AS source_url,
-    MAX(0.0, MIN(1.0,
+    MAX(0.1, MIN(1.0,
         s.trust_score + COALESCE(
             (SELECT SUM(delta) FROM trust_events te WHERE te.source_id = s.id), 0.0
         )

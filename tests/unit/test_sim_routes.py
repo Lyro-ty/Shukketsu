@@ -190,15 +190,12 @@ class TestValidateReport:
     """Tests for GET /sim/validate/report/{run_id}."""
 
     @pytest.mark.asyncio
-    @patch("code.shukketsu.web.routers.sim.get_connection")
-    @patch("code.shukketsu.web.routers.sim.init_db")
-    async def test_not_found_returns_404(
-        self, mock_init_db: MagicMock, mock_get_conn: MagicMock, client: AsyncClient
-    ) -> None:
+    @patch("code.shukketsu.web.routers.sim._get_db")
+    async def test_not_found_returns_404(self, mock_get_db: MagicMock, client: AsyncClient) -> None:
         """Nonexistent run_id returns 404."""
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchone.return_value = None
-        mock_get_conn.return_value = mock_conn
+        mock_get_db.return_value = mock_conn
         response = await client.get("/sim/validate/report/99999")
         assert response.status_code == 404
 
@@ -214,12 +211,10 @@ class TestValidateRun:
 
     @pytest.mark.asyncio
     @patch("code.shukketsu.web.routers.sim.ValidationPipeline")
-    @patch("code.shukketsu.web.routers.sim.get_connection")
-    @patch("code.shukketsu.web.routers.sim.init_db")
+    @patch("code.shukketsu.web.routers.sim._get_db")
     async def test_run_returns_report(
         self,
-        mock_init_db: MagicMock,
-        mock_get_conn: MagicMock,
+        mock_get_db: MagicMock,
         mock_pipeline_cls: MagicMock,
         client: AsyncClient,
     ) -> None:
@@ -244,12 +239,10 @@ class TestValidateRun:
 
     @pytest.mark.asyncio
     @patch("code.shukketsu.web.routers.sim.ValidationPipeline")
-    @patch("code.shukketsu.web.routers.sim.get_connection")
-    @patch("code.shukketsu.web.routers.sim.init_db")
+    @patch("code.shukketsu.web.routers.sim._get_db")
     async def test_run_error_returns_html(
         self,
-        mock_init_db: MagicMock,
-        mock_get_conn: MagicMock,
+        mock_get_db: MagicMock,
         mock_pipeline_cls: MagicMock,
         client: AsyncClient,
     ) -> None:

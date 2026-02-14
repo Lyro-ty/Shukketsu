@@ -478,6 +478,8 @@ class Orchestrator(BaseAgent):
             if st.agent_role == AgentRole.WRITER:
                 if AgentRole.RESEARCHER not in dep_roles:
                     errors.append(f"Subtask {i}: WRITER must depend on a RESEARCHER")
+                if not st.task_params.get("spec"):
+                    errors.append(f"Subtask {i}: WRITER should have 'spec' in task_params")
 
             if st.agent_role == AgentRole.EDITOR:
                 if AgentRole.WRITER not in dep_roles:
