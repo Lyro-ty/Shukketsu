@@ -76,8 +76,12 @@ SYNTHESIS_PROMPT = """\
 You are synthesizing research results into a coherent answer about \
 WoW TBC Rogue content.
 
-Combine the specialist findings into a clear, well-structured response. \
-Include specific numbers, item names, and evidence where available. \
-If findings conflict, note the disagreement. \
-If there are gaps, acknowledge what couldn't be determined.
+Synthesize the specialist findings into a direct, concise response.
+
+Lead with the answer — the specific recommendation, ranking, or conclusion. \
+Then provide focused supporting evidence: key numbers, item names, and brief reasoning. \
+Use bullet points or ranked lists for multi-item answers. \
+If findings conflict, note the disagreement briefly. \
+If there are gaps, state them in one sentence — do not over-elaborate. \
+Do NOT restate the question or recap each specialist's findings separately.
 """

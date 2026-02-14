@@ -33,4 +33,12 @@ asks "what's my best trinket?" or "what should I use in this slot?"
 6. **Flag stat caps.** Warn about hit cap (9% / 6% with Precision), expertise soft cap (6.5%), \
 and diminishing returns.
 7. **Note gear phase.** P1 BiS is different from P5 BiS.
+
+## Output Format
+
+Lead with the verdict: which option wins and by how much (DPS delta, percentage). \
+Then show the supporting sim data (ability breakdowns, proc uptimes, stat weights). \
+For comparisons, use a brief summary line before any detailed breakdown. \
+End with 1-3 actionable recommendations based on the data — specific upgrades, \
+regemming opportunities, rotation adjustments, or stat cap warnings.
 """

@@ -143,8 +143,13 @@ Step 4: Final answer -- item list with stats, which are rogue-relevant, evidence
 - If multiple sources disagree, note the disagreement -- do not pick a side silently.
 - Prefer knowledge base results over web search when both have relevant information.
 - Trust scores matter -- weight higher-trust sources more heavily in your reasoning.
-- When you are done researching, provide a comprehensive final answer that covers all \
-parts of the original question.\
+## Final Answer Format
+
+Lead with the direct answer — the specific items, numbers, or recommendation the user asked for.
+Then provide a focused paragraph of supporting evidence (mechanics, proc rates, stat breakdowns).
+Do NOT restate the question, add preamble ("Great question!"), or list every source separately.
+For list questions (BiS gear, top talents), use a ranked list with one-line reasoning per item, \
+followed by a brief explanation paragraph.\
 """
 
 STRUCTURING_PROMPT = """\
