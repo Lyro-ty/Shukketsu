@@ -48,6 +48,7 @@ _researcher_instance: BaseAgent | None = None
 _orchestrator_instance: BaseAgent | None = None
 _analyst_instance: BaseAgent | None = None
 _memory_manager_instance: MemoryManager | None = None
+_web_fetcher_instance: Any | None = None
 
 
 class ChatSession:
@@ -104,7 +105,9 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent, BaseAgent]:
         registry.register(GraphSearchTool(conn=conn))
 
         # Web search + ingest tools
+        global _web_fetcher_instance  # noqa: PLW0603
         fetcher = WebFetcher(rate_limiter=RateLimiter(), robots_checker=RobotsChecker())
+        _web_fetcher_instance = fetcher
         pipeline = IngestPipeline(conn=conn, embedder=embedder)
         registry.register(WebSearchTool())
         registry.register(WebIngestTool(fetcher=fetcher, pipeline=pipeline))

@@ -26,7 +26,6 @@ from code.shukketsu.knowledge.manager import ArticleMeta, ArticleStatus, Knowled
 from code.shukketsu.llm.prompts.editor import EDITOR_SYSTEM_PROMPT, VERIFICATION_PROMPT
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
-from code.shukketsu.resilience.errors import CircuitOpenError
 from code.shukketsu.tools.registry import ToolRegistry
 from code.shukketsu.trust.scoring import TRUST_DELTAS, record_trust_event
 
@@ -151,7 +150,7 @@ class Editor(BaseAgent):
             try:
                 verification = await self._verify_claim(claim, entity_refs)
                 all_failed = False
-            except (CircuitOpenError, Exception) as exc:
+            except Exception as exc:
                 logger.warning("Verification failed for claim '%s': %s", claim[:50], exc)
                 verification = ClaimVerification(
                     claim=claim,

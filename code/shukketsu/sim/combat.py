@@ -79,11 +79,23 @@ OH_DAMAGE_MULTIPLIER: float = 0.50
 RUPTURE_TICK_INTERVAL_MS: int = 2000
 """Rupture ticks every 2 seconds."""
 
-RUPTURE_BASE_DPT: float = 70.0
-"""Base damage per tick for Rupture rank 7."""
+RUPTURE_DPT_BY_CP: dict[int, float] = {
+    1: 42.5,  # 170 total / 4 ticks
+    2: 46.4,  # 232 total / 5 ticks
+    3: 56.67,  # 340 total / 6 ticks
+    4: 64.0,  # 448 total / 7 ticks
+    5: 69.5,  # 556 total / 8 ticks
+}
+"""Rupture rank 7 base damage per tick, keyed by combo points."""
 
-RUPTURE_CP_DPT: float = 18.0
-"""Additional damage per tick per combo point for Rupture."""
+RUPTURE_AP_COEFF_BY_CP: dict[int, float] = {
+    1: 0.01,
+    2: 0.02,
+    3: 0.03,
+    4: 0.03,
+    5: 0.03,
+}
+"""Rupture AP coefficient per tick, caps at 0.03 for 3+ CP."""
 
 GARROTE_TICK_INTERVAL_MS: int = 3000
 """Garrote ticks every 3 seconds."""
@@ -672,11 +684,9 @@ class CombatSimulation:
                 duration_ms = (6 + 2 * cp) * 1000
                 num_ticks = duration_ms // RUPTURE_TICK_INTERVAL_MS
 
-                # Damage per tick: base + CP bonus + AP coefficient
-                dpt = (
-                    RUPTURE_BASE_DPT
-                    + RUPTURE_CP_DPT * cp
-                    + self._base_stats["attack_power"] * ability_def.ap_coefficient
+                # Damage per tick: lookup by CP + AP scaling (caps at 3% for 3+ CP)
+                dpt = RUPTURE_DPT_BY_CP.get(cp, 69.5) + self._base_stats["attack_power"] * RUPTURE_AP_COEFF_BY_CP.get(
+                    cp, 0.03
                 )
                 dpt *= 1.0 + self._modifiers.rupture_damage_bonus_pct
                 dpt *= 1.0 + self._modifiers.murder_damage_pct
@@ -747,7 +757,7 @@ class CombatSimulation:
                 state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
-                self._apply_damage("eviscerate", base_dmg, outcome, state, applies_lethality=True)
+                self._apply_damage("eviscerate", base_dmg, outcome, state, applies_lethality=False)
 
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0

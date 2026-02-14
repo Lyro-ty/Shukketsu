@@ -114,11 +114,12 @@ class TestBaseAgentRun:
         assert mock_llm.call_count == 2
 
     @patch("code.shukketsu.agents.base.get_structured_output")
-    async def test_propagates_llm_unavailable(self, mock_llm: AsyncMock) -> None:
+    async def test_llm_unavailable_returns_graceful_failure(self, mock_llm: AsyncMock) -> None:
+        """LLMUnavailableError should return graceful failure, not crash."""
         mock_llm.side_effect = LLMUnavailableError("Server down")
         agent = BaseAgent(tool_registry=_registry())
-        with pytest.raises(LLMUnavailableError, match="Server down"):
-            await agent.run("test")
+        result = await agent.run("test")
+        assert result == config.AGENT_GRACEFUL_FAILURE
 
     @patch("code.shukketsu.agents.base.get_structured_output")
     async def test_structured_output_error_returns_graceful_failure(self, mock_llm: AsyncMock) -> None:
@@ -307,11 +308,12 @@ class TestBaseAgentExecute:
         assert result.status == TaskStatus.PARTIAL
 
     @patch("code.shukketsu.agents.base.get_structured_output")
-    async def test_execute_propagates_llm_errors(self, mock_llm: AsyncMock) -> None:
+    async def test_execute_llm_unavailable_returns_partial(self, mock_llm: AsyncMock) -> None:
+        """LLMUnavailableError should return PARTIAL status, not crash."""
         mock_llm.side_effect = LLMUnavailableError("Server down")
         agent = BaseAgent(tool_registry=_registry(), role=AgentRole.RESEARCHER)
-        with pytest.raises(LLMUnavailableError):
-            await agent.execute(AgentTask(query="q"))
+        result = await agent.execute(AgentTask(query="q"))
+        assert result.status == TaskStatus.PARTIAL
 
     @patch("code.shukketsu.agents.base.get_structured_output")
     async def test_execute_requires_role(self, mock_llm: AsyncMock) -> None:

@@ -12,7 +12,7 @@ from code.shukketsu.agents.tasks import AgentResult, AgentRole, AgentTask, TaskS
 from code.shukketsu.llm.schemas import ActionType, AgentStep
 from code.shukketsu.llm.structured import get_structured_output
 from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
-from code.shukketsu.resilience.errors import CircuitOpenError, StructuredOutputError
+from code.shukketsu.resilience.errors import CircuitOpenError, LLMUnavailableError, StructuredOutputError
 from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -175,7 +175,7 @@ class BaseAgent:
                     messages=messages,
                     model=model_name,
                 )
-            except (StructuredOutputError, CircuitOpenError) as exc:
+            except (StructuredOutputError, CircuitOpenError, LLMUnavailableError) as exc:
                 logger.warning("LLM failure in ReAct loop: %s", exc)
                 return _RunOutcome(
                     output=self._synthesize_partial_answer(scratchpad),

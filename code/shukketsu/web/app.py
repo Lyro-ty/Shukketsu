@@ -106,6 +106,14 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             except Exception:
                 logger.debug("Error closing DB connection on shutdown", exc_info=True)
 
+    # Close httpx clients from WebFetcher
+    fetcher = getattr(chat, "_web_fetcher_instance", None)
+    if fetcher is not None:
+        try:
+            await fetcher.close()
+        except Exception:
+            logger.debug("Error closing WebFetcher on shutdown", exc_info=True)
+
     flush_traces()
 
 

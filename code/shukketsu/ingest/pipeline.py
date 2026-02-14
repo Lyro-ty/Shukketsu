@@ -15,6 +15,7 @@ from code.shukketsu.rag.entities import ChunkExtraction
 from code.shukketsu.rag.graph import GraphStore
 from code.shukketsu.resilience.circuit_breaker import ollama_embed_breaker
 from code.shukketsu.resilience.errors import CircuitOpenError, EmbeddingError
+from code.shukketsu.trust.scoring import SOURCE_TRUST
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,11 @@ class IngestPipeline:
 
                 now_iso = datetime.now(UTC).isoformat()
                 check_interval = get_check_interval(url)
+                trust_score = SOURCE_TRUST.get(source_type, 0.3)
                 cursor = self._conn.execute(
                     "INSERT INTO sources (url, title, source_type, content_hash, fetched_at, "
-                    "check_interval_hours, last_checked) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (url, title, source_type, content_hash, now_iso, check_interval, now_iso),
+                    "check_interval_hours, last_checked, trust_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (url, title, source_type, content_hash, now_iso, check_interval, now_iso, trust_score),
                 )
                 if cursor.lastrowid is None:
                     raise RuntimeError("INSERT INTO sources failed to return lastrowid")
