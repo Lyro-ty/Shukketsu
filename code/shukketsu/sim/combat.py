@@ -270,6 +270,11 @@ class CombatSimulation:
         self._crit_mult = calc_crit_multiplier(
             MELEE_CRIT_MULTIPLIER,
             primary_mod=self._modifiers.crit_damage_primary_mod,
+            secondary_mod=0.0,
+        )
+        self._crit_mult_lethality = calc_crit_multiplier(
+            MELEE_CRIT_MULTIPLIER,
+            primary_mod=self._modifiers.crit_damage_primary_mod,
             secondary_mod=self._modifiers.lethality_secondary_mod,
         )
 
@@ -662,6 +667,7 @@ class CombatSimulation:
                 dpt = RUPTURE_BASE_DPT + RUPTURE_CP_DPT * cp + self._base_stats["attack_power"] * 0.04
                 dpt *= 1.0 + self._modifiers.rupture_damage_bonus_pct
                 dpt *= 1.0 + self._modifiers.murder_damage_pct
+                dpt *= 1.0 + self._modifiers.surprise_attacks_damage_pct
 
                 dot_state = DotState(
                     remaining_ticks=num_ticks,
@@ -696,15 +702,16 @@ class CombatSimulation:
             cp = max(1, state.combo_points)
             base_dmg = ability_def.flat_damage + ability_def.bonus_per_combo_point * cp
 
+            # Add AP scaling (normalized MH) before talent multipliers
+            base_dmg += self._base_stats["attack_power"] / AP_PER_DPS * self._mh_norm_speed
+
             # Apply talent bonuses
             dmg_mult = 1.0
             dmg_mult *= 1.0 + self._modifiers.evis_damage_bonus_pct
             dmg_mult *= 1.0 + self._modifiers.aggression_damage_pct
             dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
+            dmg_mult *= 1.0 + self._modifiers.surprise_attacks_damage_pct
             base_dmg *= dmg_mult
-
-            # Add AP scaling (normalized MH)
-            base_dmg += self._base_stats["attack_power"] / AP_PER_DPS * self._mh_norm_speed
 
             # Cold Blood check
             effective_crit = self._crit_chance
@@ -728,7 +735,7 @@ class CombatSimulation:
                 state.energy = min(state.max_energy, state.energy + int(ability_def.energy_cost * 0.8))
             else:
                 state.energy = max(0, state.energy - ability_def.energy_cost)
-                self._apply_damage("eviscerate", base_dmg, outcome, state)
+                self._apply_damage("eviscerate", base_dmg, outcome, state, applies_lethality=True)
 
             self._check_relentless_strikes(cp, state, rng)
             state.combo_points = 0
@@ -747,6 +754,7 @@ class CombatSimulation:
             dmg_mult = 1.0
             dmg_mult *= 1.0 + self._modifiers.vile_poisons_pct
             dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
+            dmg_mult *= 1.0 + self._modifiers.surprise_attacks_damage_pct
             base_dmg *= dmg_mult
 
             # Cold Blood check
@@ -926,7 +934,8 @@ class CombatSimulation:
 
                 base_dmg *= dmg_mult
 
-                self._apply_damage(ability_name, base_dmg, outcome, state)
+                has_lethality = AbilityFlag.APPLIES_LETHALITY in ability_def.flags
+                self._apply_damage(ability_name, base_dmg, outcome, state, applies_lethality=has_lethality)
                 self._grant_combo_points(ability_def.combo_points_generated, state)
 
                 # Sword Spec and poison procs on yellow hits
@@ -1001,7 +1010,15 @@ class CombatSimulation:
         """
         state.proc_counts[proc_name] += 1
 
-    def _apply_damage(self, ability_name: str, base_damage: float, outcome: HitOutcome, state: CombatState) -> float:
+    def _apply_damage(
+        self,
+        ability_name: str,
+        base_damage: float,
+        outcome: HitOutcome,
+        state: CombatState,
+        *,
+        applies_lethality: bool = False,
+    ) -> float:
         """Apply damage from an attack, accounting for outcome modifiers and armor.
 
         Args:
@@ -1009,6 +1026,7 @@ class CombatSimulation:
             base_damage: Pre-mitigation damage.
             outcome: The hit outcome (crit, glancing, etc.).
             state: Current combat state.
+            applies_lethality: Whether Lethality crit bonus applies to this ability.
 
         Returns:
             The actual damage dealt after all modifiers.
@@ -1020,7 +1038,7 @@ class CombatSimulation:
 
         # Apply outcome modifier
         if outcome == HitOutcome.CRIT:
-            damage *= self._crit_mult
+            damage *= self._crit_mult_lethality if applies_lethality else self._crit_mult
         elif outcome == HitOutcome.GLANCING:
             damage *= calc_glancing_reduction()
 

@@ -63,6 +63,7 @@ ABILITIES: dict[str, AbilityDef] = {
             AbilityFlag.PHYSICAL,
             AbilityFlag.NORMALIZED,
             AbilityFlag.MAIN_HAND,
+            AbilityFlag.APPLIES_LETHALITY,
         },
     ),
     "backstab": AbilityDef(

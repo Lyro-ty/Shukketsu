@@ -72,6 +72,11 @@ class TestGetSpecTemplate:
         assert "precision" in tpl
         assert tpl["precision"] == 5
 
+    def test_combat_swords_has_improved_snd(self) -> None:
+        tpl = get_spec_template(RogueSpec.COMBAT_SWORDS)
+        assert "improved_slice_and_dice" in tpl
+        assert tpl["improved_slice_and_dice"] == 3
+
     def test_combat_fists_template(self) -> None:
         tpl = get_spec_template(RogueSpec.COMBAT_FISTS)
         assert "fist_specialization" in tpl
@@ -262,7 +267,7 @@ class TestIndividualTalentEffects:
     def test_relentless_strikes_1_1(self) -> None:
         alloc = TalentAllocation(assassination=1, combat=0, subtlety=0, points={"relentless_strikes": 1})
         mods = compute_modifiers(alloc)
-        assert mods.relentless_strikes_per_cp == pytest.approx(5.0)
+        assert mods.relentless_strikes_per_cp == pytest.approx(20.0)
 
     def test_serrated_blades_3_3(self) -> None:
         alloc = TalentAllocation(assassination=0, combat=0, subtlety=3, points={"serrated_blades": 3})
@@ -287,6 +292,12 @@ class TestIndividualTalentEffects:
         mods = compute_modifiers(alloc)
         # malice max_ranks=5, so 10 ranks should be capped to 5 -> 0.05
         assert mods.bonus_crit_pct == pytest.approx(0.05)
+
+    def test_improved_slice_and_dice_3_3(self) -> None:
+        alloc = TalentAllocation(assassination=0, combat=3, subtlety=0, points={"improved_slice_and_dice": 3})
+        mods = compute_modifiers(alloc)
+        # snd_duration_mult starts at 1.0, adds 0.15*3 = 0.45 -> 1.45
+        assert mods.snd_duration_mult == pytest.approx(1.45)
 
     def test_unknown_talent_ignored(self) -> None:
         alloc = TalentAllocation(assassination=0, combat=0, subtlety=0, points={"nonexistent_talent": 5})

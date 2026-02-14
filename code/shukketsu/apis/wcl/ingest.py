@@ -60,41 +60,45 @@ class RankingsIngestor:
         rankings = rankings_data.get("rankings", [])
         report_codes: set[str] = set()
 
-        for r in rankings:
-            report = r.get("report", {})
-            report_code = report.get("code", "")
-            if report_code:
-                report_codes.add(report_code)
+        try:
+            for r in rankings:
+                report = r.get("report", {})
+                report_code = report.get("code", "")
+                if report_code:
+                    report_codes.add(report_code)
 
-            server = r.get("server", {})
-            guild = r.get("guild", {})
+                server = r.get("server", {})
+                guild = r.get("guild", {})
 
-            self._conn.execute(
-                """INSERT OR REPLACE INTO wcl_rankings
-                   (zone_id, encounter_id, encounter_name, player_name, spec, dps, duration_ms,
-                    report_code, fight_id, guild_name, server_name, server_region,
-                    faction, raid_size, bracket_data)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    zone_id,
-                    encounter_id,
-                    encounter_name,
-                    r.get("name", ""),
-                    r.get("spec", ""),
-                    r.get("amount", 0),
-                    r.get("duration", 0),
-                    report_code,
-                    report.get("fightID", 0),
-                    guild.get("name"),
-                    server.get("name", ""),
-                    server.get("region", ""),
-                    r.get("faction"),
-                    r.get("size"),
-                    r.get("bracketData"),
-                ),
-            )
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO wcl_rankings
+                       (zone_id, encounter_id, encounter_name, player_name, spec, dps, duration_ms,
+                        report_code, fight_id, guild_name, server_name, server_region,
+                        faction, raid_size, bracket_data)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        zone_id,
+                        encounter_id,
+                        encounter_name,
+                        r.get("name", ""),
+                        r.get("spec", ""),
+                        r.get("amount", 0),
+                        r.get("duration", 0),
+                        report_code,
+                        report.get("fightID", 0),
+                        guild.get("name"),
+                        server.get("name", ""),
+                        server.get("region", ""),
+                        r.get("faction"),
+                        r.get("size"),
+                        r.get("bracketData"),
+                    ),
+                )
 
-        self._conn.commit()
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         logger.info("Stored %d rankings for encounter %s (%d)", len(rankings), encounter_name, encounter_id)
         return report_codes
 
@@ -393,19 +397,23 @@ class CharacterSyncer:
             existing.add(row[0])
 
         new_codes: list[str] = []
-        for report in reports:
-            code = report.get("code", "")
-            if code and code not in existing:
-                new_codes.append(code)
-                # Store a basic log entry (will be enriched by deep-dive)
-                self._conn.execute(
-                    """INSERT OR IGNORE INTO wcl_character_log
-                       (character_wcl_id, report_code, fight_id, encounter_id)
-                       VALUES (?, ?, 0, 0)""",
-                    (wcl_id, code),
-                )
+        try:
+            for report in reports:
+                code = report.get("code", "")
+                if code and code not in existing:
+                    new_codes.append(code)
+                    # Store a basic log entry (will be enriched by deep-dive)
+                    self._conn.execute(
+                        """INSERT OR IGNORE INTO wcl_character_log
+                           (character_wcl_id, report_code, fight_id, encounter_id)
+                           VALUES (?, ?, 0, 0)""",
+                        (wcl_id, code),
+                    )
 
-        self._conn.commit()
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         logger.info("Character %s: %d new reports found", character_config.get("name", wcl_id), len(new_codes))
         return new_codes
 

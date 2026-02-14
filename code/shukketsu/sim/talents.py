@@ -172,7 +172,7 @@ TALENT_DEFS: dict[str, TalentDef] = {
         tier=4,
         column=3,
         max_ranks=1,
-        effect_per_rank={"relentless_strikes_per_cp": 5.0},
+        effect_per_rank={"relentless_strikes_per_cp": 20.0},
     ),
     "improved_poisons": TalentDef(
         name="Improved Poisons",
@@ -262,6 +262,14 @@ TALENT_DEFS: dict[str, TalentDef] = {
         column=1,
         max_ranks=2,
         effect_per_rank={"ss_energy_reduction": 3},
+    ),
+    "improved_slice_and_dice": TalentDef(
+        name="Improved Slice and Dice",
+        tree="combat",
+        tier=3,
+        column=2,
+        max_ranks=3,
+        effect_per_rank={"snd_duration_mult": 0.15},
     ),
     "precision": TalentDef(
         name="Precision",
@@ -461,6 +469,7 @@ _SPEC_TEMPLATES: dict[RogueSpec, dict[str, int]] = {
         "improved_poisons": 4,
         # Combat (41)
         "improved_sinister_strike": 2,
+        "improved_slice_and_dice": 3,
         "precision": 5,
         "dual_wield_specialization": 5,
         "blade_flurry_talent": 1,
@@ -481,6 +490,7 @@ _SPEC_TEMPLATES: dict[RogueSpec, dict[str, int]] = {
         "improved_poisons": 4,
         # Combat (41)
         "improved_sinister_strike": 2,
+        "improved_slice_and_dice": 3,
         "precision": 5,
         "dual_wield_specialization": 5,
         "blade_flurry_talent": 1,
@@ -500,6 +510,7 @@ _SPEC_TEMPLATES: dict[RogueSpec, dict[str, int]] = {
         "lethality": 5,
         "improved_poisons": 4,
         # Combat (41)
+        "improved_slice_and_dice": 3,
         "precision": 5,
         "dual_wield_specialization": 5,
         "blade_flurry_talent": 1,
