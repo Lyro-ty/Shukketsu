@@ -7,6 +7,7 @@ and result visualization, plus JSON API endpoints for programmatic access.
 import html
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -110,27 +111,30 @@ async def validate_page(request: Request) -> Response:
     runs: list[dict[str, Any]] = []
     try:
         conn = get_connection()
-        init_db(conn)
-        cursor = conn.execute(
-            """SELECT id, character_name, run_type, total_fights, included_fights,
-                      overall_dps_drift_pct, overall_status, created_at
-               FROM validation_runs ORDER BY created_at DESC LIMIT 20"""
-        )
-        for row in cursor.fetchall():
-            runs.append(
-                {
-                    "id": row[0],
-                    "character_name": row[1],
-                    "run_type": row[2],
-                    "total_fights": row[3],
-                    "included_fights": row[4],
-                    "overall_dps_drift_pct": row[5],
-                    "overall_status": row[6],
-                    "created_at": row[7],
-                }
+        try:
+            init_db(conn)
+            cursor = conn.execute(
+                """SELECT id, character_name, run_type, total_fights, included_fights,
+                          overall_dps_drift_pct, overall_status, created_at
+                   FROM validation_runs ORDER BY created_at DESC LIMIT 20"""
             )
-    except Exception:
-        logger.debug("Could not load validation runs", exc_info=True)
+            for row in cursor.fetchall():
+                runs.append(
+                    {
+                        "id": row[0],
+                        "character_name": row[1],
+                        "run_type": row[2],
+                        "total_fights": row[3],
+                        "included_fights": row[4],
+                        "overall_dps_drift_pct": row[5],
+                        "overall_status": row[6],
+                        "created_at": row[7],
+                    }
+                )
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        logger.warning("Could not load validation runs", exc_info=True)
     return _templates.TemplateResponse(request, "sim/validate/index.html", {"runs": runs})
 
 
@@ -139,10 +143,13 @@ async def validate_run(request: Request, character_name: str = Form(...)) -> Res
     """Trigger a validation run and return the report partial."""
     try:
         conn = get_connection()
-        init_db(conn)
-        pipeline = ValidationPipeline(conn)
-        report = await pipeline.run_validation(character_name)
-        return _templates.TemplateResponse(request, "sim/validate/partials/report.html", {"report": report})
+        try:
+            init_db(conn)
+            pipeline = ValidationPipeline(conn)
+            report = await pipeline.run_validation(character_name)
+            return _templates.TemplateResponse(request, "sim/validate/partials/report.html", {"report": report})
+        finally:
+            conn.close()
     except Exception as exc:
         logger.exception("Validation run failed")
         return HTMLResponse(f'<div class="text-red-400 p-4">Error: {html.escape(str(exc))}</div>')
@@ -153,11 +160,14 @@ async def validate_report(request: Request, run_id: int) -> Response:
     """Render a stored validation report."""
     try:
         conn = get_connection()
-        init_db(conn)
-        row = conn.execute("SELECT report_json FROM validation_runs WHERE id = ?", (run_id,)).fetchone()
-    except Exception:
-        logger.debug("Could not load validation report %d", run_id, exc_info=True)
-        raise HTTPException(status_code=404, detail="Report not found")
+        try:
+            init_db(conn)
+            row = conn.execute("SELECT report_json FROM validation_runs WHERE id = ?", (run_id,)).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        logger.warning("Could not load validation report %d", run_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Database error")
     if row is None:
         raise HTTPException(status_code=404, detail="Report not found")
     report = ValidationReport(**json.loads(row[0]))

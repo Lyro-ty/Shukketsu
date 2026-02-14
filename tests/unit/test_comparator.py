@@ -4,7 +4,9 @@ import pytest
 
 from code.shukketsu.sim.comparator import (
     AbilityMetrics,
+    FightValidation,
     MetricDrift,
+    SimComparator,
     ValidationReport,
     WCLFightMetrics,
     compute_drift,
@@ -97,3 +99,56 @@ class TestValidationReport:
             timestamp="2026-02-13T00:00:00",
         )
         assert report.overall_status == "pass"
+
+
+class TestBuildReportWarnTier:
+    """Tests that build_report uses the warn tier for boss and overall status."""
+
+    def _make_fight(self, drift_pct: float) -> FightValidation:
+        return FightValidation(
+            report_code="RPT1",
+            fight_id=1,
+            encounter_name="Boss",
+            fight_duration_ms=300000,
+            dps_drift=MetricDrift(
+                metric_name="dps",
+                sim_value=1000 + drift_pct * 10,
+                wcl_value=1000,
+                absolute_delta=abs(drift_pct * 10),
+                relative_pct=drift_pct,
+                status="pass",
+            ),
+            ability_drifts=[],
+            buff_drifts=[],
+            overall_status="pass",
+        )
+
+    def test_boss_warn_status(self, test_db: object) -> None:
+        """Boss aggregate drift between pass and warn thresholds gives 'warn'."""
+
+        conn = test_db  # type: ignore[assignment]
+        comparator = SimComparator(conn)  # type: ignore[arg-type]
+        fights = [self._make_fight(7.0)]  # 7% drift: above 5% (pass), below 10% (warn)
+        report = comparator.build_report(fights, "Lyroo", 1, 0)
+        assert report.per_boss["Boss"].status == "warn"
+        assert report.overall_status == "warn"
+
+    def test_boss_pass_status(self, test_db: object) -> None:
+        """Boss aggregate drift within pass threshold gives 'pass'."""
+
+        conn = test_db  # type: ignore[assignment]
+        comparator = SimComparator(conn)  # type: ignore[arg-type]
+        fights = [self._make_fight(3.0)]  # 3% drift: within 5% pass threshold
+        report = comparator.build_report(fights, "Lyroo", 1, 0)
+        assert report.per_boss["Boss"].status == "pass"
+        assert report.overall_status == "pass"
+
+    def test_boss_fail_status(self, test_db: object) -> None:
+        """Boss aggregate drift above warn threshold gives 'fail'."""
+
+        conn = test_db  # type: ignore[assignment]
+        comparator = SimComparator(conn)  # type: ignore[arg-type]
+        fights = [self._make_fight(15.0)]  # 15% drift: above 10% warn threshold
+        report = comparator.build_report(fights, "Lyroo", 1, 0)
+        assert report.per_boss["Boss"].status == "fail"
+        assert report.overall_status == "fail"

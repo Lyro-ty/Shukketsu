@@ -292,7 +292,13 @@ class SimComparator:
             avg_sim = sum(f.dps_drift.sim_value for f in fights) / len(fights)
             avg_wcl = sum(f.dps_drift.wcl_value for f in fights) / len(fights)
             avg_drift = sum(f.dps_drift.relative_pct for f in fights) / len(fights)
-            status = "pass" if abs(avg_drift) <= config.VALIDATION_DPS_THRESHOLD else "fail"
+            abs_drift = abs(avg_drift)
+            if abs_drift <= config.VALIDATION_DPS_THRESHOLD:
+                status = "pass"
+            elif abs_drift <= config.VALIDATION_DPS_WARN_THRESHOLD:
+                status = "warn"
+            else:
+                status = "fail"
             boss_aggs[boss_name] = BossAggregate(
                 encounter_name=boss_name,
                 fight_count=len(fights),
@@ -304,7 +310,13 @@ class SimComparator:
 
         all_drifts = [v.dps_drift.relative_pct for v in validations]
         overall_drift = sum(all_drifts) / len(all_drifts) if all_drifts else 0.0
-        overall_status = "pass" if abs(overall_drift) <= config.VALIDATION_DPS_THRESHOLD else "fail"
+        abs_overall = abs(overall_drift)
+        if abs_overall <= config.VALIDATION_DPS_THRESHOLD:
+            overall_status = "pass"
+        elif abs_overall <= config.VALIDATION_DPS_WARN_THRESHOLD:
+            overall_status = "warn"
+        else:
+            overall_status = "fail"
 
         return ValidationReport(
             character_name=character_name,

@@ -39,16 +39,6 @@ _WCL_WEAPON_SLOTS: dict[int, GearSlot] = {
     16: GearSlot.OFF_HAND,
 }
 
-# Counter for synthetic item IDs (negative to avoid collision)
-_SYNTHETIC_ID_COUNTER = -1000
-
-
-def _next_synthetic_id() -> int:
-    """Return the next synthetic item ID (always negative)."""
-    global _SYNTHETIC_ID_COUNTER  # noqa: PLW0603
-    _SYNTHETIC_ID_COUNTER -= 1
-    return _SYNTHETIC_ID_COUNTER
-
 
 class WCLBridge:
     """Bridges WCL combatant data into SimConfig via synthetic Items."""
@@ -56,6 +46,12 @@ class WCLBridge:
     def __init__(self, conn: sqlite3.Connection, item_db: ItemDatabase | None = None) -> None:
         self._conn = conn
         self._item_db = item_db or ItemDatabase()
+        self._next_id = -1000
+
+    def _next_synthetic_id(self) -> int:
+        """Return the next synthetic item ID (always negative)."""
+        self._next_id -= 1
+        return self._next_id
 
     @property
     def item_db(self) -> ItemDatabase:
@@ -112,7 +108,7 @@ class WCLBridge:
 
         # Build synthetic stat body item (unbuffed gear stats)
         stat_item = self._build_stat_item(row, buffs)
-        self._item_db._items[stat_item.id] = stat_item
+        self._item_db.register_item(stat_item)
         gear[GearSlot.CHEST] = stat_item.id
 
         # Get fight duration for fight_length
@@ -153,7 +149,7 @@ class WCLBridge:
                 gear[gear_slot] = item_id
             else:
                 synth = Item(
-                    id=_next_synthetic_id(),
+                    id=self._next_synthetic_id(),
                     name=f"WCL Weapon {item_id}",
                     slot=gear_slot,
                     item_level=entry.get("itemLevel", 100),
@@ -166,7 +162,7 @@ class WCLBridge:
                         dps=57.7,
                     ),
                 )
-                self._item_db._items[synth.id] = synth
+                self._item_db.register_item(synth)
                 gear[gear_slot] = synth.id
                 logger.warning("Created synthetic weapon for unknown item ID %d", item_id)
 
@@ -218,7 +214,7 @@ class WCLBridge:
         stamina = max(0.0, stamina)
 
         return Item(
-            id=_next_synthetic_id(),
+            id=self._next_synthetic_id(),
             name="WCL Synthetic Stats",
             slot=GearSlot.CHEST,
             item_level=0,

@@ -1214,6 +1214,10 @@ class ItemDatabase:
         for bonus in _CURATED_SET_BONUSES:
             self._set_bonuses.setdefault(bonus.set_name, []).append(bonus)
 
+    def register_item(self, item: Item) -> None:
+        """Register a synthetic or external item in the database."""
+        self._items[item.id] = item
+
     def get_item(self, item_id: int) -> Item | None:
         """Return an item by its ID, or None if not found."""
         return self._items.get(item_id)

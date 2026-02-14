@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from code.shukketsu import config
 from code.shukketsu.sim.log_parser import CLEUParser
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,7 @@ _templates = Jinja2Templates(directory=_WEB_DIR / "templates")
 
 router = APIRouter(tags=["logs"])
 
-# Maximum upload size: 50 MB
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+_MAX_UPLOAD_BYTES = config.LOG_UPLOAD_MAX_SIZE_MB * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------

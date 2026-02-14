@@ -190,9 +190,23 @@ class TestValidateReport:
     """Tests for GET /sim/validate/report/{run_id}."""
 
     @pytest.mark.asyncio
-    async def test_not_found_returns_404(self, client: AsyncClient) -> None:
+    @patch("code.shukketsu.web.routers.sim.get_connection")
+    @patch("code.shukketsu.web.routers.sim.init_db")
+    async def test_not_found_returns_404(
+        self, mock_init_db: MagicMock, mock_get_conn: MagicMock, client: AsyncClient
+    ) -> None:
+        """Nonexistent run_id returns 404."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = None
+        mock_get_conn.return_value = mock_conn
         response = await client.get("/sim/validate/report/99999")
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_db_error_returns_500(self, client: AsyncClient) -> None:
+        """DB connection failure returns 500, not 404."""
+        response = await client.get("/sim/validate/report/99999")
+        assert response.status_code == 500
 
 
 class TestValidateRun:
