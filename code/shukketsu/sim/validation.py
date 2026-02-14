@@ -180,6 +180,54 @@ _P5_COMBAT_SWORDS_GEAR: dict[GearSlot, int] = {
 }
 
 # ---------------------------------------------------------------------------
+# P3 Mutilate gear (same armor as P3 combat, dagger weapons)
+# ---------------------------------------------------------------------------
+
+_P3_MUTILATE_GEAR: dict[GearSlot, int] = {
+    GearSlot.HEAD: 31027,  # Slayer's Helm
+    GearSlot.NECK: 30017,  # Telonicus's Pendant of Mayhem
+    GearSlot.SHOULDER: 31030,  # Slayer's Shoulderpads
+    GearSlot.BACK: 32323,  # Shadowmoon Destroyer's Drape
+    GearSlot.CHEST: 31028,  # Slayer's Chestguard
+    GearSlot.WRIST: 32324,  # Insidious Bands
+    GearSlot.HANDS: 31026,  # Slayer's Handguards
+    GearSlot.WAIST: 32348,  # Belt of One-Hundred Deaths
+    GearSlot.LEGS: 31029,  # Slayer's Legguards
+    GearSlot.FEET: 32366,  # Shadowmaster's Boots
+    GearSlot.RING_1: 32497,  # Stormrage Signet Ring
+    GearSlot.RING_2: 30834,  # Shapeshifter's Signet
+    GearSlot.TRINKET_1: 28830,  # Dragonspine Trophy
+    GearSlot.TRINKET_2: 32505,  # Madness of the Betrayer
+    GearSlot.MAIN_HAND: 32262,  # Syphon of the Nathrezim (dagger MH)
+    GearSlot.OFF_HAND: 32471,  # Shard of Azzinoth (dagger OH)
+    GearSlot.RANGED: 30724,  # Barrel-Blade Longrifle
+}
+
+# ---------------------------------------------------------------------------
+# P5 Mutilate gear (same armor as P5 combat, dagger weapons)
+# ---------------------------------------------------------------------------
+
+_P5_MUTILATE_GEAR: dict[GearSlot, int] = {
+    GearSlot.HEAD: 34244,  # Duplicitous Guise
+    GearSlot.NECK: 34177,  # Clutch of Demise
+    GearSlot.SHOULDER: 31030,  # Slayer's Shoulderpads
+    GearSlot.BACK: 32323,  # Shadowmoon Destroyer's Drape
+    GearSlot.CHEST: 33496,  # Nether Shadow Tunic
+    GearSlot.WRIST: 32324,  # Insidious Bands
+    GearSlot.HANDS: 31026,  # Slayer's Handguards
+    GearSlot.WAIST: 33503,  # Waistguard of the Great Beast
+    GearSlot.LEGS: 31029,  # Slayer's Legguards
+    GearSlot.FEET: 32366,  # Shadowmaster's Boots
+    GearSlot.RING_1: 32497,  # Stormrage Signet Ring
+    GearSlot.RING_2: 30834,  # Shapeshifter's Signet
+    GearSlot.TRINKET_1: 28830,  # Dragonspine Trophy
+    GearSlot.TRINKET_2: 33831,  # Berserker's Call
+    GearSlot.MAIN_HAND: 34169,  # Fang of Kalecgos (dagger MH)
+    GearSlot.OFF_HAND: 34203,  # Shiv of Exsanguination (dagger OH)
+    GearSlot.RANGED: 34334,  # Thori'dal, the Stars' Fury
+}
+
+# ---------------------------------------------------------------------------
 # P1 Combat Daggers gear
 # ---------------------------------------------------------------------------
 
@@ -265,7 +313,7 @@ VALIDATION_PROFILES: list[ValidationProfile] = [
             RogueSpec.ASSASSINATION_MUTILATE,
             Race.BLOOD_ELF,
             _MUTILATE_TALENTS,
-            _P3_COMBAT_SWORDS_GEAR,
+            _P3_MUTILATE_GEAR,
         ),
         expected_dps_range=(1400.0, 2000.0),
         tolerance_pct=4.0,
@@ -278,7 +326,7 @@ VALIDATION_PROFILES: list[ValidationProfile] = [
             RogueSpec.ASSASSINATION_MUTILATE,
             Race.BLOOD_ELF,
             _MUTILATE_TALENTS,
-            _P5_COMBAT_SWORDS_GEAR,
+            _P5_MUTILATE_GEAR,
         ),
         expected_dps_range=(1800.0, 2600.0),
         tolerance_pct=4.0,

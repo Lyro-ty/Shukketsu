@@ -241,11 +241,7 @@ class IngestPipeline:
     def _delete_chunks_and_vectors(self, source_id: int) -> None:
         """Delete all chunks and their vectors for a source.
 
-        Must delete from chunks_vec first since it is a virtual table
-        not covered by ON DELETE CASCADE.
+        The chunks_vec_delete trigger in schema.sql automatically removes
+        virtual table rows when chunks are deleted.
         """
-        self._conn.execute(
-            "DELETE FROM chunks_vec WHERE rowid IN (SELECT id FROM chunks WHERE source_id = ?)",
-            (source_id,),
-        )
         self._conn.execute("DELETE FROM chunks WHERE source_id = ?", (source_id,))

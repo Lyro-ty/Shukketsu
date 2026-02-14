@@ -92,11 +92,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Close singleton DB connections from routers on shutdown
-    from code.shukketsu.web.routers import freshness, sim
+    from code.shukketsu.web.routers import chat, freshness, sim, wiki
 
     for conn_obj in [
         getattr(sim, "_db_conn", None),
         getattr(freshness, "_conn_instance", None),
+        getattr(chat, "_db_conn", None),
+        getattr(wiki, "_db_conn", None),
     ]:
         if conn_obj is not None:
             try:

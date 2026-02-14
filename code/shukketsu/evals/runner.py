@@ -80,18 +80,6 @@ class EvalRunner:
             registry.register(WebSearchTool())
             registry.register(WebIngestTool(fetcher=fetcher, pipeline=pipeline))
 
-            # Register sim tools if available
-            try:
-                from code.shukketsu.tools.analysis.sim_compare import SimCompareTool
-                from code.shukketsu.tools.analysis.sim_optimize import SimOptimizeTool
-                from code.shukketsu.tools.analysis.sim_run import SimRunTool
-
-                registry.register(SimRunTool())
-                registry.register(SimCompareTool())
-                registry.register(SimOptimizeTool())
-            except ImportError:
-                logger.warning("Sim tools not available")
-
             factory = AgentFactory()
             km = KnowledgeManager(conn, config.WIKI_PATH)
             researcher = factory.create(AgentRole.RESEARCHER, tool_registry=registry)
@@ -101,7 +89,21 @@ class EvalRunner:
                 factory=factory,
                 knowledge_manager=km,
             )
-            analyst = factory.create(AgentRole.ANALYST, tool_registry=registry)
+
+            # Analyst with sim tools only (matching chat handler pattern)
+            analyst_registry = ToolRegistry()
+            try:
+                from code.shukketsu.tools.analysis.sim_compare import SimCompareTool
+                from code.shukketsu.tools.analysis.sim_optimize import SimOptimizeTool
+                from code.shukketsu.tools.analysis.sim_run import SimRunTool
+
+                analyst_registry.register(SimRunTool())
+                analyst_registry.register(SimCompareTool())
+                analyst_registry.register(SimOptimizeTool())
+            except ImportError:
+                logger.warning("Sim tools not available")
+
+            analyst = factory.create(AgentRole.ANALYST, tool_registry=analyst_registry)
             self._agents = (researcher, orchestrator, analyst)
         return self._agents
 

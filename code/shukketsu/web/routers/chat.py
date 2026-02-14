@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from langfuse import get_client, observe
@@ -43,6 +43,7 @@ _USER_ERROR_MESSAGES: dict[FailureMode, str] = {
     FailureMode.SIM_TIMEOUT: "The simulation took too long. Try reducing the number of iterations.",
 }
 
+_db_conn: sqlite3.Connection | None = None
 _researcher_instance: BaseAgent | None = None
 _orchestrator_instance: BaseAgent | None = None
 _analyst_instance: BaseAgent | None = None
@@ -75,6 +76,7 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent, BaseAgent]:
     global _researcher_instance, _orchestrator_instance, _analyst_instance  # noqa: PLW0603
 
     if _researcher_instance is None:
+        global _db_conn  # noqa: PLW0603
         from code.shukketsu.agents.factory import AgentFactory
         from code.shukketsu.agents.tasks import AgentRole
         from code.shukketsu.db.connection import get_connection, init_db
@@ -92,6 +94,7 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent, BaseAgent]:
         from code.shukketsu.tools.research.web_search import WebSearchTool
 
         conn = get_connection()
+        _db_conn = conn
         init_db(conn)
         embedder = get_embedder()
 
@@ -209,7 +212,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         logger.warning("Chat WebSocket error", exc_info=True)
 
 
-async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict[str, str]) -> None:
+async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict[str, Any]) -> None:
     """Dispatch a single incoming WebSocket message."""
     msg_type = data.get("type")
 

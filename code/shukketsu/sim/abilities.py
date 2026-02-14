@@ -115,6 +115,7 @@ ABILITIES: dict[str, AbilityDef] = {
             AbilityFlag.PHYSICAL,
             AbilityFlag.NORMALIZED,
             AbilityFlag.MAIN_HAND,
+            AbilityFlag.APPLIES_LETHALITY,
         },
     ),
     "shiv": AbilityDef(
@@ -180,12 +181,10 @@ ABILITIES: dict[str, AbilityDef] = {
         combo_points_consumed=True,
         bonus_per_combo_point=185,
         flat_damage=245,
+        ap_coefficient=0.03,
         flags={
             AbilityFlag.FINISHER,
             AbilityFlag.PHYSICAL,
-            AbilityFlag.NORMALIZED,
-            AbilityFlag.MAIN_HAND,
-            AbilityFlag.APPLIES_LETHALITY,
         },
     ),
     "envenom": AbilityDef(

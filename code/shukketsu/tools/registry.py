@@ -57,8 +57,11 @@ class ToolRegistry:
         Returns an error observation (not an exception) for unknown tools
         or execution failures, so the agent can see what went wrong.
         """
-        langfuse = get_client()
-        langfuse.update_current_span(metadata={"tool_name": name, "tool_input": tool_input})
+        try:
+            langfuse = get_client()
+            langfuse.update_current_span(metadata={"tool_name": name, "tool_input": tool_input})
+        except Exception:
+            logger.debug("Langfuse span update skipped", exc_info=True)
 
         if name not in self._tools:
             logger.warning("Tool not found: %s", name)

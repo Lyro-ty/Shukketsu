@@ -21,7 +21,6 @@ from code.shukketsu.sim.abilities import ABILITIES, AbilityFlag, get_ability, ge
 from code.shukketsu.sim.buffs import ResolvedBuffs
 from code.shukketsu.sim.items import ItemDatabase
 from code.shukketsu.sim.mechanics import (
-    AP_PER_DPS,
     BASE_GLANCING_CHANCE,
     BASE_MAX_ENERGY,
     ENERGY_PER_TICK,
@@ -674,7 +673,11 @@ class CombatSimulation:
                 num_ticks = duration_ms // RUPTURE_TICK_INTERVAL_MS
 
                 # Damage per tick: base + CP bonus + AP coefficient
-                dpt = RUPTURE_BASE_DPT + RUPTURE_CP_DPT * cp + self._base_stats["attack_power"] * 0.04
+                dpt = (
+                    RUPTURE_BASE_DPT
+                    + RUPTURE_CP_DPT * cp
+                    + self._base_stats["attack_power"] * ability_def.ap_coefficient
+                )
                 dpt *= 1.0 + self._modifiers.rupture_damage_bonus_pct
                 dpt *= 1.0 + self._modifiers.murder_damage_pct
 
@@ -711,8 +714,8 @@ class CombatSimulation:
             cp = max(1, state.combo_points)
             base_dmg = ability_def.flat_damage + ability_def.bonus_per_combo_point * cp
 
-            # Add AP scaling (normalized MH) before talent multipliers
-            base_dmg += self._base_stats["attack_power"] / AP_PER_DPS * self._mh_norm_speed
+            # AP scaling: 0.03 * AP * combo_points (flat-damage finisher, not weapon-based)
+            base_dmg += self._base_stats["attack_power"] * ability_def.ap_coefficient * cp
 
             # Apply talent bonuses
             dmg_mult = 1.0

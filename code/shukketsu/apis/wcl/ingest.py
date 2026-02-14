@@ -229,7 +229,10 @@ class ReportDiver:
             auras_json = json.dumps(evt.get("auras", []))
 
             # Events may include a fight field; fall back to first fight_id
-            fight_id = evt.get("fight", fight_ids[0] if fight_ids else 0)
+            fight_id = evt.get("fight")
+            if fight_id is None:
+                fight_id = fight_ids[0] if fight_ids else 0
+                logger.warning("CombatantInfo event missing fight field, defaulting to fight %d", fight_id)
             player_name = self._actor_map.get(evt.get("sourceID", 0), "")
 
             self._conn.execute(

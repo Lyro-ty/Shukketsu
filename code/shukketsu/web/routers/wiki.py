@@ -20,16 +20,18 @@ _templates = Jinja2Templates(directory=_WEB_DIR / "templates")
 router = APIRouter(prefix="/wiki", tags=["wiki"])
 
 _km_instance: KnowledgeManager | None = None
+_db_conn = None  # Exposed for shutdown cleanup in lifespan
 
 
 def _get_km() -> KnowledgeManager:
     """Get or create KnowledgeManager singleton."""
-    global _km_instance  # noqa: PLW0603
+    global _km_instance, _db_conn  # noqa: PLW0603
     if _km_instance is None:
         from code.shukketsu.db.connection import get_connection, init_db
 
         conn = get_connection()
         init_db(conn)
+        _db_conn = conn
         _km_instance = KnowledgeManager(conn, config.WIKI_PATH)
     return _km_instance
 

@@ -16,6 +16,7 @@ from code.shukketsu.agents.tasks import AgentTask, Finding, ResearchResult, Task
 from code.shukketsu.llm.prompts.researcher import REFLECTION_PROMPT, STRUCTURING_PROMPT
 from code.shukketsu.llm.schemas import ReflectionResult
 from code.shukketsu.llm.structured import get_structured_output
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,8 @@ class Researcher(BaseAgent):
 
         # Always use 70B (default) for structuring — 7B models lack
         # reliable structured output quality for this pass
-        result: StructuredFindings = await get_structured_output(
+        result: StructuredFindings = await reasoning_breaker.call(
+            get_structured_output,
             response_model=StructuredFindings,
             messages=messages,
         )
@@ -216,7 +218,8 @@ class Researcher(BaseAgent):
             },
         ]
 
-        result: ReflectionResult = await get_structured_output(
+        result: ReflectionResult = await reasoning_breaker.call(
+            get_structured_output,
             response_model=ReflectionResult,
             messages=messages,
             temperature=config.REFLECTION_TEMPERATURE,

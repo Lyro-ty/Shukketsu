@@ -81,6 +81,7 @@ class GraphStore:
             "VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(canonical_name, entity_type_id) DO UPDATE SET "
             "properties_json = COALESCE(excluded.properties_json, entities.properties_json), "
+            "source_chunk_id = COALESCE(excluded.source_chunk_id, entities.source_chunk_id), "
             "confidence = MAX(entities.confidence, excluded.confidence) "
             "RETURNING id",
             (name, type_id, canonical, props_json, source_chunk_id, confidence),

@@ -25,6 +25,8 @@ from code.shukketsu.agents.tasks import (
 from code.shukketsu.knowledge.manager import ArticleMeta, ArticleStatus, KnowledgeManager
 from code.shukketsu.llm.prompts.editor import EDITOR_SYSTEM_PROMPT, VERIFICATION_PROMPT
 from code.shukketsu.llm.structured import get_structured_output
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
+from code.shukketsu.resilience.errors import CircuitOpenError
 from code.shukketsu.tools.registry import ToolRegistry
 from code.shukketsu.trust.scoring import TRUST_DELTAS, record_trust_event
 
@@ -149,7 +151,7 @@ class Editor(BaseAgent):
             try:
                 verification = await self._verify_claim(claim, entity_refs)
                 all_failed = False
-            except Exception as exc:
+            except (CircuitOpenError, Exception) as exc:
                 logger.warning("Verification failed for claim '%s': %s", claim[:50], exc)
                 verification = ClaimVerification(
                     claim=claim,
@@ -254,7 +256,9 @@ class Editor(BaseAgent):
             },
         ]
 
-        judgment: ClaimJudgment = await get_structured_output(response_model=ClaimJudgment, messages=messages)
+        judgment: ClaimJudgment = await reasoning_breaker.call(
+            get_structured_output, response_model=ClaimJudgment, messages=messages
+        )
 
         return ClaimVerification(
             claim=claim,

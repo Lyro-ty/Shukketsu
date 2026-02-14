@@ -43,6 +43,8 @@ from code.shukketsu.llm.prompts.orchestrator import (
     SYNTHESIS_PROMPT,
 )
 from code.shukketsu.llm.structured import get_structured_output
+from code.shukketsu.resilience.circuit_breaker import reasoning_breaker
+from code.shukketsu.resilience.errors import CircuitOpenError
 from code.shukketsu.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -184,7 +186,8 @@ class Orchestrator(BaseAgent):
             {"role": "user", "content": user_content},
         ]
 
-        plan: OrchestratorPlan = await get_structured_output(
+        plan: OrchestratorPlan = await reasoning_breaker.call(
+            get_structured_output,
             response_model=OrchestratorPlan,
             messages=messages,
         )
@@ -199,7 +202,8 @@ class Orchestrator(BaseAgent):
             messages.append({"role": "assistant", "content": plan.model_dump_json()})
             messages.append({"role": "user", "content": feedback})
 
-            plan = await get_structured_output(
+            plan = await reasoning_breaker.call(
+                get_structured_output,
                 response_model=OrchestratorPlan,
                 messages=messages,
             )
@@ -451,12 +455,13 @@ class Orchestrator(BaseAgent):
         ]
 
         try:
-            result: _SynthesisOutput = await get_structured_output(
+            result: _SynthesisOutput = await reasoning_breaker.call(
+                get_structured_output,
                 response_model=_SynthesisOutput,
                 messages=messages,
             )
             return result.response
-        except Exception as exc:
+        except (CircuitOpenError, Exception) as exc:
             logger.warning(
                 "Synthesis LLM call failed, falling back to raw findings: %s",
                 exc,
