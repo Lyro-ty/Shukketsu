@@ -76,7 +76,12 @@ class RagSearchTool(Tool):
             return "Error: Embedding model unavailable and no keyword query provided."
 
         rows = self._conn.execute(
-            """SELECT c.id, c.content, s.title, s.url, s.trust_score
+            """SELECT c.id, c.content, s.title, s.url,
+                      MAX(0.1, MIN(1.0,
+                          s.trust_score + COALESCE(
+                              (SELECT SUM(delta) FROM trust_events te WHERE te.source_id = s.id), 0.0
+                          )
+                      )) AS trust_score
                FROM chunks_fts f
                JOIN chunks c ON c.id = f.rowid
                JOIN sources s ON s.id = c.source_id AND s.is_stale = 0

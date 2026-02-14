@@ -198,7 +198,7 @@ class TestWoWSimsImport:
             parse_wowsims({})
 
     def test_talent_format_conversion(self) -> None:
-        """Hyphens in WoWSims talent strings are converted to slashes."""
+        """Per-point WoWSims talent strings are summed to tree totals."""
         data = {
             "player": {
                 "talentsString": "005-0520301-05",
@@ -208,7 +208,8 @@ class TestWoWSimsImport:
         result = parse_wowsims(data)
         assert "/" in result.talents
         assert "-" not in result.talents
-        assert result.talents == "005/0520301/05"
+        # 0+0+5=5, 0+5+2+0+3+0+1=11, 0+5=5
+        assert result.talents == "5/11/5"
 
     def test_parse_from_json_string(self) -> None:
         """parse_wowsims accepts a raw JSON string as well as a dict."""

@@ -103,12 +103,6 @@ async def logs_upload(
             "logs/fights.html",
             {"fights": fights, "character_name": character_name},
         )
-    except UnicodeDecodeError:
-        return _templates.TemplateResponse(
-            request,
-            "logs/error.html",
-            {"error": "File does not appear to be a valid text combat log."},
-        )
     except Exception:
         logger.exception("Log upload failed")
         return _templates.TemplateResponse(

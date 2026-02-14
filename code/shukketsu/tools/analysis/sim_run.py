@@ -74,8 +74,6 @@ class SimRunTool(Tool):
         overrides: dict[str, Any] = {}
         if "buff_preset" in tool_input:
             overrides["raid_preset"] = tool_input["buff_preset"]
-        if "boss_armor" in tool_input:
-            overrides["boss"] = {"armor": tool_input["boss_armor"]}
         if "fight_length" in tool_input:
             overrides["fight_length"] = tool_input["fight_length"]
         if "iterations" in tool_input:
@@ -83,6 +81,8 @@ class SimRunTool(Tool):
 
         try:
             config = runner.build_config_from_import(import_string, **overrides)
+            if "boss_armor" in tool_input:
+                config.boss.armor = tool_input["boss_armor"]
         except Exception as exc:
             return f"Error parsing import string: {exc}"
 

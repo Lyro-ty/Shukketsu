@@ -175,8 +175,10 @@ class Editor(BaseAgent):
         if conn is not None:
             try:
                 source_urls = [s.url for s in meta.sources] if meta.sources else []
-                has_contradictions = any(cv.status == VerificationStatus.CONTRADICTED for cv in claim_results)
-                if has_contradictions and source_urls:
+                contradiction_count = sum(1 for cv in claim_results if cv.status == VerificationStatus.CONTRADICTED)
+                if contradiction_count > 0 and source_urls:
+                    contradiction_ratio = contradiction_count / max(1, len(claim_results))
+                    scaled_delta = TRUST_DELTAS["contradiction"] * contradiction_ratio
                     for url in source_urls:
                         source_row = conn.execute("SELECT id FROM sources WHERE url = ?", (url,)).fetchone()
                         if source_row:
@@ -187,7 +189,7 @@ class Editor(BaseAgent):
                                 conn,
                                 source_row["id"],
                                 "contradiction",
-                                TRUST_DELTAS["contradiction"],
+                                scaled_delta,
                                 details=f"Contradicted claims: {'; '.join(contradicted_claims)}",
                             )
             except Exception:

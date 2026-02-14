@@ -322,31 +322,36 @@ async def extract_entities_pass(
         except Exception as exc:
             logger.warning("Extraction failed for chunk %d: %s", chunk_id, exc)
             continue
-        for entity in extraction.entities:
-            eid = graph_store.upsert_entity(
-                entity.name,
-                entity.entity_type,
-                properties=entity.properties or None,
-                source_chunk_id=chunk_id,
-            )
-            entity_id_map[entity.name] = eid
-            total_entities += 1
+        try:
+            for entity in extraction.entities:
+                eid = graph_store.upsert_entity(
+                    entity.name,
+                    entity.entity_type,
+                    properties=entity.properties or None,
+                    source_chunk_id=chunk_id,
+                )
+                entity_id_map[entity.name] = eid
+                total_entities += 1
 
-        for rel in extraction.relationships:
-            src_id = entity_id_map.get(rel.source)
-            tgt_id = entity_id_map.get(rel.target)
-            if src_id is None or tgt_id is None:
-                continue
-            graph_store.upsert_relationship(
-                src_id,
-                tgt_id,
-                rel.relation_type,
-                properties=rel.properties or None,
-                source_chunk_id=chunk_id,
-            )
-            total_relationships += 1
+            for rel in extraction.relationships:
+                src_id = entity_id_map.get(rel.source)
+                tgt_id = entity_id_map.get(rel.target)
+                if src_id is None or tgt_id is None:
+                    continue
+                graph_store.upsert_relationship(
+                    src_id,
+                    tgt_id,
+                    rel.relation_type,
+                    properties=rel.properties or None,
+                    source_chunk_id=chunk_id,
+                )
+                total_relationships += 1
 
-        conn.commit()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.warning("Entity storage failed for chunk %d", chunk_id, exc_info=True)
+            continue
         chunks_processed += 1
         logger.info(
             "Extracted chunk %d/%d: %d entities, %d relationships",

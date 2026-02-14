@@ -333,8 +333,12 @@ def parse_wowsims(raw: str | dict) -> CharacterImport:
     # Talents
     talents_str = player.get("talentsString", "")
     spec = _detect_spec_from_talents(talents_str)
-    # Convert WoWSims hyphen format to our slash format
-    talents = talents_str.replace("-", "/")
+    # Convert WoWSims per-point talent format to totals format.
+    # WoWSims exports like "005303104-0520301050140150233151-05" where each
+    # digit is points in a specific talent. Sum each tree for "X/Y/Z" totals.
+    trees = talents_str.split("-")
+    tree_totals = [str(sum(int(c) for c in tree if c.isdigit())) for tree in trees]
+    talents = "/".join(tree_totals)
 
     # Equipment
     equipment = player.get("equipment", {})

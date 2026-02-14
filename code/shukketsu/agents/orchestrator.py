@@ -34,7 +34,7 @@ from code.shukketsu.agents.tasks import (
     WriteResult,
     WriteTask,
 )
-from code.shukketsu.knowledge.manager import KnowledgeManager
+from code.shukketsu.knowledge.manager import KnowledgeManager, Spec
 from code.shukketsu.llm.prompts.orchestrator import (
     DECOMPOSITION_PROMPT,
     DECOMPOSITION_PROMPT_WITH_HINTS,
@@ -492,8 +492,11 @@ class Orchestrator(BaseAgent):
             if st.agent_role == AgentRole.WRITER:
                 if AgentRole.RESEARCHER not in dep_roles:
                     errors.append(f"Subtask {i}: WRITER must depend on a RESEARCHER")
-                if not st.task_params.get("spec"):
+                spec_val = st.task_params.get("spec")
+                if not spec_val:
                     errors.append(f"Subtask {i}: WRITER should have 'spec' in task_params")
+                elif spec_val not in {s.value for s in Spec}:
+                    errors.append(f"Subtask {i}: invalid spec '{spec_val}', valid: {', '.join(s.value for s in Spec)}")
 
             if st.agent_role == AgentRole.EDITOR:
                 if AgentRole.WRITER not in dep_roles:

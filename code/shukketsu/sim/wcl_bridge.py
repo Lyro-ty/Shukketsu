@@ -240,6 +240,10 @@ class WCLBridge:
         agi = max(0.0, agi)
         strength = max(0.0, strength)
         stamina = max(0.0, stamina)
+        hit_rating = max(0.0, hit_rating)
+        crit_rating = max(0.0, crit_rating)
+        haste_rating = max(0.0, haste_rating)
+        expertise_rating = max(0.0, expertise_rating)
 
         return Item(
             id=self._next_synthetic_id(),

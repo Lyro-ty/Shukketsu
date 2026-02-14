@@ -920,7 +920,7 @@ class CombatSimulation:
 
                 # Apply talent damage bonuses
                 dmg_mult = 1.0
-                if ability_name == "sinister_strike":
+                if ability_name in ("sinister_strike", "backstab"):
                     dmg_mult *= 1.0 + self._modifiers.aggression_damage_pct
                 dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
 
