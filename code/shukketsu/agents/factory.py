@@ -16,16 +16,21 @@ from code.shukketsu.agents.orchestrator import Orchestrator
 from code.shukketsu.agents.researcher import Researcher
 from code.shukketsu.agents.tasks import AgentRole
 from code.shukketsu.agents.writer import Writer
+from code.shukketsu.llm.prompts.analyst import ANALYST_SYSTEM_PROMPT
+from code.shukketsu.llm.prompts.editor import EDITOR_SYSTEM_PROMPT
+from code.shukketsu.llm.prompts.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
+from code.shukketsu.llm.prompts.researcher import RESEARCHER_SYSTEM_PROMPT
+from code.shukketsu.llm.prompts.writer import WRITER_SYSTEM_PROMPT
 from code.shukketsu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 _ROLE_PROMPTS: dict[AgentRole, str] = {
-    AgentRole.RESEARCHER: config.RESEARCHER_SYSTEM_PROMPT,
-    AgentRole.WRITER: config.WRITER_SYSTEM_PROMPT,
-    AgentRole.EDITOR: config.EDITOR_SYSTEM_PROMPT,
-    AgentRole.ORCHESTRATOR: config.ORCHESTRATOR_SYSTEM_PROMPT,
-    AgentRole.ANALYST: config.ANALYST_SYSTEM_PROMPT,
+    AgentRole.RESEARCHER: RESEARCHER_SYSTEM_PROMPT,
+    AgentRole.WRITER: WRITER_SYSTEM_PROMPT,
+    AgentRole.EDITOR: EDITOR_SYSTEM_PROMPT,
+    AgentRole.ORCHESTRATOR: ORCHESTRATOR_SYSTEM_PROMPT,
+    AgentRole.ANALYST: ANALYST_SYSTEM_PROMPT,
 }
 
 _ROLE_MAX_ITERATIONS: dict[AgentRole, int] = {

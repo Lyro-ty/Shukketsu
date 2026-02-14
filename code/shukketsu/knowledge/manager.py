@@ -270,7 +270,10 @@ class KnowledgeManager:
         ]
 
     def set_status(self, path: str, new_status: ArticleStatus) -> None:
-        """Transition article status. Enforces draft->review->published order."""
+        """Transition article status. Enforces draft->review->published order.
+
+        Updates both the database row and the YAML frontmatter file.
+        """
         row = self._conn.execute("SELECT status FROM articles WHERE path = ?", (path,)).fetchone()
         if row is None:
             raise ValueError(f"Article not found: {path}")
@@ -286,11 +289,37 @@ class KnowledgeManager:
 
         from datetime import UTC
 
-        self._conn.execute(
-            "UPDATE articles SET status = ?, last_updated = ? WHERE path = ?",
-            (new_status, datetime.now(UTC).isoformat(), path),
-        )
-        self._conn.commit()
+        now = datetime.now(UTC)
+
+        # Update frontmatter file
+        full_path = self._safe_path(path)
+        original_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
+
+        try:
+            meta, content = self.read_article(path)
+            updated = meta.model_copy(update={"status": new_status, "updated_at": now})
+            post = frontmatter.Post(content, **updated.model_dump(mode="json"))
+            full_path.write_text(frontmatter.dumps(post), encoding="utf-8")
+        except Exception:
+            if original_content is not None:
+                try:
+                    full_path.write_text(original_content, encoding="utf-8")
+                except Exception:
+                    logger.warning("Failed to restore original content for %s", path, exc_info=True)
+            raise
+
+        # Update DB — restore file on failure
+        try:
+            self._conn.execute(
+                "UPDATE articles SET status = ?, last_updated = ? WHERE path = ?",
+                (new_status, now.isoformat(), path),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            if original_content is not None:
+                full_path.write_text(original_content, encoding="utf-8")
+            raise
         logger.info("Article %s status: %s -> %s", path, current, new_status)
 
     def exists(self, spec: str, category: str, title: str) -> str | None:

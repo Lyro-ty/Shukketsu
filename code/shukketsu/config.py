@@ -204,23 +204,5 @@ SIM_STAT_WEIGHT_DELTA = int(os.getenv("SIM_STAT_WEIGHT_DELTA", "80"))
 SIM_CACHE_ENABLED = os.getenv("SIM_CACHE_ENABLED", "true").lower() == "true"
 ANALYST_MAX_ITERATIONS = int(os.getenv("ANALYST_MAX_ITERATIONS", "5"))
 
-# Role-specific system prompts
-from code.shukketsu.llm.prompts.editor import (  # noqa: E402
-    EDITOR_SYSTEM_PROMPT as EDITOR_SYSTEM_PROMPT,
-)
-from code.shukketsu.llm.prompts.researcher import (  # noqa: E402
-    RESEARCHER_SYSTEM_PROMPT as RESEARCHER_SYSTEM_PROMPT,
-)
-from code.shukketsu.llm.prompts.writer import (  # noqa: E402
-    WRITER_SYSTEM_PROMPT as WRITER_SYSTEM_PROMPT,
-)
-
 # Editor
 EDITOR_CONFIDENCE_THRESHOLD = float(os.getenv("EDITOR_CONFIDENCE_THRESHOLD", "0.6"))
-
-from code.shukketsu.llm.prompts.analyst import (  # noqa: E402
-    ANALYST_SYSTEM_PROMPT as ANALYST_SYSTEM_PROMPT,
-)
-from code.shukketsu.llm.prompts.orchestrator import (  # noqa: E402
-    ORCHESTRATOR_SYSTEM_PROMPT as ORCHESTRATOR_SYSTEM_PROMPT,
-)

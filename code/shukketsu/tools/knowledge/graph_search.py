@@ -42,16 +42,17 @@ class GraphSearchTool(Tool):
     )
     parameters_schema: dict[str, Any] = {
         "entity": {
-            "type": "str",
+            "type": "string",
             "description": "Entity name to search for (e.g., 'Dragonspine Trophy', 'Gruul', 'DST')",
         },
         "relation_types": {
-            "type": "list[str]",
+            "type": "array",
+            "items": {"type": "string"},
             "description": "Filter by relationship type (e.g., ['drops_from', 'has_stat'])",
             "optional": True,
         },
         "target_type": {
-            "type": "str",
+            "type": "string",
             "description": "Filter target entity type (e.g., 'boss', 'stat')",
             "optional": True,
         },

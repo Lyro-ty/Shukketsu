@@ -69,15 +69,22 @@ class Embedder:
         return result[0]
 
     async def _call(self, texts: list[str]) -> list[list[float]]:
-        """Send texts to the embedding API and return vectors."""
-        try:
-            response = await self._client.embeddings.create(
-                input=texts,
-                model=config.EMBEDDING_MODEL,
-            )
-        except (httpx.ConnectError, APIConnectionError, httpx.TimeoutException) as exc:
-            raise EmbeddingError(f"Cannot connect to embedding model at {config.OLLAMA_BASE_URL}: {exc}") from exc
-        except Exception as exc:
-            raise EmbeddingError(str(exc)) from exc
+        """Send texts to the embedding API in batches and return vectors."""
+        batch_size = config.EMBEDDING_BATCH_SIZE
+        all_embeddings: list[list[float]] = []
 
-        return [item.embedding for item in response.data]
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            try:
+                response = await self._client.embeddings.create(
+                    input=batch,
+                    model=config.EMBEDDING_MODEL,
+                )
+            except (httpx.ConnectError, APIConnectionError, httpx.TimeoutException) as exc:
+                raise EmbeddingError(f"Cannot connect to embedding model at {config.OLLAMA_BASE_URL}: {exc}") from exc
+            except Exception as exc:
+                raise EmbeddingError(str(exc)) from exc
+
+            all_embeddings.extend(item.embedding for item in response.data)
+
+        return all_embeddings

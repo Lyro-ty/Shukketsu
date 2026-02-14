@@ -14,15 +14,18 @@ def _get_app():
     return app
 
 
-def _mock_agents(answer: str = "Test answer") -> tuple[MagicMock, MagicMock]:
-    """Create mock researcher + orchestrator agents."""
+def _mock_agents(answer: str = "Test answer") -> tuple[MagicMock, MagicMock, MagicMock]:
+    """Create mock researcher + orchestrator + analyst agents."""
     researcher = MagicMock()
     researcher.execute = AsyncMock(return_value=MagicMock(output=answer))
 
     orchestrator = MagicMock()
     orchestrator.execute = AsyncMock(return_value=MagicMock(output=answer))
 
-    return researcher, orchestrator
+    analyst = MagicMock()
+    analyst.execute = AsyncMock(return_value=MagicMock(output=answer))
+
+    return researcher, orchestrator, analyst
 
 
 def _trivial_decision(answer: str = "Direct answer.") -> RoutingDecision:
@@ -241,9 +244,9 @@ class TestAgentResponse:
     @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
     def test_error_sends_error_message(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
         mock_classify.return_value = _complex_decision()
-        researcher, orchestrator = _mock_agents()
+        researcher, orchestrator, analyst = _mock_agents()
         orchestrator.execute = AsyncMock(side_effect=LLMUnavailableError("Server down"))
-        mock_get.return_value = (researcher, orchestrator)
+        mock_get.return_value = (researcher, orchestrator, analyst)
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
             ws.receive_json()  # connected
@@ -295,8 +298,8 @@ class TestQueryRouting:
     def test_trivial_query_returns_fast_answer(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
         """Trivial queries should return Qwen's direct answer without calling agents."""
         mock_classify.return_value = _trivial_decision("Sinister Strike costs 40 energy.")
-        researcher, orchestrator = _mock_agents()
-        mock_get.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents()
+        mock_get.return_value = (researcher, orchestrator, analyst)
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
             ws.receive_json()  # connected
@@ -314,8 +317,8 @@ class TestQueryRouting:
     def test_complex_query_routes_to_orchestrator(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
         """Complex queries should route to the Orchestrator after classification."""
         mock_classify.return_value = _complex_decision()
-        researcher, orchestrator = _mock_agents("Detailed analysis here.")
-        mock_get.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Detailed analysis here.")
+        mock_get.return_value = (researcher, orchestrator, analyst)
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
             ws.receive_json()  # connected
@@ -338,8 +341,8 @@ class TestQueryRouting:
     ) -> None:
         """If classify_query returns a fallback (COMPLEX), orchestrator should handle the query."""
         mock_classify.return_value = _complex_decision()
-        researcher, orchestrator = _mock_agents("Orchestrator handled it.")
-        mock_get.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Orchestrator handled it.")
+        mock_get.return_value = (researcher, orchestrator, analyst)
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
             ws.receive_json()  # connected
@@ -355,8 +358,8 @@ class TestQueryRouting:
     def test_trivial_with_empty_answer_falls_through(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
         """Trivial classification with empty direct_answer should fall through to orchestrator."""
         mock_classify.return_value = _trivial_decision("")
-        researcher, orchestrator = _mock_agents("Orchestrator answer.")
-        mock_get.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Orchestrator answer.")
+        mock_get.return_value = (researcher, orchestrator, analyst)
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
             ws.receive_json()  # connected
@@ -381,8 +384,8 @@ class TestComplexityRouting:
     ) -> None:
         """TRIVIAL complexity returns direct answer without calling agents."""
         mock_classify.return_value = _trivial_decision("Energy costs 40.")
-        researcher, orchestrator = _mock_agents()
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents()
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -404,8 +407,8 @@ class TestComplexityRouting:
     ) -> None:
         """MODERATE complexity routes to Researcher.execute()."""
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Researcher answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Researcher answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -426,8 +429,8 @@ class TestComplexityRouting:
     ) -> None:
         """COMPLEX complexity routes to Orchestrator.execute()."""
         mock_classify.return_value = _complex_decision()
-        researcher, orchestrator = _mock_agents("Orchestrator answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Orchestrator answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -454,8 +457,8 @@ class TestFastModelRouting:
         from code.shukketsu import config
 
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Researcher answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Researcher answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -476,8 +479,8 @@ class TestFastModelRouting:
     ) -> None:
         """COMPLEX complexity does not pass model_name to orchestrator.execute()."""
         mock_classify.return_value = _complex_decision()
-        researcher, orchestrator = _mock_agents("Orchestrator answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Orchestrator answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -499,7 +502,7 @@ class TestSendStatusFormat:
     def test_send_status_wraps_string(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
         """String messages are wrapped in {'type': 'status', 'content': msg}."""
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Answer")
+        researcher, orchestrator, analyst = _mock_agents("Answer")
 
         async def _capture_execute(task, on_status=None, **kwargs):  # type: ignore[no-untyped-def]
             if on_status:
@@ -507,7 +510,7 @@ class TestSendStatusFormat:
             return MagicMock(output="Answer")
 
         researcher.execute = _capture_execute
-        mock_get.return_value = (researcher, orchestrator)
+        mock_get.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -528,7 +531,7 @@ class TestSendStatusFormat:
     def test_send_status_passes_dict_as_is(self, mock_classify: AsyncMock, mock_get: MagicMock) -> None:
         """Dict messages are sent as-is via WebSocket."""
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Answer")
+        researcher, orchestrator, analyst = _mock_agents("Answer")
 
         async def _capture_execute(task, on_status=None, **kwargs):  # type: ignore[no-untyped-def]
             if on_status:
@@ -536,7 +539,7 @@ class TestSendStatusFormat:
             return MagicMock(output="Answer")
 
         researcher.execute = _capture_execute
-        mock_get.return_value = (researcher, orchestrator)
+        mock_get.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -579,9 +582,9 @@ class TestSendStatusFormat:
             needs_human_review=True,
         )
 
-        researcher, orchestrator = _mock_agents()
+        researcher, orchestrator, analyst = _mock_agents()
         orchestrator.execute = AsyncMock(return_value=orch_result)
-        mock_agents.return_value = (researcher, orchestrator)
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -600,8 +603,8 @@ class TestSendStatusFormat:
     ) -> None:
         """Router failure (defaults to COMPLEX) routes to Orchestrator."""
         mock_classify.return_value = _complex_decision()
-        researcher, orchestrator = _mock_agents("Fallback answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Fallback answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         client = TestClient(_get_app())
         with client.websocket_connect("/ws/chat") as ws:
@@ -630,8 +633,8 @@ class TestMemoryIntegration:
         from code.shukketsu.memory.models import SessionMemory
 
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Researcher answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Researcher answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         memory = SessionMemory(
             id=1,
@@ -674,8 +677,8 @@ class TestMemoryIntegration:
     ) -> None:
         """extract_session_memory should be called after a successful response."""
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("The answer is 42")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("The answer is 42")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         mm = MagicMock()
         mm.recall_relevant = AsyncMock(return_value=[])
@@ -705,8 +708,8 @@ class TestMemoryIntegration:
     ) -> None:
         """When MEMORY_ENABLED is False, no recall or extraction should happen."""
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         # We do NOT patch _get_memory_manager — if it were called, the test would
         # fail with an error because no mock is set up.
@@ -732,8 +735,8 @@ class TestMemoryIntegration:
     ) -> None:
         """Empty recall should not add memory_context to the task."""
         mock_classify.return_value = _moderate_decision()
-        researcher, orchestrator = _mock_agents("Answer")
-        mock_agents.return_value = (researcher, orchestrator)
+        researcher, orchestrator, analyst = _mock_agents("Answer")
+        mock_agents.return_value = (researcher, orchestrator, analyst)
 
         mm = MagicMock()
         mm.recall_relevant = AsyncMock(return_value=[])

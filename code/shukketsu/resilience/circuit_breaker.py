@@ -112,52 +112,67 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
 
 
+# Auto-registry: all named breakers are tracked for reset_all_breakers()
+_breaker_registry: list[CircuitBreaker] = []
+
+
+def _register(breaker: CircuitBreaker) -> CircuitBreaker:
+    """Register a breaker in the global registry and return it."""
+    _breaker_registry.append(breaker)
+    return breaker
+
+
 # Named instances for each external service
-reasoning_breaker = CircuitBreaker(
-    "ollama_reasoning",
-    failure_threshold=config.CB_REASONING_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_REASONING_RECOVERY_TIMEOUT,
+reasoning_breaker = _register(
+    CircuitBreaker(
+        "ollama_reasoning",
+        failure_threshold=config.CB_REASONING_FAILURE_THRESHOLD,
+        recovery_timeout=config.CB_REASONING_RECOVERY_TIMEOUT,
+    )
 )
 
-ollama_router_breaker = CircuitBreaker(
-    "ollama_router",
-    failure_threshold=config.CB_OLLAMA_ROUTER_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_OLLAMA_ROUTER_RECOVERY_TIMEOUT,
+ollama_router_breaker = _register(
+    CircuitBreaker(
+        "ollama_router",
+        failure_threshold=config.CB_OLLAMA_ROUTER_FAILURE_THRESHOLD,
+        recovery_timeout=config.CB_OLLAMA_ROUTER_RECOVERY_TIMEOUT,
+    )
 )
 
-ollama_embed_breaker = CircuitBreaker(
-    "ollama_embed",
-    failure_threshold=config.CB_OLLAMA_EMBED_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_OLLAMA_EMBED_RECOVERY_TIMEOUT,
+ollama_embed_breaker = _register(
+    CircuitBreaker(
+        "ollama_embed",
+        failure_threshold=config.CB_OLLAMA_EMBED_FAILURE_THRESHOLD,
+        recovery_timeout=config.CB_OLLAMA_EMBED_RECOVERY_TIMEOUT,
+    )
 )
 
-brave_breaker = CircuitBreaker(
-    "brave_search",
-    failure_threshold=config.CB_BRAVE_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_BRAVE_RECOVERY_TIMEOUT,
+brave_breaker = _register(
+    CircuitBreaker(
+        "brave_search",
+        failure_threshold=config.CB_BRAVE_FAILURE_THRESHOLD,
+        recovery_timeout=config.CB_BRAVE_RECOVERY_TIMEOUT,
+    )
 )
 
-reranker_breaker = CircuitBreaker(
-    "reranker",
-    failure_threshold=config.CB_RERANKER_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_RERANKER_RECOVERY_TIMEOUT,
+reranker_breaker = _register(
+    CircuitBreaker(
+        "reranker",
+        failure_threshold=config.CB_RERANKER_FAILURE_THRESHOLD,
+        recovery_timeout=config.CB_RERANKER_RECOVERY_TIMEOUT,
+    )
 )
 
-wcl_breaker = CircuitBreaker(
-    "wcl_api",
-    failure_threshold=config.CB_WCL_FAILURE_THRESHOLD,
-    recovery_timeout=config.CB_WCL_RECOVERY_TIMEOUT,
+wcl_breaker = _register(
+    CircuitBreaker(
+        "wcl_api",
+        failure_threshold=config.CB_WCL_FAILURE_THRESHOLD,
+        recovery_timeout=config.CB_WCL_RECOVERY_TIMEOUT,
+    )
 )
 
 
 def reset_all_breakers() -> None:
-    """Reset all named circuit breakers to CLOSED. Used by test fixtures."""
-    for breaker in (
-        reasoning_breaker,
-        ollama_router_breaker,
-        ollama_embed_breaker,
-        brave_breaker,
-        reranker_breaker,
-        wcl_breaker,
-    ):
+    """Reset all registered circuit breakers to CLOSED. Used by test fixtures."""
+    for breaker in _breaker_registry:
         breaker.reset()

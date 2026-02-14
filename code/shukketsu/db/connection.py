@@ -96,14 +96,6 @@ def init_db(conn: sqlite3.Connection) -> None:
 
     schema_sql = (_DB_DIR / "schema.sql").read_text()
     conn.executescript(schema_sql)
-    # Apply any migrations beyond base schema version
-    version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    if version < 5:
-        _migrate_v4_to_v5(conn)
-    if version < 6:
-        _migrate_v5_to_v6(conn)
-    if version < 7:
-        _migrate_v6_to_v7(conn)
     logger.info("Database schema initialized (version 7)")
 
 
@@ -246,7 +238,9 @@ def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
 
 def _configure(conn: sqlite3.Connection) -> None:
     """Apply SQLite pragmas for WAL mode, safety, and performance."""
-    conn.execute("PRAGMA journal_mode=WAL")
+    result = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+    if result is None or str(result[0]).lower() != "wal":
+        logger.warning("WAL mode not set (got %s); falling back to default journal mode", result)
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")

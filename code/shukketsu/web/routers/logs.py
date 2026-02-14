@@ -56,6 +56,17 @@ async def logs_upload(
         HTML partial with parsed fight metrics, or an error partial.
     """
     try:
+        # Early size check from Content-Length when available
+        if file.size is not None and file.size > _MAX_UPLOAD_BYTES:
+            return _templates.TemplateResponse(
+                request,
+                "logs/error.html",
+                {
+                    "error": f"File too large ({file.size / 1024 / 1024:.1f} MB). "
+                    f"Maximum is {config.LOG_UPLOAD_MAX_SIZE_MB} MB.",
+                },
+            )
+
         content = await file.read()
 
         if len(content) > _MAX_UPLOAD_BYTES:

@@ -464,19 +464,19 @@ class TestResearcherModelName:
 
     @patch("code.shukketsu.agents.researcher.get_structured_output")
     @patch("code.shukketsu.agents.base.get_structured_output")
-    async def test_model_name_reaches_structuring_pass(
+    async def test_structuring_pass_always_uses_default_model(
         self, mock_loop_llm: AsyncMock, mock_struct_llm: AsyncMock
     ) -> None:
-        """model_name is passed to the structuring pass's get_structured_output call."""
+        """Structuring pass always uses 70B (default), even when model_name is set."""
         mock_loop_llm.return_value = _final_answer("Answer.")
         mock_struct_llm.return_value = _mock_structured_findings()
 
         researcher = Researcher(tool_registry=_registry(_EchoTool()), role=AgentRole.RESEARCHER)
         await researcher.execute(AgentTask(query="q"), model_name="qwen2.5:7b")
 
-        # Structuring call should have model="qwen2.5:7b"
+        # Structuring call should NOT have a model kwarg (uses 70B default)
         call_kwargs = mock_struct_llm.call_args.kwargs
-        assert call_kwargs["model"] == "qwen2.5:7b"
+        assert "model" not in call_kwargs
 
 
 class TestReflection:

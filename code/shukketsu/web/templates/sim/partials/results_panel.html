@@ -42,7 +42,7 @@
         if (typeof renderAbilityPie === 'function') {
             var breakdown = {};
             {% for ab in result.ability_breakdown %}
-            breakdown["{{ ab.name }}"] = {{ ab.damage_pct }};
+            breakdown[{{ ab.name | tojson }}] = {{ ab.damage_pct }};
             {% endfor %}
             renderAbilityPie('ability-chart', breakdown);
         }

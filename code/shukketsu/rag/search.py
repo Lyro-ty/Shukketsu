@@ -31,7 +31,11 @@ SELECT
     c.chunk_index,
     s.title AS source_title,
     s.url AS source_url,
-    s.trust_score,
+    MAX(0.0, MIN(1.0,
+        s.trust_score + COALESCE(
+            (SELECT SUM(delta) FROM trust_events te WHERE te.source_id = s.id), 0.0
+        )
+    )) AS trust_score,
     (
         coalesce(1.0 / (60 + f.rank), 0.0)
         + coalesce(1.0 / (60 + v.rank), 0.0)
@@ -39,7 +43,7 @@ SELECT
 FROM fts_matches f
 FULL OUTER JOIN vec_matches v ON v.rowid = f.rowid
 JOIN chunks c ON c.id = coalesce(f.rowid, v.rowid)
-JOIN sources s ON s.id = c.source_id
+JOIN sources s ON s.id = c.source_id AND s.is_stale = 0
 ORDER BY rrf_score DESC
 LIMIT ?
 """
@@ -52,7 +56,11 @@ SELECT
     c.chunk_index,
     s.title AS source_title,
     s.url AS source_url,
-    s.trust_score,
+    MAX(0.0, MIN(1.0,
+        s.trust_score + COALESCE(
+            (SELECT SUM(delta) FROM trust_events te WHERE te.source_id = s.id), 0.0
+        )
+    )) AS trust_score,
     (1.0 / (60 + row_number() OVER (ORDER BY v.distance) - 1)) AS rrf_score
 FROM (
     SELECT rowid, distance
@@ -60,7 +68,7 @@ FROM (
     WHERE embedding MATCH ? AND k = ?
 ) v
 JOIN chunks c ON c.id = v.rowid
-JOIN sources s ON s.id = c.source_id
+JOIN sources s ON s.id = c.source_id AND s.is_stale = 0
 ORDER BY rrf_score DESC
 LIMIT ?
 """

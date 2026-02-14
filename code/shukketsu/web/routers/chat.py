@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from langfuse import get_client, observe
 
 from code.shukketsu import config
-from code.shukketsu.agents.tasks import AgentTask, OrchestratorResult, ResearchTask
+from code.shukketsu.agents.tasks import AgentTask, AnalysisTask, OrchestratorResult, ResearchTask
 from code.shukketsu.resilience.errors import ShukketsuError
-from code.shukketsu.routing.models import TaskComplexity
+from code.shukketsu.routing.models import TaskCategory, TaskComplexity
 from code.shukketsu.routing.router import classify_query
 
 if TYPE_CHECKING:
+    import sqlite3
+
     from code.shukketsu.agents.base import BaseAgent
+    from code.shukketsu.ingest.embedder import Embedder
     from code.shukketsu.memory.manager import MemoryManager
     from code.shukketsu.memory.models import SessionMemory
 
@@ -25,6 +29,7 @@ router = APIRouter()
 
 _researcher_instance: BaseAgent | None = None
 _orchestrator_instance: BaseAgent | None = None
+_analyst_instance: BaseAgent | None = None
 _memory_manager_instance: MemoryManager | None = None
 
 
@@ -32,6 +37,7 @@ class ChatSession:
     """Per-connection chat state."""
 
     def __init__(self) -> None:
+        self.session_id: str = str(uuid.uuid4())
         self.history: list[dict[str, str]] = []
         self.is_streaming: bool = False
 
@@ -43,13 +49,14 @@ class ChatSession:
             self.history = self.history[-max_messages:]
 
 
-def _get_agents() -> tuple[BaseAgent, BaseAgent]:
-    """Get or create agent singletons (researcher + orchestrator).
+def _get_agents() -> tuple[BaseAgent, BaseAgent, BaseAgent]:
+    """Get or create agent singletons (researcher + orchestrator + analyst).
 
     Lazy initialization avoids import-time side effects (DB connection,
-    extension loading). Agents are created once and reused.
+    extension loading). Agents are created once and reused. All agents
+    share a single DB connection for consistency.
     """
-    global _researcher_instance, _orchestrator_instance  # noqa: PLW0603
+    global _researcher_instance, _orchestrator_instance, _analyst_instance  # noqa: PLW0603
 
     if _researcher_instance is None:
         from code.shukketsu.agents.factory import AgentFactory
@@ -61,6 +68,7 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent]:
         from code.shukketsu.scraping.fetcher import WebFetcher
         from code.shukketsu.scraping.rate_limiter import RateLimiter
         from code.shukketsu.scraping.robots import RobotsChecker
+        from code.shukketsu.tools.analysis import SimCompareTool, SimOptimizeTool, SimRunTool
         from code.shukketsu.tools.knowledge.graph_search import GraphSearchTool
         from code.shukketsu.tools.knowledge.search import RagSearchTool
         from code.shukketsu.tools.registry import ToolRegistry
@@ -71,6 +79,7 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent]:
         init_db(conn)
         embedder = get_embedder()
 
+        # Shared tool registry for researcher/orchestrator
         registry = ToolRegistry()
         registry.register(RagSearchTool(conn=conn, embed_fn=embedder.embed_query))
         registry.register(GraphSearchTool(conn=conn))
@@ -95,29 +104,45 @@ def _get_agents() -> tuple[BaseAgent, BaseAgent]:
             knowledge_manager=km,
         )
 
-    if _orchestrator_instance is None:
-        raise RuntimeError("Orchestrator instance not initialized")
-    return _researcher_instance, _orchestrator_instance
+        # Analyst with sim tools
+        analyst_registry = ToolRegistry()
+        analyst_registry.register(SimRunTool())
+        analyst_registry.register(SimCompareTool())
+        analyst_registry.register(SimOptimizeTool())
+        _analyst_instance = factory.create(
+            AgentRole.ANALYST,
+            tool_registry=analyst_registry,
+        )
+
+        # Also initialize the memory manager with the shared connection
+        _init_memory_manager(conn, embedder)
+
+    if _orchestrator_instance is None or _analyst_instance is None:
+        raise RuntimeError("Agent instances not initialized")
+    return _researcher_instance, _orchestrator_instance, _analyst_instance
 
 
-def _get_memory_manager() -> MemoryManager:
-    """Get or create the MemoryManager singleton.
-
-    Lazy initialization to avoid import-time side effects.
-    Reuses the same DB connection and embedder as the agents.
-    """
+def _init_memory_manager(conn: sqlite3.Connection, embedder: Embedder) -> None:
+    """Initialize the MemoryManager with the shared DB connection."""
     global _memory_manager_instance  # noqa: PLW0603
 
     if _memory_manager_instance is None:
-        from code.shukketsu.db.connection import get_connection, init_db
-        from code.shukketsu.ingest.embedder import get_embedder
         from code.shukketsu.memory.manager import MemoryManager as _MemoryManager
 
-        conn = get_connection()
-        init_db(conn)
-        embedder = get_embedder()
         _memory_manager_instance = _MemoryManager(conn=conn, embed_fn=embedder.embed_query)
 
+
+def _get_memory_manager() -> MemoryManager:
+    """Get the MemoryManager singleton. Must be called after _get_agents().
+
+    Raises RuntimeError if agents haven't been initialized yet.
+    """
+    if _memory_manager_instance is None:
+        # Force agent initialization which also creates memory manager
+        _get_agents()
+
+    if _memory_manager_instance is None:
+        raise RuntimeError("MemoryManager not initialized")
     return _memory_manager_instance
 
 
@@ -177,6 +202,8 @@ async def _handle_message(websocket: WebSocket, session: ChatSession, data: dict
         return
 
     if msg_type == "stop":
+        # Signal cancellation — cooperative; running agent will finish current iteration
+        session.is_streaming = False
         return
 
     if msg_type == "feedback":
@@ -235,7 +262,7 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
         try:
             langfuse = get_client()
             langfuse.update_current_trace(
-                session_id=str(id(session)),
+                session_id=session.session_id,
                 tags=["chat"],
                 input=content,
             )
@@ -272,9 +299,19 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             and decision.direct_answer.strip()
         ):
             answer = decision.direct_answer
+        elif decision.category == TaskCategory.ANALYSIS:
+            await websocket.send_json({"type": "status", "content": "analyzing..."})
+            _, _, analyst = _get_agents()
+            result = await analyst.execute(
+                AnalysisTask(query=content),
+                on_status=_send_status,
+            )
+            answer = result.output
+            trajectory = [{"tool_name": t.tool_name, "tool_input": t.tool_input} for t in result.trajectory]
+            tools_used = list(dict.fromkeys(t.tool_name for t in result.trajectory))
         elif decision.complexity == TaskComplexity.MODERATE:
             await websocket.send_json({"type": "status", "content": "researching..."})
-            researcher, _ = _get_agents()
+            researcher, _, _ = _get_agents()
             result = await researcher.execute(
                 ResearchTask(
                     query=content,
@@ -288,7 +325,7 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
             tools_used = list(dict.fromkeys(t.tool_name for t in result.trajectory))
         else:
             await websocket.send_json({"type": "status", "content": "planning..."})
-            _, orchestrator = _get_agents()
+            _, orchestrator, _ = _get_agents()
 
             # Recall strategy hints for the Orchestrator
             strategy_hints = ""
@@ -344,17 +381,22 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
                     query=content,
                     answer=answer,
                     trajectory=trajectory,
-                    session_id=str(id(session)),
+                    session_id=session.session_id,
                 )
             except Exception:
                 logger.warning("Memory extraction failed", exc_info=True)
 
             try:
                 mm = _get_memory_manager()
+                # Estimate strategy quality from result trajectory:
+                # base 0.5, +0.1 per useful tool call (max 1.0), -0.2 if trivial answer
+                strategy_quality = min(1.0, 0.5 + 0.1 * len(tools_used))
+                if not trajectory:
+                    strategy_quality = 0.3
                 await mm.record_strategy(
                     query=content,
                     tools_used=tools_used,
-                    quality=0.5,
+                    quality=strategy_quality,
                 )
             except Exception:
                 logger.warning("Strategy recording failed", exc_info=True)

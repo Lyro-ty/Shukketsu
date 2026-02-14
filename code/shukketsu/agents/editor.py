@@ -170,23 +170,26 @@ class Editor(BaseAgent):
                 needs_more_research.append(cv.claim)
 
         # Step 6b: Record trust events for contradicted claims
+        # Match source URLs from article frontmatter (not LLM evidence text)
         conn = self._get_db_conn()
         if conn is not None:
             try:
-                for cv in claim_results:
-                    if cv.status == VerificationStatus.CONTRADICTED:
-                        for evidence_url in cv.contradicting_evidence:
-                            source_row = conn.execute(
-                                "SELECT id FROM sources WHERE url = ?", (evidence_url,)
-                            ).fetchone()
-                            if source_row:
-                                record_trust_event(
-                                    conn,
-                                    source_row["id"],
-                                    "contradiction",
-                                    TRUST_DELTAS["contradiction"],
-                                    details=f"Contradicted claim: {cv.claim[:100]}",
-                                )
+                source_urls = [s.url for s in meta.sources] if meta.sources else []
+                has_contradictions = any(cv.status == VerificationStatus.CONTRADICTED for cv in claim_results)
+                if has_contradictions and source_urls:
+                    for url in source_urls:
+                        source_row = conn.execute("SELECT id FROM sources WHERE url = ?", (url,)).fetchone()
+                        if source_row:
+                            contradicted_claims = [
+                                cv.claim[:100] for cv in claim_results if cv.status == VerificationStatus.CONTRADICTED
+                            ]
+                            record_trust_event(
+                                conn,
+                                source_row["id"],
+                                "contradiction",
+                                TRUST_DELTAS["contradiction"],
+                                details=f"Contradicted claims: {'; '.join(contradicted_claims)}",
+                            )
             except Exception:
                 logger.warning("Failed to record trust events", exc_info=True)
 

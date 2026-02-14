@@ -172,10 +172,11 @@ class Researcher(BaseAgent):
             },
         ]
 
+        # Always use 70B (default) for structuring — 7B models lack
+        # reliable structured output quality for this pass
         result: StructuredFindings = await get_structured_output(
             response_model=StructuredFindings,
             messages=messages,
-            model=model_name,
         )
         return result
 

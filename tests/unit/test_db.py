@@ -81,9 +81,9 @@ class TestInitDb:
         assert "chunks_vec" in tables
 
     def test_sets_schema_version(self, db: sqlite3.Connection) -> None:
-        """Schema version should be 4 after initialization."""
+        """Schema version should be 7 after initialization."""
         version = db.execute("SELECT version FROM schema_version").fetchone()[0]
-        assert version == 4
+        assert version == 7
 
     def test_is_idempotent(self, db: sqlite3.Connection) -> None:
         """Calling init_db twice should not raise or duplicate data."""

@@ -118,15 +118,15 @@ class TestAnalystFactory:
         assert _ROLE_CLASSES[AgentRole.ANALYST] is Analyst
 
     def test_analyst_system_prompt_non_empty(self) -> None:
-        from code.shukketsu import config
+        from code.shukketsu.llm.prompts.analyst import ANALYST_SYSTEM_PROMPT
 
-        assert config.ANALYST_SYSTEM_PROMPT
-        assert "DPS" in config.ANALYST_SYSTEM_PROMPT
+        assert ANALYST_SYSTEM_PROMPT
+        assert "DPS" in ANALYST_SYSTEM_PROMPT
 
     def test_analyst_system_prompt_mentions_sim(self) -> None:
-        from code.shukketsu import config
+        from code.shukketsu.llm.prompts.analyst import ANALYST_SYSTEM_PROMPT
 
-        assert "sim" in config.ANALYST_SYSTEM_PROMPT.lower()
+        assert "sim" in ANALYST_SYSTEM_PROMPT.lower()
 
     def test_analyst_max_iterations_in_config(self) -> None:
         from code.shukketsu import config
