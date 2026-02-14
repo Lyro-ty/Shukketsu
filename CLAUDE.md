@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Shukketsu (出血) is a local AI-powered multi-agent research system for the WoW TBC Rogue class. It runs on an NVIDIA DGX Spark inside an NVIDIA AI Workbench container (PyTorch 2.6, CUDA 12.6.3, Ubuntu 24.04, ARM64). Primary language is Python 3.12 with full type hints on all functions, using ruff for linting/formatting and mypy for type checking.
 
-Phases 1-5 are complete plus Phase 4 validation/calibration (1,616 unit tests): Agent Core, Multi-Agent RAG, Memory/Performance, DPS Simulation Engine, Evaluation/Observability, and Sim Validation. Additional integrations include batch ingest, WCL API (168 tests), and fast 7B model tier. All modules contain real implementation code — see Project Layout for the full listing.
+Phases 1-5 are complete plus Phase 4 validation/calibration (1,620 unit tests): Agent Core, Multi-Agent RAG, Memory/Performance, DPS Simulation Engine, Evaluation/Observability, and Sim Validation. Additional integrations include batch ingest, WCL API (168 tests), and fast 7B model tier. All modules contain real implementation code — see Project Layout for the full listing.
 
 ## Development Workflow
 
@@ -84,22 +84,22 @@ Plain Python classes with ReAct loops, no external framework (LangChain, CrewAI,
 - **Editor** — fact-checking articles against knowledge base and graph
 - **Analyst** — DPS simulation analysis (sim_run, sim_compare, sim_optimize tools)
 
-The Orchestrator routes queries through Qwen 4B first (trivial → answered directly, moderate → Researcher solo via 7B, complex → multi-agent plan via 70B). Phase 3 added cross-session memory (recall/extraction), reflection passes, context compaction, parallel subtask execution, and evidence-based trust scoring.
+The Orchestrator routes queries through Qwen 4B first (trivial → answered directly, moderate → Researcher solo via 7B, analysis → Analyst with sim tools, complex → multi-agent plan via 70B). The Analyst agent is wired into the chat handler with `sim_run`, `sim_compare`, and `sim_optimize` tools, routed via `TaskCategory.ANALYSIS`. Phase 3 added cross-session memory (recall/extraction), reflection passes, context compaction, parallel subtask execution, and evidence-based trust scoring.
 
 ### Storage
 
-Single SQLite file (`data/shukketsu.db`) with pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`. Three extensions:
+Single SQLite file (`data/shukketsu.db`) with pragmas: `journal_mode=WAL` (verified on connection), `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`. Schema v7 is the single source of truth in `db/schema.sql` (all tables use `IF NOT EXISTS`); migrations in `connection.py` only run for databases created at older versions. Three extensions:
 - **sqlite-vec** for vector similarity search (cosine distance, `distance_metric=cosine` in v0.1.7+)
 - **FTS5** for keyword search (BM25)
 - Results fused via Reciprocal Rank Fusion (RRF)
 
-The database also stores a **knowledge graph** (schema v5): `entity_types`, `entities` (deduplicated by canonical name + type), `relationships` (deduplicated by source + target + type), Phase 3 tables: `session_memories`, `strategy_memories`, `trust_events`, and WCL tables (v5): `wcl_tracked_characters`, `wcl_rankings`, `wcl_reports`, `wcl_fights`, `wcl_combatants`, `wcl_damage`, `wcl_buffs`, `wcl_casts`, `wcl_fight_rankings`, `wcl_character_log`. Entity names are normalized and resolved through an alias table for WoW abbreviations (e.g., DST → Dragonspine Trophy). Entity extraction is performed via Llama 70B structured output during ingest (best-effort, non-blocking).
+The database also stores a **knowledge graph** (schema v7, 24 tables): `entity_types`, `entities` (deduplicated by canonical name + type), `relationships` (deduplicated by source + target + type), Phase 3 tables: `session_memories`, `strategy_memories`, `trust_events`, WCL tables: `wcl_tracked_characters`, `wcl_rankings`, `wcl_reports`, `wcl_fights`, `wcl_combatants`, `wcl_damage`, `wcl_buffs`, `wcl_casts`, `wcl_fight_rankings`, `wcl_character_log`, and `validation_runs`. Entity names are normalized and resolved through an alias table for WoW abbreviations (e.g., DST → Dragonspine Trophy). Entity extraction is performed via Llama 70B structured output during ingest (best-effort, non-blocking).
 
 Wiki articles are git-tracked Markdown files in `knowledge/` with YAML frontmatter (confidence scores, sources, tags).
 
 ### Key Data Flow
 
-User query → Qwen 4B router classifies complexity → trivial: direct answer → moderate: Researcher via 7B → complex: Orchestrator decomposes into sub-tasks → specialist agents execute ReAct loops with tools (parallel where independent) → results synthesized → Editor verifies → response returned via WebSocket chat. Memory recall injects relevant context from prior sessions; memory extraction stores key facts after each response.
+User query → Qwen 4B router classifies complexity → trivial: direct answer → moderate: Researcher via 7B → analysis: Analyst with sim tools → complex: Orchestrator decomposes into sub-tasks → specialist agents execute ReAct loops with tools (parallel where independent) → results synthesized → Editor verifies → response returned via WebSocket chat. Memory recall injects relevant context from prior sessions; memory extraction stores key facts after each response. Hybrid search filters stale sources (`is_stale=0`) and computes effective trust scores from `trust_events` deltas.
 
 ### Warcraft Logs API
 
@@ -186,6 +186,9 @@ These are hard-won lessons from the DGX Spark environment. Check this section be
 - **asyncio cooperative scheduling**: Python asyncio is single-threaded with cooperative multitasking. There are NO race conditions between synchronous operations in async code (no preemptive context switches without `await`). Don't add unnecessary locks around synchronous state checks.
 - **Instructor `max_retries=0`**: Our `@with_retry` decorator handles retries externally. Setting `max_retries > 0` on the Instructor client triggers OpenAI's built-in exponential backoff (up to 15 min). Always use `max_retries=0` and wrap with `@with_retry` instead.
 - **`time.monotonic()` cannot go backward**: The rate limiter uses `time.monotonic()` precisely because it's guaranteed non-decreasing. Don't add clock-skew handling for monotonic timestamps.
+- **Researcher structuring pass must use 70B**: The structuring pass in `agents/researcher.py` always uses the default 70B model, even when `model_name` is set to 7B for the ReAct loop. The 7B model produces unreliable structured output for the `StructuredFindings` Pydantic model. Don't pass `model_name` through to the structuring call.
+- **Prompt constants live in `llm/prompts/`**: System prompts (ANALYST_SYSTEM_PROMPT, etc.) are defined in `llm/prompts/*.py` and imported by `agents/factory.py`. They are NOT re-exported from `config.py`. Don't add prompt imports to config.
+- **Chat handler shares one DB connection**: All agents (researcher, orchestrator, analyst) and the MemoryManager share a single SQLite connection created in `_get_agents()`. Don't create additional connections in the chat handler.
 
 ## Testing
 
@@ -214,7 +217,7 @@ ruff check . --fix && ruff format . && python3 -m mypy . && python3 -m pytest
 
 ## Development Phases
 
-Phases 1-5 are complete (1,461 unit tests). Planning docs live in `docs/plans/`. Key references:
+Phases 1-5 are complete (1,620 unit tests). Planning docs live in `docs/plans/`. Key references:
 - `2026-02-09-shukketsu-design.md` — original comprehensive design spec
 - `shukketsu-architecture.md` — architecture reference and design rationale
 - `phase-roadmap.md` — lightweight outline of all phases
@@ -243,6 +246,10 @@ Full discrete-event TBC 2.4.3 Rogue DPS simulation: combat mechanics, 18 abiliti
 ### Phase 5: Evaluation + Observability Polish — COMPLETE (53 tests)
 
 Langfuse-primary eval pipeline: three-tier 60-question dataset (retrieval/reasoning/simulation), LLM-as-judge scoring (faithfulness, relevancy, trajectory precision, domain accuracy + sim accuracy), EvalRunner with same routing path as chat, user feedback via WebSocket → Langfuse scores, lean HTMX dashboard with Chart.js history, fine-tuning JSONL export (ShareGPT + function-calling formats).
+
+### Code Review Hardening (3 rounds, 1,620 tests)
+
+5-iteration code review across all modules. Key fixes: XSS injection in sim results template, schema.sql consolidated to v7 (single source of truth, all IF NOT EXISTS), Analyst agent wired into chat handler with sim tools and ANALYSIS routing, hybrid search filters stale sources and computes effective trust from trust_events, Editor trust events use frontmatter source URLs (not LLM evidence), Researcher structuring pass always uses 70B, embedder batches by EMBEDDING_BATCH_SIZE, WebFetcher uses shared httpx.AsyncClient, circuit breakers auto-register for reset_all_breakers(), prompt imports moved from config.py to factory.py, set_status() dual-writes DB + YAML frontmatter with rollback.
 
 ### Future Phases
 
