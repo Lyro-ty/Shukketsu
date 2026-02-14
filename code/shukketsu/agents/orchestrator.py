@@ -12,6 +12,7 @@ import logging
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any
 
+from langfuse import observe
 from pydantic import BaseModel
 
 from code.shukketsu import config
@@ -83,6 +84,7 @@ class Orchestrator(BaseAgent):
         self._factory = factory
         self._km = knowledge_manager
 
+    @observe(as_type="agent")
     async def execute(
         self,
         task: AgentTask,

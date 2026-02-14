@@ -55,6 +55,17 @@ async def logs_upload(
     Returns:
         HTML partial with parsed fight metrics, or an error partial.
     """
+    # Validate character name (letters, numbers, hyphens, apostrophes, max 50 chars)
+    if len(character_name) > 50 or not character_name.replace("-", "").replace("'", "").isalnum():
+        return _templates.TemplateResponse(
+            request,
+            "logs/error.html",
+            {
+                "error": "Invalid character name. Use letters, numbers, hyphens, "
+                "and apostrophes only (max 50 characters)."
+            },
+        )
+
     try:
         # Early size check from Content-Length when available
         if file.size is not None and file.size > _MAX_UPLOAD_BYTES:

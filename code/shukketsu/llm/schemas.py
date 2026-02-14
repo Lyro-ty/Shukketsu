@@ -8,7 +8,7 @@ on validation failure.
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class ActionType(StrEnum):
@@ -52,5 +52,5 @@ class ReflectionResult(BaseModel):
     """Result of a reflection pass on a research answer."""
 
     supported: bool
-    issues: list[str] = []
+    issues: list[str] = Field(default_factory=list)
     revised_answer: str = ""

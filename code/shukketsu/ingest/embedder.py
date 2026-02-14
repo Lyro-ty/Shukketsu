@@ -85,6 +85,7 @@ class Embedder:
             except Exception as exc:
                 raise EmbeddingError(str(exc)) from exc
 
-            all_embeddings.extend(item.embedding for item in response.data)
+            sorted_data = sorted(response.data, key=lambda item: item.index)
+            all_embeddings.extend(item.embedding for item in sorted_data)
 
         return all_embeddings

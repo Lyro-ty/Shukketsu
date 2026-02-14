@@ -87,7 +87,8 @@ class WebFetcher:
         if response.status_code >= 400:
             raise ScrapingError(f"HTTP {response.status_code} fetching {url}")
 
-        # 4b. Pre-check Content-Length header before reading body
+        # 4b. Check Content-Length header (response already in memory; early exit
+        # before content-type checking and further processing)
         cl_header = response.headers.get("content-length")
         if cl_header and cl_header.isdigit() and int(cl_header) > config.SCRAPING_MAX_RESPONSE_BYTES:
             raise ScrapingError(f"Content-Length {cl_header} exceeds limit for {url}")

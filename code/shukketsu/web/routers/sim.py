@@ -81,9 +81,16 @@ async def sim_import(request: Request, import_text: str = Form(...)) -> Response
                 "import_text": import_text,
             },
         )
-    except Exception as exc:
+    except (ValueError, KeyError) as exc:
         logger.debug("Import failed: %s", exc)
         return _templates.TemplateResponse(request, "sim/partials/import_error.html", {"error": str(exc)})
+    except Exception:
+        logger.exception("Unexpected import failure")
+        return _templates.TemplateResponse(
+            request,
+            "sim/partials/import_error.html",
+            {"error": "Failed to parse import data. Please check the format and try again."},
+        )
 
 
 @router.post("/sim/run", response_class=HTMLResponse)

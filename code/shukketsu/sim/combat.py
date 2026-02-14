@@ -23,9 +23,11 @@ from code.shukketsu.sim.items import ItemDatabase
 from code.shukketsu.sim.mechanics import (
     AP_PER_DPS,
     BASE_GLANCING_CHANCE,
+    BASE_MAX_ENERGY,
     ENERGY_PER_TICK,
     ENERGY_TICK_MS,
     MELEE_CRIT_MULTIPLIER,
+    VIGOR_BONUS_ENERGY,
     calc_armor_reduction,
     calc_crit_chance,
     calc_crit_multiplier,
@@ -350,7 +352,7 @@ class CombatSimulation:
         Returns:
             Tuple of (DPS for this iteration, final CombatState).
         """
-        max_energy = 110 if self._modifiers.vigor else 100
+        max_energy = (BASE_MAX_ENERGY + VIGOR_BONUS_ENERGY) if self._modifiers.vigor else BASE_MAX_ENERGY
         state = CombatState(max_energy=max_energy, fight_length_ms=self._fight_length_ms)
         self._queue = []
 
@@ -649,6 +651,7 @@ class CombatSimulation:
                 max(0.0, self._crit_chance),
                 rng.random(),
                 rng.random(),
+                can_be_dodged=not self._modifiers.surprise_attacks_finisher_undodgeable,
             )
             state.outcome_counts["rupture"][outcome.value] += 1
             state.casts_by_ability["rupture"] += 1
@@ -725,6 +728,7 @@ class CombatSimulation:
                 max(0.0, effective_crit),
                 rng.random(),
                 rng.random(),
+                can_be_dodged=not self._modifiers.surprise_attacks_finisher_undodgeable,
             )
 
             state.outcome_counts["eviscerate"][outcome.value] += 1
@@ -769,6 +773,7 @@ class CombatSimulation:
                 max(0.0, effective_crit),
                 rng.random(),
                 rng.random(),
+                can_be_dodged=not self._modifiers.surprise_attacks_finisher_undodgeable,
             )
 
             state.outcome_counts["envenom"][outcome.value] += 1
@@ -803,6 +808,7 @@ class CombatSimulation:
                 0.0,  # EA cannot crit
                 rng.random(),
                 rng.random(),
+                can_be_dodged=not self._modifiers.surprise_attacks_finisher_undodgeable,
             )
 
             state.outcome_counts["expose_armor"][outcome.value] += 1
@@ -888,8 +894,99 @@ class CombatSimulation:
             state.ability_timestamps.append(state.current_time_ms)
             return
 
-        # -- Sinister Strike / Backstab / Mutilate / Hemorrhage (builders) --
-        if ability_name in ("sinister_strike", "backstab", "mutilate", "hemorrhage"):
+        # -- Mutilate (two-strike builder: independent MH + OH rolls) --
+        if ability_name == "mutilate":
+            energy_cost = ability_def.energy_cost
+
+            # MH strike — independent yellow hit roll
+            mh_outcome = resolve_yellow_hit(
+                self._miss_chance_yellow,
+                self._dodge_chance,
+                max(0.0, self._crit_chance),
+                rng.random(),
+                rng.random(),
+            )
+
+            # OH strike — independent yellow hit roll
+            oh_outcome = resolve_yellow_hit(
+                self._miss_chance_yellow,
+                self._dodge_chance,
+                max(0.0, self._crit_chance),
+                rng.random(),
+                rng.random(),
+            )
+
+            state.outcome_counts["mutilate"][mh_outcome.value] += 1
+            state.casts_by_ability["mutilate"] += 1
+
+            mh_hit = mh_outcome not in (HitOutcome.MISS, HitOutcome.DODGE)
+            oh_hit = oh_outcome not in (HitOutcome.MISS, HitOutcome.DODGE)
+
+            if not mh_hit and not oh_hit:
+                # Both missed/dodged — refund energy
+                state.energy = min(state.max_energy, state.energy + int(energy_cost * ability_def.miss_refund_pct))
+            else:
+                state.energy = max(0, state.energy - energy_cost)
+
+                dmg_mult = 1.0
+                dmg_mult *= 1.0 + self._modifiers.murder_damage_pct
+
+                # MH damage
+                if mh_hit:
+                    mh_dmg = calc_weapon_damage(
+                        self._mh_weapon.min_damage,
+                        self._mh_weapon.max_damage,
+                        self._mh_weapon.speed,
+                        self._base_stats["attack_power"],
+                        normalized=ability_def.normalized,
+                        norm_speed=ability_def.norm_speed,
+                        roll=rng.random(),
+                    )
+                    mh_dmg *= ability_def.weapon_multiplier
+                    mh_dmg += ability_def.flat_damage
+                    mh_dmg *= dmg_mult
+                    has_lethality = AbilityFlag.APPLIES_LETHALITY in ability_def.flags
+                    self._apply_damage("mutilate", mh_dmg, mh_outcome, state, applies_lethality=has_lethality)
+                    self._check_procs("mutilate", mh_outcome, state, rng)
+                    self._apply_poison("mh", state, rng)
+
+                # OH damage (50% OH penalty, reduced by DW Spec)
+                if oh_hit:
+                    oh_dmg = calc_weapon_damage(
+                        self._oh_weapon.min_damage,
+                        self._oh_weapon.max_damage,
+                        self._oh_weapon.speed,
+                        self._base_stats["attack_power"],
+                        normalized=ability_def.normalized,
+                        norm_speed=ability_def.norm_speed,
+                        roll=rng.random(),
+                    )
+                    oh_dmg *= ability_def.weapon_multiplier
+                    oh_dmg += ability_def.flat_damage
+                    oh_bonus = 1.0 + self._modifiers.dw_spec_oh_bonus_pct
+                    oh_dmg *= OH_DAMAGE_MULTIPLIER * oh_bonus
+                    oh_dmg *= dmg_mult
+                    self._apply_damage("mutilate_oh", oh_dmg, oh_outcome, state, applies_lethality=has_lethality)
+                    state.outcome_counts["mutilate_oh"][oh_outcome.value] += 1
+                    self._apply_poison("oh", state, rng)
+
+                # CPs awarded if at least one strike hits
+                self._grant_combo_points(ability_def.combo_points_generated, state)
+
+                # Seal Fate: extra CP on crit (either strike critting counts)
+                if self._modifiers.seal_fate_proc_chance > 0:
+                    if mh_outcome == HitOutcome.CRIT or oh_outcome == HitOutcome.CRIT:
+                        if rng.random() < self._modifiers.seal_fate_proc_chance:
+                            self._grant_combo_points(1, state)
+                            state.proc_counts["seal_fate"] += 1
+
+            state.gcd_ready_at_ms = state.current_time_ms + GCD_MS
+            state.gcd_time_ms += GCD_MS
+            state.ability_timestamps.append(state.current_time_ms)
+            return
+
+        # -- Sinister Strike / Backstab / Hemorrhage (single-strike builders) --
+        if ability_name in ("sinister_strike", "backstab", "hemorrhage"):
             # Calculate energy cost with talent reductions
             energy_cost = ability_def.energy_cost
             if ability_name == "sinister_strike":

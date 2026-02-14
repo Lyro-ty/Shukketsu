@@ -11,7 +11,7 @@ from langfuse import get_client, observe
 
 from code.shukketsu import config
 from code.shukketsu.agents.tasks import AgentTask, AnalysisTask, OrchestratorResult, ResearchTask
-from code.shukketsu.resilience.errors import ShukketsuError
+from code.shukketsu.resilience.errors import FailureMode, ShukketsuError
 from code.shukketsu.routing.models import TaskCategory, TaskComplexity
 from code.shukketsu.routing.router import classify_query
 
@@ -26,6 +26,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# User-facing error messages mapped from internal FailureMode enum.
+# Prevents leaking internal details (service names, URLs, error bodies) to clients.
+_USER_ERROR_MESSAGES: dict[FailureMode, str] = {
+    FailureMode.MODEL_UNAVAILABLE: "The AI model is temporarily unavailable. Please try again shortly.",
+    FailureMode.LLM_TIMEOUT: "The response took too long. Please try a simpler question or try again.",
+    FailureMode.LLM_LOOP: "The agent got stuck in a loop. Please rephrase your question.",
+    FailureMode.LLM_MALFORMED_OUTPUT: "The AI returned an unexpected response. Please try again.",
+    FailureMode.RATE_LIMITED: "Too many requests. Please wait a moment and try again.",
+    FailureMode.NETWORK_TIMEOUT: "A network request timed out. Please try again.",
+    FailureMode.WCL_API: "Could not retrieve Warcraft Logs data. Please try again later.",
+    FailureMode.DB_ERROR: "A database error occurred. Please try again.",
+    FailureMode.EMBEDDING_ERROR: "The search system is temporarily unavailable. Please try again.",
+    FailureMode.SIM_ERROR: "The simulation encountered an error. Please check your configuration.",
+    FailureMode.SIM_TIMEOUT: "The simulation took too long. Try reducing the number of iterations.",
+}
 
 _researcher_instance: BaseAgent | None = None
 _orchestrator_instance: BaseAgent | None = None
@@ -406,7 +422,12 @@ async def _agent_response(websocket: WebSocket, session: ChatSession, content: s
     except ShukketsuError as exc:
         if session.history and session.history[-1]["role"] == "user":
             session.history.pop()
-        await websocket.send_json({"type": "error", "content": str(exc)})
+        logger.warning("ShukketsuError: %s", exc)
+        user_msg = _USER_ERROR_MESSAGES.get(
+            exc.failure_mode,
+            "An error occurred. Please try again.",
+        )
+        await websocket.send_json({"type": "error", "content": user_msg})
     except WebSocketDisconnect:
         raise
     except Exception:

@@ -474,7 +474,7 @@ class SimRunner:
                 new_stats = dict(item.stats)
                 new_stats[stat_name] = new_stats.get(stat_name, 0.0) + delta
                 patched_item = item.model_copy(update={"stats": new_stats})
-                patched_db._items[target_id] = patched_item
+                patched_db.register_item(patched_item)
 
         return patched_db
 

@@ -21,6 +21,7 @@ class TestEmbedTexts:
         mock_client = MagicMock()
         embedding_obj = MagicMock()
         embedding_obj.embedding = _mock_embedding()
+        embedding_obj.index = 0
         mock_response = MagicMock()
         mock_response.data = [embedding_obj]
         mock_client.embeddings = MagicMock()
@@ -37,10 +38,13 @@ class TestEmbedTexts:
         mock_client = MagicMock()
         emb1 = MagicMock()
         emb1.embedding = _mock_embedding()
+        emb1.index = 0
         emb2 = MagicMock()
         emb2.embedding = _mock_embedding()
+        emb2.index = 1
         emb3 = MagicMock()
         emb3.embedding = _mock_embedding()
+        emb3.index = 2
         mock_response = MagicMock()
         mock_response.data = [emb1, emb2, emb3]
         mock_client.embeddings = MagicMock()
@@ -73,6 +77,7 @@ class TestEmbedQuery:
         mock_client = MagicMock()
         embedding_obj = MagicMock()
         embedding_obj.embedding = _mock_embedding()
+        embedding_obj.index = 0
         mock_response = MagicMock()
         mock_response.data = [embedding_obj]
         mock_client.embeddings = MagicMock()

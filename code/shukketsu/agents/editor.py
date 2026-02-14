@@ -8,6 +8,8 @@ then uses a single LLM call to judge verification status.
 import logging
 import sqlite3
 
+from langfuse import observe
+
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
 from code.shukketsu.agents.tasks import (
     AgentResult,
@@ -89,6 +91,7 @@ class Editor(BaseAgent):
         except AttributeError:
             return None
 
+    @observe(as_type="agent")
     async def execute(
         self,
         task: AgentTask,

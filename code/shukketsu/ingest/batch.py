@@ -337,6 +337,11 @@ async def extract_entities_pass(
                 src_id = entity_id_map.get(rel.source)
                 tgt_id = entity_id_map.get(rel.target)
                 if src_id is None or tgt_id is None:
+                    logger.debug(
+                        "Skipping relationship %s->%s: entity not found in map",
+                        rel.source,
+                        rel.target,
+                    )
                     continue
                 graph_store.upsert_relationship(
                     src_id,

@@ -8,6 +8,7 @@ import logging
 import statistics
 from datetime import UTC, datetime
 
+from langfuse import observe
 from pydantic import BaseModel, Field
 
 from code.shukketsu.agents.base import BaseAgent, StatusCallback
@@ -75,6 +76,7 @@ class Writer(BaseAgent):
         )
         self._km = knowledge_manager
 
+    @observe(as_type="agent")
     async def execute(
         self,
         task: AgentTask,

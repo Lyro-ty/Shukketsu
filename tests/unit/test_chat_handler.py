@@ -264,7 +264,7 @@ class TestAgentResponse:
             ws.receive_json()  # planning
             err = ws.receive_json()
             assert err["type"] == "error"
-            assert "Server down" in err["content"]
+            assert "temporarily unavailable" in err["content"]
 
     @patch("code.shukketsu.web.routers.chat._get_agents")
     @patch("code.shukketsu.web.routers.chat.classify_query", new_callable=AsyncMock)
